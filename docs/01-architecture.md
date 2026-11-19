@@ -66,7 +66,7 @@ flowchart LR
 
 | 名前 | 役割 | 実装 |
 |---|---|---|
-| op-reth | 実行クライアント。KYC 規則とプール検査を足した改造版 | fork からビルドした Docker イメージ |
+| op-reth | 実行クライアント。KYC 規則とプール検査を追加した改造版 | fork からビルドした Docker イメージ |
 | op-node | コンセンサスクライアント。Sequencer として動く | 公式イメージ |
 | op-batcher | L2 の取引データを Sepolia に投稿する | 公式イメージ |
 | op-conductor | Sequencer 3 台のリーダー選出（冗長化構成のみ） | 公式イメージ |
@@ -79,8 +79,8 @@ flowchart LR
 | vasp-a | VASP A | 顧客管理、KYC、鍵の保管、送金、交換、トラベルルール、AML アラート | 8621 |
 | vasp-b | VASP B | 同上。加えて交換レートの提示（マーケットメーカー役） | 8622 |
 | consortium | コンソーシアム | 申請の受付、Safe の承認と実行 | 8630 |
-| indexer | ネットワーク運営 | L2 のブロックを監査 DB に取り込む。検索 API を出す | 8640 |
-| auditor | 監査者 | 受付ログと L2 ブロックを照合する。アドレス追跡の窓口 | 8650 |
+| indexer | ネットワーク運営 | L2 のブロックを監査 DB に取り込む。検索 API を提供する | 8640 |
+| auditor | 監査者 | 受付ログと L2 ブロックを照合する。アドレス追跡を受け付ける | 8650 |
 | demo-tools | デモ運営 | 外部者の操作、順序入れ替えの仕掛け | 8660 |
 | web | デモ運営 | 全役割の画面 | 3000 |
 | postgres | - | 各サービスの DB。サービスごとにスキーマを分ける | 5432 |
@@ -110,8 +110,8 @@ flowchart LR
 |---|---|---|---|
 | 事前検査 | gateway | 送信者の登録状態、取引形式、nonce | 早期拒否。エラーをすぐ返す |
 | プール | op-reth のプール検証 | 送信者の登録状態 | Gateway を通らない直接送信の早期拒否 |
-| 状態遷移 | op-revm のハンドラ | 送信者の登録状態 | 根拠。全ノードが同じ判定をする。L1 Deposit にも効く |
-| 資産移転 | `LedgerToken` | 送り手と受け手の保有資格、凍結、トラベルルール | トークン移転の地点での検査 |
+| 状態遷移 | op-revm のハンドラ | 送信者の登録状態 | 根拠。全ノードが同じ判定をする。L1 Deposit にも適用される |
+| 資産移転 | `LedgerToken` | 送り手と受け手の保有資格、凍結、トラベルルール | トークンを移転するときの検査 |
 
 上の 2 層は運営者が外せる。下の 2 層はブロックの再実行で検証される。
 
@@ -127,7 +127,7 @@ flowchart LR
 | トラベルルールの電文（送付人と受取人の情報） | 送付 VASP と受取 VASP の DB | 当事者の 2 社だけ |
 | 顧客の秘密鍵（暗号化済み） | VASP の DB | その VASP だけ |
 | 受付ログ（通番、取引ハッシュ、時刻、署名） | gateway の DB。API で公開 | 全員 |
-| 受付ログのハッシュ連鎖の先頭 | `ReceiptLog`（オンチェーン） | 全員 |
+| 受付ログのハッシュ連鎖の最新のハッシュ | `ReceiptLog`（オンチェーン） | 全員 |
 | 取引と残高の検索用コピー | indexer の DB | 監査者、運営 |
 
 オンチェーンに置く識別子は乱数とアドレスだけにする。氏名のハッシュは置かない。
@@ -169,7 +169,7 @@ flowchart LR
 ### 5.3 顧客アカウント
 
 - VASP サービスが KYC 承認時に秘密鍵を生成する。
-- 秘密鍵は AES-256-GCM で暗号化して VASP の DB に保存する。鍵は環境変数 `VASP_KEY_ENCRYPTION_KEY`。
+- 秘密鍵は AES-256-GCM で暗号化して VASP の DB に保存する。暗号化に使う鍵は環境変数 `VASP_KEY_ENCRYPTION_KEY`。
 - 顧客アドレスは ETH を持たない。L2 取引を直接送らず、メタトランザクションに署名するだけ。
 
 ### 5.4 必要な残高
@@ -198,7 +198,7 @@ flowchart LR
 | 整形と lint | Biome（TypeScript）、forge fmt（Solidity） |
 | 実行環境 | Docker Compose |
 
-npm パッケージのバージョンは導入時の最新安定版を `package.json` で固定する。
+npm パッケージのバージョンは導入時の最新安定版に `package.json` で固定する。
 
 ## 7. リポジトリ構成
 
@@ -296,6 +296,6 @@ services/<name>/
 - 時刻は API では ISO 8601（UTC）。Receipt の受付時刻だけはミリ秒の整数。
 - エラー応答は `{ "error": { "code": "<識別子>", "message": "<説明>", "details": {} } }`。
 - すべてのサービスは `GET /healthz` を持つ。
-- RPC の URL を受ける環境変数（`L2_RPC_URL`、`AUDIT_RPC_URL`、`ROLLUP_RPC_URL`）は、カンマ区切りで複数指定できる。`packages/config` が viem の `fallback` で束ねる。冗長化構成では 3 台分を指定する。
+- RPC の URL を設定する環境変数（`L2_RPC_URL`、`AUDIT_RPC_URL`、`ROLLUP_RPC_URL`）は、カンマ区切りで複数指定できる。`packages/config` が viem の `fallback` でまとめる。冗長化構成では 3 台分を指定する。
 - ログは JSON 1 行。`service`、`level`、`msg`、`traceId` を含める。
-- サービス間の呼び出しには `X-Trace-Id` を引き継ぐ。
+- サービス間の呼び出しでは `X-Trace-Id` を引き継ぐ。

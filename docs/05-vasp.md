@@ -137,7 +137,7 @@ flowchart TD
 ### 4.4 同時実行の制限
 
 - 1 人の顧客が同時に実行できる送金と交換は 1 件。
-- 終了していない操作がある間は、新しい依頼を 409 `OPERATION_IN_PROGRESS` で断る。
+- 終了していない操作がある間は、新しい依頼を 409 `OPERATION_IN_PROGRESS` で拒否する。
 - 理由。`LedgerForwarder` の nonce は署名者ごとの連番で、署名した順にしか実行できない。
 
 ### 4.5 入金の検知
@@ -178,7 +178,7 @@ IVMS101 の項目名に合わせた簡略形。
 }
 ```
 
-- `refId` は送付側が乱数で作る。承認とイベントに載るのはこの値だけ。
+- `refId` は送付側が乱数で作る。電文の内容のうち、承認とイベントに含まれるのはこの値だけ。
 - 受取人の氏名は、送金依頼のときにユーザーが入力する。
 
 ### 5.2 VASP 間 API
@@ -281,13 +281,13 @@ VASP 間 API（署名付きリクエスト）。
 ### 6.3 実行
 
 1. 利用者が見積もりを確定する。
-2. taker の VASP が、利用者の鍵で 2 つの `ForwardRequest` に署名する。
+2. taker の VASP が利用者の鍵で 2 つの `ForwardRequest` に署名する。
    - nonce n: `takerToken.approve(AtomicSwap, takerAmount)`
    - nonce n + 1: `AtomicSwap.fill(quote, makerSignature)`
 3. 2 件を 1 回の `POST /relay/v1/forward` で送る。Gateway が `executeAll` で 1 取引にする。
 4. レシートを待つ。
 
-期限切れの見積もりは、通常は送らずに 409 `QUOTE_EXPIRED` で断る。`DEMO_MODE` のときは、期限切れでも送る指定ができる（8.3）。L2 上で `QuoteExpired` として失敗し、両方の残高が変わらないことを見せる。
+期限切れの見積もりは、通常は送らずに 409 `QUOTE_EXPIRED` で拒否する。`DEMO_MODE` のときは、期限切れでも送る指定ができる（8.3）。L2 上で `QuoteExpired` として失敗し、両方の残高が変わらないことを見せる。
 
 ## 7. AML と凍結
 
@@ -321,7 +321,7 @@ VASP 間 API（署名付きリクエスト）。
 | アラートを閉じる | `alerts.status` を `closed` にする |
 
 - `reason` は乱数 32 バイト。アラートの ID と対応づけて DB に持つ。
-- 申請後は、コンソーシアムサービスの申請 ID を `alerts.proposal_id` に保存し、状態を `freeze_requested` にする。
+- 申請後はコンソーシアムサービスの申請 ID を `alerts.proposal_id` に保存し、状態を `freeze_requested` にする。
 - 5 秒ごとに申請の状態を読む。`executed` なら `frozen`、`cancelled` か `failed` なら `closed` にする。
 
 ## 8. API
@@ -613,7 +613,7 @@ VASP 間 API（署名付きリクエスト）。
 | 単体 | 鍵の暗号化と復号。レート計算の丸め。署名付きリクエストの検証 |
 | 単体 | 送金の状態遷移。同時実行の制限 |
 | 結合（anvil、2 インスタンス） | KYC 承認で Registry に登録される |
-| 結合 | 同一 VASP 内の送金が電文なしで通る |
+| 結合 | 同一 VASP 内の送金が電文なしで成功する |
 | 結合 | VASP をまたぐ送金: 電文、手動承認、`transferWithTravelRule`、入金検知、`confirm` |
 | 結合 | 却下と期限切れで送金が止まる |
 | 結合 | 交換: 見積もり、実行、両残高の入れ替わり。期限切れの見積もりで残高が変わらない |

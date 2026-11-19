@@ -56,9 +56,9 @@ flowchart LR
 | 基準 | 確認方法 |
 |---|---|
 | L2 のブロックが 2 秒ごとに増える | `cast block-number` |
-| Sepolia に Batch の取引が載り、safe ブロックが進む | Etherscan、`optimism_syncStatus` |
+| Sepolia に Batch の取引が入り、safe ブロックが進む | Etherscan、`optimism_syncStatus` |
 | admin の Deposit が L2 で成功し、mint 分の残高が増える | `cast balance` |
-| `0x42…0700` にダミー実装を載せ、関数を呼べる | `cast call` |
+| `0x42…0700` にダミー実装を設定し、関数を呼べる | `cast call` |
 | genesis に Safe v1.3.0 の実装がある | `cast code 0xfb1bffC9d739B8D520DaF37dF666da4C687191EA` |
 | 開発用アカウント 0 が L2 に残高を持つ | `cast balance` |
 | デプロイと 1 時間の稼働で使った Sepolia ETH を記録した | 12 章 V5、V9 |
@@ -72,7 +72,7 @@ flowchart LR
 作業。
 
 - [ ] `contracts/` の Foundry プロジェクト。依存は OpenZeppelin Contracts v5、safe-contracts v1.3.0、forge-std
-- [ ] `libraries/RegistryLayout.sol`（スロットとビット詰め）
+- [ ] `libraries/RegistryLayout.sol`（スロットとビット配置）
 - [ ] `KycRegistry.sol` とテスト（03 章 2.7）
 - [ ] `TravelRuleCompliance.sol` とテスト（4.4）
 - [ ] `LedgerToken.sol` とテスト（3.5）
@@ -105,7 +105,7 @@ flowchart LR
 作業（前半: fork リポジトリ）。
 
 - [ ] `ethereum-optimism/optimism` を `kuriyosh/optimism` に fork し、tag `op-reth/v2.9.0` からブランチ `ledgera/op-reth-v2.9.0` を切る
-- [ ] 02 章 6.3 と 6.4 の変更箇所が、この tag でも同じ位置にあることを確認する
+- [ ] 02 章 6.3 と 6.4 の変更箇所がこの tag でも同じ位置にあることを確認する
 - [ ] `rust/op-revm/src/ledgera.rs`、`error.rs`、`handler.rs` の変更
 - [ ] `op-revm` の単体テスト（02 章 6.5）
 - [ ] `rust/op-reth/crates/node/src/ledgera.rs` と `node.rs` の変更
@@ -128,7 +128,7 @@ flowchart LR
 | 規則の有効化前は、未登録の送信者の取引が通る | 初期化が通ること |
 | 有効化後、未登録の送信者の直接送信が `ledgera: sender not allowed` で拒否される | 開発用アカウント 1 で `cast send` |
 | 有効化後、登録済みの送信者の取引が通る | admin で `cast send` |
-| 未登録アドレスの Deposit が、L2 で失敗のレシートになる。mint が残る。呼び出しは実行されない | attacker で `cast send`（L1）、`cast receipt`（L2） |
+| 未登録アドレスの Deposit が L2 で失敗のレシートになる。mint が残る。呼び出しは実行されない | attacker で `cast send`（L1）、`cast receipt`（L2） |
 | `from` を省略した `eth_call` が通る | `cast call` |
 | `from` に未登録アドレスを指定した `eth_estimateGas` がエラーになる | `cast estimate` |
 | 状態を `SUSPENDED` にした送信者の取引が、次のブロックから拒否される | `cast send` |
@@ -144,7 +144,7 @@ flowchart LR
 
 - [ ] サービスの共通部品（起動、環境変数、ログ、エラー応答、DB 接続）
 - [ ] `services/gateway`: 形式検査、事前検査、直列区間、Receipt、ログ
-- [ ] `services/gateway`: JSON-RPC の入口、公開 API
+- [ ] `services/gateway`: JSON-RPC のエンドポイント、公開 API
 - [ ] `services/gateway`: 代理送信（検査、シミュレーション、取引の組み立て）
 - [ ] `services/gateway`: 転送部、取り込みの追跡、コミット
 - [ ] `services/gateway`: デモ用の仕掛け
@@ -214,7 +214,7 @@ flowchart LR
 | 場面 4 の手順 6、7 の「確認点」が通る（anvil） | `make e2e` |
 | VASP の DB 以外に氏名が保存されていない | gateway、indexer、auditor、consortium のスキーマを検索するテスト |
 | 場面 1、2、3、5 を画面だけで通せる（anvil） | 09 章の手順を手で追う |
-| 左の操作が、5 秒以内に右のチェーン表示に出る | 同上 |
+| 左の操作が 5 秒以内に右のチェーン表示に出る | 同上 |
 | 登録簿のタブで、氏名の列を隠すとオンチェーンの情報だけになる | 同上 |
 | 失敗した取引の理由がエラー名で出る | 場面 2 の手順 4 |
 

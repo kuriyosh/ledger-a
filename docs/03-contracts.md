@@ -4,7 +4,7 @@
 
 | コントラクト | 継承・依存 | 所有者（初期化後） |
 |---|---|---|
-| `KycRegistry` | なし。OP Stack の `Proxy` の裏に置く | `ConsortiumSafe` |
+| `KycRegistry` | なし。OP Stack の `Proxy` の実装として置く | `ConsortiumSafe` |
 | `LedgerToken`（tJPY、tUSD） | OZ `ERC20`、`ERC2771Context`、`Ownable` | issuer |
 | `TravelRuleCompliance` | OZ `EIP712`、`Ownable` | issuer |
 | `LedgerForwarder` | OZ `ERC2771Forwarder` | なし |
@@ -15,7 +15,7 @@
 - Solidity 0.8.28。EVM バージョンは cancun。
 - OZ は OpenZeppelin Contracts v5.1 以降。
 - カスタムエラーを使う。`require` の文字列は使わない。
-- EIP-712 の domain は、どのコントラクトも `name`、`version`、`chainId`（L2 の chain ID）、`verifyingContract`（そのコントラクト自身）の 4 項目。各節の表には `name` と `version` だけを書く。
+- EIP-712 の domain はどのコントラクトも `name`、`version`、`chainId`（L2 の chain ID）、`verifyingContract`（そのコントラクト自身）の 4 項目。各節の表には `name` と `version` だけを書く。
 - `ERC2771Context` と `Ownable` を両方継承するコントラクトは、`_msgSender`、`_msgData`、`_contextSuffixLength` を `ERC2771Context` 側に解決する。
 
 依存関係。
@@ -72,7 +72,7 @@ struct VaspView {
 | `RELAYER` | 代理送信用アカウント | ○ | - |
 | `OPERATOR` | 運営、VASP 管理者、発行体、コンソーシアム構成員 | ○ | - |
 
-発信資格は「状態が `ACTIVE`、期限内、所属 VASP が `ACTIVE`」で決まる。種別は見ない。
+発信資格は「状態が `ACTIVE`、期限内、所属 VASP が `ACTIVE`」で決まる。種別は検査しない。
 
 ### 2.3 ストレージ配置
 
@@ -100,7 +100,7 @@ struct Layout {
 ```
 
 - 先頭 3 フィールドの順序と型は変えない。実行層が同じ位置を読む。
-- `accounts` と `vasps` の値は、コンパイラの構造体詰めに頼らず、`uint256` に手で詰める。
+- `accounts` と `vasps` の値はコンパイラの構造体のパッキングに頼らず、`uint256` に手で詰める。
 
 `accounts[a]` のワード。
 
@@ -122,7 +122,7 @@ struct Layout {
 | 168〜231 | 64 | `updatedAt` |
 | 232〜255 | 24 | 予約（0） |
 
-詰めと取り出しは `libraries/RegistryLayout.sol` にまとめる。
+フィールドをワードに詰める処理と取り出す処理は `libraries/RegistryLayout.sol` にまとめる。
 
 ### 2.4 インターフェース
 
@@ -246,7 +246,7 @@ error ZeroAddress();
 
 ### 2.7 テスト
 
-- ストレージ: `vm.load` で 02 章 6.2 のテストベクタのスロットを読み、詰めた値と一致する。
+- ストレージ: `vm.load` で読んだ 02 章 6.2 のテストベクタのスロットの値が、詰めた値と一致する。
 - 権限: 表のとおりに許可と拒否が出る。
 - 状態遷移: 図にない遷移が `InvalidTransition` になる。
 - `isActive`: 期限切れ、VASP 停止で false になる。
@@ -257,7 +257,7 @@ error ZeroAddress();
 ### 3.1 役割
 
 - ステーブルコイン。tJPY と tUSD を別々にデプロイする。小数 6 桁。
-- ERC-20 に、ERC-3643 のトークン側の機能（凍結、強制移転、一時停止、発行と償却）を足す。
+- ERC-20 に、ERC-3643 のトークン側の機能（凍結、強制移転、一時停止、発行と償却）を追加する。
 - 移転のたびに Registry とトラベルルールを検査する。
 
 ### 3.2 インターフェース
@@ -328,7 +328,7 @@ OZ v5 の `_update(from, to, value)` を上書きする。
 4. `isHolder(from)` かつ `isHolder(to)`。→ `AccountNotEligible(account)`
 5. `compliance.requiresTravelRule(from, to)` が true なら、承認が消費済みである。→ `TravelRuleRequired(from, to)`
 
-- `transferFrom` も同じ検査を通る。呼び出し元（spender）の登録状態は見ない。
+- `transferFrom` も同じ検査を受ける。呼び出し元（spender）の登録状態は検査しない。
 - 「強制移転中」と「承認が消費済み」は transient storage のフラグで `_update` に伝える。
 
 `transferWithTravelRule` の処理。
@@ -367,8 +367,8 @@ error TravelRuleRequired(address from, address to);
 - 未登録の受け手への移転が `AccountNotEligible` になる。
 - `SUSPENDED`、`BLOCKED`、期限切れ、VASP 停止の各状態で移転が止まる。
 - 別 VASP の顧客への `transfer` が `TravelRuleRequired` になる。
-- 正しい承認付きの `transferWithTravelRule` が通る。同じ承認の再利用が失敗する。
-- 顧客と自己勘定の間の移転は承認なしで通る。
+- 正しい承認付きの `transferWithTravelRule` が成功する。同じ承認の再利用が失敗する。
+- 顧客と自己勘定の間の移転は承認なしで成功する。
 - 凍結、部分凍結、一時停止、強制移転、発行、償却。
 - `LedgerForwarder` 経由の呼び出しで `_msgSender()` が署名者になる。
 
@@ -434,7 +434,7 @@ constructor(address registry_, address owner_) EIP712("ledgerA TravelRule", "1")
 - `kindOf(to) == CUSTOMER`
 - `vaspOf(from) != vaspOf(to)`
 
-顧客と自己勘定の間の移転（交換の両脚を含む）は対象外。VASP 自身が相手方のため。
+顧客と自己勘定の間の移転（交換で行う両方の移転を含む）は対象外。VASP 自身が相手方のため。
 
 `consume` の検査。1 つでも外れると revert する。
 
@@ -593,7 +593,7 @@ constructor(address trustedForwarder_, address owner_) EIP712("ledgerA AtomicSwa
 8. `Filled` を出す。
 
 - トークンは `AtomicSwap` を経由しない。当事者間で直接動く。
-- 登録状態と凍結の検査は、各脚の `transferFrom` の中でトークンが行う。
+- 登録状態と凍結の検査は、それぞれの `transferFrom` の中でトークンが行う。
 - 全量約定だけ。部分約定はない。
 
 ### 6.4 allowance
@@ -605,15 +605,15 @@ constructor(address trustedForwarder_, address owner_) EIP712("ledgerA AtomicSwa
 
 - 正常な約定で両者の残高が入れ替わる。
 - 期限切れ、nonce の再利用、署名の改ざん、taker 以外の実行が拒否される。
-- maker の残高不足で 2 脚目が失敗すると、1 脚目も巻き戻る。
+- maker の残高不足で 2 つ目の移転が失敗すると、1 つ目の移転も巻き戻る。
 - taker が `BLOCKED` のとき全体が revert する。
-- `executeAll` 経由の `approve` ＋ `fill` が 1 取引で通る。
+- `executeAll` 経由の `approve` ＋ `fill` が 1 取引で成功する。
 
 ## 7. ReceiptLog
 
 ### 7.1 役割
 
-Gateway の受付ログ（ハッシュ連鎖）の先頭を、定期的に L2 に記録する。記録後は Gateway がログを書き換えられない。Receipt の署名検証に使うアドレスもここに置く。
+Gateway の受付ログ（ハッシュ連鎖）の最新のハッシュを、定期的に L2 に記録する。記録後は Gateway がログを書き換えられない。Receipt の署名検証に使うアドレスもここに置く。
 
 ### 7.2 Receipt の形式
 
@@ -711,13 +711,13 @@ DevNet では `gateway` と `gatewaySigner` は同じアドレス（01 章の in
    execTransaction(to, 0, data, 0, 0, 0, 0, address(0), payable(address(0)), signatures)
    ```
 
-4. `signatures` は、承認した所有者をアドレスの昇順に並べ、所有者ごとに次の 65 バイトを連結する。
+4. `signatures` は、承認した所有者をアドレスの昇順に並べ、所有者ごとに次の 65 バイトを連結して作る。
 
    ```
    r = 所有者アドレス（上位 12 バイトを 0 にした 32 バイト） / s = 0（32 バイト） / v = 1（1 バイト）
    ```
 
-- 実行者自身は `approveHash` を省略できる。`v = 1` の署名は「実行者が本人」でも通る。
+- 実行者自身は `approveHash` を省略できる。`v = 1` の署名は「実行者が本人」でも受け入れられる。
 - `safeTxGas` と `gasPrice` を 0 にしているので、内側の呼び出しが失敗すると `execTransaction` 全体が revert する。
 - 成功すると `ExecutionSuccess(hash, 0)` が出る。
 

@@ -155,7 +155,7 @@ sequenceDiagram
 
 確認点。
 
-- `TravelRuleAttestationConsumed` の `refId` が、両 VASP の `travel_rule_messages.ref_id` と一致する。
+- `TravelRuleAttestationConsumed` の `refId` が両 VASP の `travel_rule_messages.ref_id` と一致する。
 - 取引の入力データ、イベント、indexer の応答のどこにも、電文の氏名が現れない。
 - 承認の前に同じ移転を `transfer` で送ると、`TravelRuleRequired` で失敗する（場面 4 で見せる）。
 - vasp-b の `alerts` に Lim さんの行があり、`status` が `open`。
@@ -166,7 +166,7 @@ sequenceDiagram
 
 | 手順 | 画面 | 操作 | 結果 | 止めた層 |
 |---:|---|---|---|---|
-| 1 | 外部者 | L1 から Deposit で送金を試みる（場面 3 の前に送っておく） | L2 のブロックに入るが失敗。mint された 0.001 ETH だけが残る | 状態遷移 |
+| 1 | 外部者 | L1 から Deposit で送金を試みる。場面 3 の前に送っておく | L2 のブロックに入るが失敗。mint された 0.001 ETH だけが残る | 状態遷移 |
 | 2 | 外部者 | L2 に直接トークン送金 | `ledgera: sender not allowed` | プール |
 | 3 | 外部者 | L2 に直接 ETH 送金 | 同上 | プール |
 | 4 | 外部者 | L2 に直接コントラクトをデプロイ | 同上 | プール |
@@ -176,7 +176,7 @@ sequenceDiagram
 
 説明の要点。
 
-- 手順 1 は Sequencer を通らない経路。それでも同じ規則が効く。
+- 手順 1 は Sequencer を通らない経路。それでも同じ規則が適用される。
 - 手順 2〜4 は、トークン以外の取引も止まることを示す。トークンコントラクトだけの制限ではない。
 - 手順 6 と 7 は、登録済みの利用者でも、ルールに反する移転はチェーンが止めることを示す。
 
@@ -202,7 +202,7 @@ sequenceDiagram
 
 - Deposit に対応する L2 取引のレシートが失敗。tUSD の残高はどのアドレスも変わらない。
 - 外部者の L2 の ETH 残高が 0.001 ETH。nonce が 1。
-- 手順 2〜5 の取引ハッシュが、どのブロックにも入っていない。
+- 手順 2〜5 の取引ハッシュがどのブロックにも入っていない。
 - 手順 5 の拒否が Gateway の `GET /v1/rejections` に出る。
 - 手順 6 と 7 の取引は L2 に入り、レシートが失敗。佐藤さんの残高は変わらない。
 - 検証ノードを動かしている場合、手順 1 のブロックのハッシュが Sequencer と一致する。
@@ -312,8 +312,8 @@ sequenceDiagram
 
 確認点。
 
-- 手順 3 の残高が、同じブロック番号での `balanceOf` の `eth_call` と一致する。
-- 手順 1 の履歴の各行に、ブロック番号、Registry の版、操作者がある。
+- 手順 3 の残高が同じブロック番号での `balanceOf` の `eth_call` と一致する。
+- 手順 1 の履歴の各行に、ブロック番号、Registry のバージョン、操作者がある。
 - 開示の前は、auditor と indexer のどの API も氏名を返さない。
 
 ## 8. 場面 7: 落とす（任意）

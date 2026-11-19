@@ -17,7 +17,7 @@
 ```
 
 - 左は役割タブで切り替える。右のチェーン表示は切り替えても残る。
-- 左で操作すると、右の取引一覧に 5 秒以内に反映される。内訳は、ブロックの生成 2 秒、indexer の取得 1 秒、画面の再取得 2 秒。
+- 左で操作すると、右の取引一覧に 5 秒以内に反映される。内訳はブロックの生成 2 秒、indexer の取得 1 秒、画面の再取得 2 秒。
 - 文言は日本語。
 
 | パス | 画面 |
@@ -32,8 +32,8 @@
 ## 2. データの取得
 
 - ブラウザは各サービスを直接呼ばない。Next.js の Route Handler（`/api/<サービス名>/...`）を経由する。
-- Route Handler が、管理者用の API に `ADMIN_TOKEN` を付ける。トークンをブラウザに出さない。
-- ユーザーのセッショントークンは、VASP ごとに `sessionStorage` に持つ。
+- Route Handler が管理者用の API に `ADMIN_TOKEN` を付ける。トークンをブラウザに出さない。
+- ユーザーのセッショントークンは VASP ごとに `sessionStorage` に持つ。
 - 取得は TanStack Query。一覧は 2 秒、進行中の操作は 1 秒ごとに再取得する。
 
 | Route Handler | 転送先 |
@@ -105,7 +105,7 @@
 | 申請の一覧 | 種別、対象、理由、申請者、状態、承認数 |
 | 申請の詳細 | 呼び出し先、関数、引数、`safeTxHash`、承認者ごとの取引ハッシュとブロック |
 | 操作 | 承認、実行、取り下げ |
-| Registry の概要 | VASP の一覧（ID、名前、状態）、規則の有効フラグ、版 |
+| Registry の概要 | VASP の一覧（ID、名前、状態）、規則の有効フラグ、バージョン |
 
 - 承認すると、右のチェーン表示に `approveHash` の取引が出る。
 - 実行すると、`execTransaction` の取引と `AccountUpdated` のイベントが出る。
@@ -119,7 +119,7 @@
 | 概要 | 検査済みの通番とブロック、検査ごとの結果、違反の件数 | `GET /v1/fifo/summary` |
 | エントリの表 | 通番、受付時刻、取引ハッシュ、送信者、ブロック位置、判定 | `GET /v1/fifo/entries` |
 | 違反の一覧 | 種別、説明、証拠（2 つの Receipt と位置） | `GET /v1/fifo/violations` |
-| コミット | 範囲、先頭ハッシュ、L2 の取引 | indexer の `GET /v1/receipt-commitments` |
+| コミット | 範囲、範囲の最後のエントリのハッシュ、L2 の取引 | indexer の `GET /v1/receipt-commitments` |
 | 再検査 | 全件を検査し直す | `POST /v1/fifo/run` |
 
 違反のある行は色を変える。証拠の Receipt は署名付きの JSON をそのまま見せる。
@@ -137,7 +137,7 @@
 
 ## 7. 外部者画面
 
-登録されていないアドレス（attacker）の操作盤。見た目はターミナル風にする。
+登録されていないアドレス（attacker）の操作画面。見た目はターミナル風にする。
 
 | 要素 | 内容 |
 |---|---|
@@ -173,7 +173,7 @@ L2 の残高が 0 のときは、直接送信のボタンを無効にする。�
 
 - 新しい取引が上に入る。L1 属性取引（`L1_ATTRIBUTES`）は既定で隠す。
 - 行を開くと、復号した呼び出し、イベント、失敗理由、Receipt を表示する。
-- データは indexer の `GET /v1/txs`。通番は Gateway の `POST /v1/receipts/lookup` で、表示中の取引ハッシュからまとめて引く。
+- データは indexer の `GET /v1/txs`。通番は Gateway の `POST /v1/receipts/lookup` で、表示中の取引ハッシュからまとめて取得する。
 
 ### 8.2 登録簿
 
@@ -193,7 +193,7 @@ L2 の残高が 0 のときは、直接送信のボタンを無効にする。�
 
 | 要素 | 内容 |
 |---|---|
-| safe なブロック | L1 に Batch が載った L2 ブロックの番号 |
+| safe なブロック | L1 に Batch が公開された L2 ブロックの番号 |
 | Batcher | Sepolia Etherscan の batcher アドレスのページへのリンク |
 | Deposit | 外部者が送った Deposit の L1 取引と、対応する L2 取引 |
 
@@ -202,7 +202,7 @@ L2 の残高が 0 のときは、直接送信のボタンを無効にする。�
 | 要素 | 内容 |
 |---|---|
 | ブロック高 | 最新の L2 ブロック |
-| 規則 | 有効か無効か。Registry の版 |
+| 規則 | 有効か無効か。Registry のバージョン |
 | Gateway | 最新の通番、コミット済みの通番、キューの長さ |
 | Sequencer | 冗長化構成のとき、3 台の状態とリーダー |
 
@@ -251,7 +251,7 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
 - `OptimismPortal.depositTransaction` を attacker の鍵で送る。`msg.value` は `mintEth`。
 - `action` が `token-transfer` なら、`to` は tUSD、`data` は `transfer(宛先, 1 tUSD)`。`none` なら `to` は attacker 自身、`data` は空。
 - `depositTransaction` の L2 側のガス上限（`_gasLimit`）は 200,000 を明示する。L2 での見積もりは呼ばない。未登録の送信者では見積もりが失敗するため。
-- L2 側の取引ハッシュは、L1 のレシートの `TransactionDeposited` ログから求める。viem の `viem/op-stack` の `getL2TransactionHashes` を使う。
+- L2 側の取引ハッシュは L1 のレシートの `TransactionDeposited` ログから求める。viem の `viem/op-stack` の `getL2TransactionHashes` を使う。
 
 `GET /v1/attacker/deposits/:l1TxHash`
 
@@ -324,4 +324,4 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
 ## 12. テスト
 
 - 画面の単体テストは書かない。API の結合テストと E2E（[10-dev-ops.md](10-dev-ops.md)）で担保する。
-- デモの通し確認は、[09-flows.md](09-flows.md) の場面ごとの「見せる画面」を手で追う。
+- デモの通し確認は [09-flows.md](09-flows.md) の場面ごとの「見せる画面」を手で追う。

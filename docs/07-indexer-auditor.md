@@ -5,7 +5,7 @@
 | サービス | 運営者 | 役割 | 要件 |
 |---|---|---|---|
 | indexer | ネットワーク運営 | L2 のブロックを監査 DB に取り込む。取引、残高、Registry の履歴を検索できるようにする | 12, 25 |
-| auditor | 監査者 | 受付ログと L2 のブロックを照合し、到着順が守られたかを検査する。アドレス追跡と開示請求の窓口になる | 17, 21 |
+| auditor | 監査者 | 受付ログと L2 のブロックを照合し、到着順が守られたかを検査する。アドレス追跡と開示請求を受け付ける | 17, 21 |
 
 auditor は Gateway と indexer の DB を読まない。公開 API と L2 の RPC だけを使う。
 
@@ -21,7 +21,7 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 
 再編成への対応。
 
-- 取得したブロックの `parentHash` が、保存済みの 1 つ前のハッシュと違えば再編成とみなす。
+- 取得したブロックの `parentHash` が保存済みの 1 つ前のハッシュと違えば再編成とみなす。
 - ハッシュが一致する高さまで遡り、それより上の行をすべての表から消して取り込み直す。
 - すべての表は `block_number` を持つ。消す条件は `block_number > 分岐点`。
 
@@ -54,8 +54,8 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 
 残高。
 
-- `Transfer` ごとに、送り手と受け手の新しい残高を `balances_history` に 1 行ずつ足す。
-- 任意のブロック時点の残高は、そのブロック以前で最新の行。
+- `Transfer` ごとに、送り手と受け手の新しい残高を `balances_history` に 1 行ずつ追加する。
+- 任意のブロック時点の残高はそのブロック以前で最新の行。
 - 100 ブロックごとに、動きのあったアドレスの残高を `balanceOf` と比べる。ずれたらエラーログを出す。
 
 ### 2.3 失敗理由
@@ -147,7 +147,7 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 | `actor` | bytea |
 | `reason` | bytea |
 
-`registry_vasp_events`、`travel_rule_attestations`、`swaps`、`safe_events`、`receipt_commitments`、`token_admin_events` は、対応するイベントの引数に `block_number`、`log_index`、`tx_hash` を足した形にする。
+`registry_vasp_events`、`travel_rule_attestations`、`swaps`、`safe_events`、`receipt_commitments`、`token_admin_events` は、対応するイベントの引数に `block_number`、`log_index`、`tx_hash` を追加した形にする。
 
 `chain_status`（1 行）
 
@@ -166,7 +166,7 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 
 | パス | 内容 |
 |---|---|
-| `/v1/status` | 取り込み済みブロック、確定段階ごとのブロック番号、規則の有効フラグ、Registry の版 |
+| `/v1/status` | 取り込み済みブロック、確定段階ごとのブロック番号、規則の有効フラグ、Registry のバージョン |
 | `/v1/blocks?limit=&before=` | ブロックの一覧 |
 | `/v1/txs?limit=&before=&address=&kind=` | 取引の一覧 |
 | `/v1/txs/:hash` | 取引の詳細 |
@@ -244,7 +244,7 @@ anvil モードでは `ROLLUP_RPC_URL` を空にする。確定段階はすべ�
 | 入力 | 取得元 |
 |---|---|
 | 受付ログ（Receipt、転送状態） | Gateway の `GET /v1/log` |
-| L2 のブロックと取引 | `AUDIT_RPC_URL`。既定は Sequencer の op-reth。検証ノード（02 章 10 節）も指定できる。その場合、検出は L1 への Batch 掲載まで遅れる |
+| L2 のブロックと取引 | `AUDIT_RPC_URL`。既定は Sequencer の op-reth。検証ノード（02 章 10 節）も指定できる。その場合、検出は L1 への Batch 公開まで遅れる |
 | Receipt の署名者、`genesisHash`、コミット | `ReceiptLog` の参照関数と `Committed` イベント |
 | 監査の開始ブロック | デプロイ結果の `auditStartBlock` |
 
@@ -256,13 +256,13 @@ anvil モードでは `ROLLUP_RPC_URL` を空にする。確定段階はすべ�
 | C2 | 連鎖 | 通番が 1 から連続する。`entryHash` を再計算した値が一致する。`prevHash(n) == entryHash(n - 1)`、`prevHash(1) == genesisHash` | `BROKEN_CHAIN` |
 | C3 | コミット | 各 `Committed(fromSeq, toSeq, headHash)` について、再計算した `entryHash(toSeq)` が `headHash` と一致する。範囲が連続する | `COMMIT_MISMATCH` |
 | C4 | 順序 | ブロックに入ったエントリを通番順に並べたとき、位置（ブロック番号、ブロック内の番号）が単調に増える | `ORDER_VIOLATION` |
-| C5 | 取り込み | 転送済みで未取り込みのエントリについて、監査先ノードの先頭ブロックの時刻 ≤ 受付時刻 + `INCLUSION_DEADLINE_SEC`（120 秒） | `NOT_INCLUDED` |
+| C5 | 取り込み | 転送済みで未取り込みのエントリについて、監査先ノードの最新ブロックの時刻 ≤ 受付時刻 + `INCLUSION_DEADLINE_SEC`（120 秒） | `NOT_INCLUDED` |
 | C6 | 無受付 | 開始ブロック以降の Deposit 以外の取引すべてに、対応する Receipt がある | `UNRECEIPTED_TX` |
 | C7 | 時刻 | 受付時刻 ≤ 取り込まれたブロックの時刻 + `TIME_TOLERANCE_SEC`（5 秒） | `RECEIPT_AFTER_INCLUSION` |
 
 C4 の報告。通番順で隣り合う取り込み済みエントリのうち、位置が逆転している組をすべて挙げる。証拠として 2 つの Receipt と 2 つの位置を付ける。
 
-C5 は、時計ではなく監査先ノードのブロック時刻で測る。監査先が遅れているノードでも、誤って違反にしない。
+C5 は時計ではなく監査先ノードのブロック時刻で測る。監査先が遅れているノードでも、誤って違反にしない。
 
 違反にしないもの。
 
@@ -293,9 +293,9 @@ pnpm --filter @ledgera/auditor fifo --from 1 --json
 
 ### 3.4 アドレス追跡と開示請求
 
-- 追跡は indexer の API を呼んでまとめる。返すのは、Registry の現在の状態と履歴、トークン残高、移転の履歴。
+- 追跡は indexer の API を呼んでまとめる。Registry の現在の状態と履歴、トークン残高、移転の履歴を返す。
 - 氏名は返さない。監査ツールは個人情報を持たない。
-- 開示請求は、Registry から所属 VASP と `endpoint` を引き、その VASP の `POST /vasp/v1/disclosure-requests` に送る。
+- 開示請求は Registry から所属 VASP と `endpoint` を取得し、その VASP の `POST /vasp/v1/disclosure-requests` に送る。
 - VASP が承認すると、`GET /v1/disclosures/:id` が開示内容を返す。開示内容は DB に保存しない。VASP から都度取得する。
 
 ### 3.5 API

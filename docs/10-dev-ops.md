@@ -8,9 +8,9 @@
 | Node.js 24、pnpm | サービス、画面、スクリプト |
 | Foundry（forge、cast、anvil） | コントラクト、anvil モード |
 | jq、make、openssl | スクリプト |
-| Rust（fork の `rust/rust-toolchain.toml` の版） | チェーン改造を開発する人だけ |
+| Rust（fork の `rust/rust-toolchain.toml` のバージョン） | チェーン改造を開発する人だけ |
 
-op-deployer は `chain/scripts/deploy-l1.sh` が `chain/versions.env` の版を取得する。
+op-deployer は、`chain/scripts/deploy-l1.sh` が `chain/versions.env` で指定したバージョンを取得する。
 
 ## 2. 動作モード
 
@@ -54,7 +54,7 @@ anvil モードでも、Gateway の事前検査とトークンの検査は働く
 | サービス間の認証 | `GATEWAY_ADMIN_TOKEN`、`VASP_A_ADMIN_TOKEN`、`VASP_B_ADMIN_TOKEN`、`CONSORTIUM_ADMIN_TOKEN`、`VASP_A_GATEWAY_API_KEY`、`VASP_B_GATEWAY_API_KEY`、`VASP_A_AUDITOR_KEY`、`VASP_B_AUDITOR_KEY` |
 | 顧客の鍵の暗号化 | `VASP_A_KEY_ENCRYPTION_KEY`、`VASP_B_KEY_ENCRYPTION_KEY` |
 
-`docker-compose.yml` は、この 2 ファイルの値を各サービスの環境変数（04〜08 章の設定表）に割り当てる。
+`docker-compose.yml` はこの 2 ファイルの値を各サービスの環境変数（04〜08 章の設定表）に割り当てる。
 
 ### 3.3 git に入れないもの
 
@@ -163,7 +163,7 @@ op-reth の RPC。
 
 ### 8.1 層
 
-| 層 | 対象 | 道具 | 実行環境 |
+| 層 | 対象 | ツール | 実行環境 |
 |---|---|---|---|
 | チェーン改造 | op-revm の判定、op-reth のプール検査 | cargo test | fork リポジトリ |
 | コントラクト | 03 章の各「テスト」節 | forge test | ローカル、CI |

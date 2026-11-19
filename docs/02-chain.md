@@ -104,8 +104,8 @@ L2 chain ID は chainlist と衝突しないことを M0 で確認する。
 | `chains[0].deployOverrides.gasPriceOracleBlobBaseFeeScalar` | `0` |
 
 - `l1ProxyAdminOwner` と `l2ProxyAdminOwner` は既定値がない。未設定だと op-deployer がエラーにする。
-- `l2ProxyAdminOwner` は L2 の `ProxyAdmin`（`0x4200000000000000000000000000000000000018`）の所有者になる。Registry を predeploy に載せるのに使う。
-- `fundDevAccounts = true` は、Anvil の既定アカウント 30 個に L2 の genesis で残高を与える。初期化（5 節）の原資にする。これらの鍵は公開されているが、規則の有効化後は未登録なので取引できない。
+- `l2ProxyAdminOwner` は L2 の `ProxyAdmin`（`0x4200000000000000000000000000000000000018`）の所有者になる。Registry を predeploy に配置するのに使う。
+- `fundDevAccounts = true` は Anvil の既定アカウント 30 個に L2 の genesis で残高を与える。初期化（5 節）の原資にする。これらの鍵は公開されているが、規則の有効化後は未登録なので取引できない。
 
 ## 4. 起動
 
@@ -133,7 +133,7 @@ node
 ```
 
 - `debug` は Indexer が失敗理由を取るのに使う（07 章）。
-- `--rollup.disable-tx-pool-gossip` は必須。取引の入口を RPC だけにする。
+- `--rollup.disable-tx-pool-gossip` は必須。取引を RPC だけで受け付けるようにする。
 
 ### 4.2 op-node
 
@@ -178,7 +178,7 @@ op-batcher
 --resubmission-timeout=30s
 ```
 
-- `BATCHER_MAX_CHANNEL_DURATION` は L1 ブロック数。既定は 25（約 5 分）。デモ中は 5（約 1 分）にする。値が小さいほど Sepolia ETH を使う。
+- `BATCHER_MAX_CHANNEL_DURATION` は L1 ブロック数。既定は 25（約 5 分）。デモ中は 5（約 1 分）にする。値が小さいほど Sepolia ETH を多く使う。
 - 公式サンプルは `OP_BATCHER_INBOX_ADDRESS` も設定している。要否は M0 で確認する（要確認）。
 
 ### 4.4 Sepolia への接続
@@ -198,7 +198,7 @@ op-batcher
 やり直しができるように、`Bootstrap.s.sol` は次の作りにする。
 
 - コントラクトは CREATE2（固定の salt）でデプロイする。アドレスが毎回同じになる。
-- 各手順は先に現在の状態を読む。済んでいれば飛ばす。判定は、コードの有無、`getVasp`、`getAccount`、`balanceOf`、`allowance`、`enforcementEnabled`、`consortium`、`owner` で行う。
+- 各手順は先に現在の状態を読む。済んでいれば飛ばす。判定はコードの有無、`getVasp`、`getAccount`、`balanceOf`、`allowance`、`enforcementEnabled`、`consortium`、`owner` で行う。
 
 | 順 | 送信者 | 操作 |
 |---:|---|---|
@@ -206,7 +206,7 @@ op-batcher
 | 2 | admin | `KycRegistry` の実装をデプロイする |
 | 3 | admin | `ProxyAdmin.upgradeAndCall(0x42…0700, 実装, initialize(admin))` を呼ぶ |
 | 4 | admin | `ConsortiumSafe`（所有者 3、しきい値 2）をデプロイして `setup` する |
-| 5 | admin | `LedgerForwarder`、`TravelRuleCompliance`、`LedgerToken` × 2、`AtomicSwap`、`ReceiptLog` をデプロイする。`ReceiptLog` 以外の所有者は、いったん admin にする。続けて `bindToken`、`setSupportedToken`、`addAgent(issuer)` を呼び、`transferOwnership` で 03 章 1 節の表の所有者に移す。`ReceiptLog` には、gateway のアドレスと所有者（`ConsortiumSafe`）をコンストラクタで渡す |
+| 5 | admin | `LedgerForwarder`、`TravelRuleCompliance`、`LedgerToken` × 2、`AtomicSwap`、`ReceiptLog` をデプロイする。`ReceiptLog` 以外の所有者は、いったん admin にする。続けて `bindToken`、`setSupportedToken`、`addAgent(issuer)` を呼び、`transferOwnership` で 03 章 1 節の表の所有者に移す。`ReceiptLog` には gateway のアドレスと所有者（`ConsortiumSafe`）をコンストラクタで渡す |
 | 6 | admin | `registerVasp` で VASP 0、1、2 を登録する。管理者（admin、vasp-a-admin、vasp-b-admin）は同時に登録される |
 | 7 | admin | `registerOperatorAccount` で gateway、issuer、consortium-1〜3、relayer-a、relayer-b を登録する |
 | 8 | vasp-b-admin | `registerAccount` で vasp-b-treasury を `VASP_TREASURY` として登録する |
@@ -274,7 +274,7 @@ PostExec 種別の取引（ビルダーが合成するシステム取引）も�
 
 ### 6.2 Registry のストレージ配置
 
-実行層は Registry のストレージを直接読む。配置は 03 章 2.3 で定義する。実行層が読むのは次の 3 か所。
+実行層は Registry のストレージを直接読む。配置は 03 章 2.3 で定義する。実行層が読むのは `accounts[a]`、`vasps[id]`、`flags` の 3 か所。基準スロット `B` はスロットの計算に使う。
 
 | 名前 | スロット |
 |---|---|
@@ -310,8 +310,8 @@ fork の `rust/op-revm` を変更する。
 | ファイル | 変更 |
 |---|---|
 | `src/ledgera.rs`（新規） | 定数、スロット計算、判定関数 `sender_allowed` |
-| `src/lib.rs` | `pub mod ledgera;` を足す |
-| `src/transaction/error.rs` | `OpTransactionError::SenderNotAllowed` を足す。表示は `ledgera: sender not allowed` |
+| `src/lib.rs` | `pub mod ledgera;` を追加する |
+| `src/transaction/error.rs` | `OpTransactionError::SenderNotAllowed` を追加する。表示は `ledgera: sender not allowed` |
 | `src/handler.rs` | `validate_against_state_and_deduct_caller` の先頭で `sender_allowed` を呼ぶ |
 
 判定関数の概形。型と import は fork の該当バージョンに合わせる。
@@ -378,7 +378,7 @@ fn validate_against_state_and_deduct_caller(/* 既存の引数 */) -> Result<(),
 
 この位置に置く理由。
 
-- Deposit の分岐より前なので、Deposit にも通常の取引にも効く。
+- Deposit の分岐より前なので、Deposit にも通常の取引にも適用される。
 - エラーは取引の無効エラー（`EVMError::Transaction`）になる。既存の `catch_error` が種別で振り分ける。
   - Deposit は `catch_error_failed_deposit` に入る。nonce の加算、mint の反映、失敗レシートは既存の処理が行う。
   - それ以外は `discard_and_surface_error` に入る。ペイロードビルダーは取引を飛ばし、検証側はブロックを無効にする。
@@ -388,14 +388,14 @@ fn validate_against_state_and_deduct_caller(/* 既存の引数 */) -> Result<(),
 
 ### 6.4 実装（プール検査）
 
-op-reth のプールに入る時点でも同じ判定を行う。合意には関与しない。目的は、直接送信された取引にすぐエラーを返すこと。
+op-reth のプールに入る時点でも同じ判定を行う。合意には関与しない。目的は直接送信された取引にすぐエラーを返すこと。
 
 | ファイル | 変更 |
 |---|---|
 | `rust/op-reth/crates/node/src/ledgera.rs`（新規） | `KycValidatorWrapper` と `KycValidator` |
-| `rust/op-reth/crates/node/src/node.rs` | `OpNode::components()` のプール構築に `.with_validator_wrapper(KycValidatorWrapper)` を足す。型エイリアス `OpNodeComponentBuilder` の検証ラッパー型を合わせる |
+| `rust/op-reth/crates/node/src/node.rs` | `OpNode::components()` のプール構築に `.with_validator_wrapper(KycValidatorWrapper)` を追加する。型エイリアス `OpNodeComponentBuilder` の検証ラッパー型を合わせる |
 
-- 差し込み口は `OpValidatorWrapper` トレイト。`wrap(self, validator, provider)` で元の検証器と状態プロバイダを受け取る。
+- 判定は `OpValidatorWrapper` トレイトで差し込む。`wrap(self, validator, provider)` で元の検証器と状態プロバイダを受け取る。
 - 実装例は fork 内の `rust/op-reth/crates/node/tests/it/custom_pool/validator.rs`。
 - `KycValidator` は内側の検証が `Valid` を返したときだけ判定する。
 - 判定は最新ブロックの状態で行う。スロット計算と判定は `op_revm::ledgera` を使う。
@@ -424,19 +424,19 @@ DevNet 上の確認は検証ノード（10 節）と E2E（[10-dev-ops.md](10-de
 
 ### 7.1 規則
 
-受付地点は Gateway。Gateway が振った通番の順に、L2 のブロックに取引が並ぶ。
+取引を受け付けるのは Gateway。Gateway が振った通番の順に、L2 のブロックに取引が並ぶ。
 
 実行層の順序付けは改造しない。次の条件を揃えることで、op-reth の既定の順序付けが到着順と一致する。
 
 | 条件 | 担保する場所 |
 |---|---|
-| 取引の入口は Gateway だけ | op-reth の RPC の書き込みを Gateway 以外に開かない。取引の gossip を切る |
+| 取引を受け付けるのは Gateway だけ | op-reth の RPC の書き込みを Gateway 以外に開かない。取引の gossip を切る |
 | Gateway は通番順に 1 件ずつ転送し、応答を待ってから次を送る | Gateway |
 | すべての取引の priority fee が同じ | Gateway が `maxPriorityFeePerGas == 1 wei` 以外を拒否する |
-| 受け付けた取引は、プールですぐ実行可能になる | Gateway が nonce の連続、`maxFeePerGas`、残高を事前に検査する |
+| 受け付けた取引はプールですぐ実行可能になる | Gateway が nonce の連続、`maxFeePerGas`、残高を事前に検査する |
 
 - op-reth のプールは、実効 priority fee が同じ取引を、実行可能になった順（`submission_id` の小さい順）に並べる。
-- priority fee を 0 ではなく 1 wei にする理由。op-reth はブロックの構築中にペイロードを何度か作り直し、手数料の合計が増えたものだけを採用する。0 だと、取引を足して作り直しても合計が変わらず、捨てられる。その場合、スロットの途中で届いた取引は次のブロックに回る。
+- priority fee を 0 ではなく 1 wei にする理由。op-reth はブロックの構築中にペイロードを何度か作り直し、手数料の合計が増えたものだけを採用する。0 だと、取引を追加して作り直しても合計が変わらず、作り直したペイロードが捨てられる。その場合、スロットの途中で届いた取引は次のブロックに回る。
 
 ### 7.2 到着順の例外
 
@@ -496,7 +496,7 @@ M7 までに余力があれば行う。必須ではない。
 
 確認方法。
 
-- `chain/scripts/compare-heads.sh` が、Sequencer の safe ブロックと検証ノードの同じ高さのブロックのハッシュを比べる。
+- `chain/scripts/compare-heads.sh` が Sequencer の safe ブロックと検証ノードの同じ高さのブロックのハッシュを比べる。
 - 未登録アドレスの Deposit を含むブロックで一致すれば、失敗 Deposit の判定が再現されている。
 
 補足の確認（任意）。op-reth-replica を公式イメージ（`OP_RETH_STOCK_IMAGE`）に替えると、未登録アドレスの Deposit を含むブロックからハッシュが食い違う。規則が合意の一部であることを示せる。
@@ -519,7 +519,7 @@ M7 までに余力があれば行う。必須ではない。
 
 ### 11.2 設定
 
-op-node に足す引数。
+op-node に追加する引数。
 
 ```
 --conductor.enabled=true
@@ -545,7 +545,7 @@ OP_CONDUCTOR_PAUSED=true            # 起動時
 
 起動後の手順。
 
-1. 1 台目の op-conductor に `conductor_addServerAsVoter` で 2 台目と 3 台目を足す。
+1. 1 台目の op-conductor に `conductor_addServerAsVoter` で 2 台目と 3 台目を追加する。
 2. 3 台に `conductor_resume` を送る。
 
 引数と手順は M7 の着手時に公式手順と照合する（V11）。
@@ -560,7 +560,7 @@ op-conductor は未処理の取引を引き継がない。Gateway が再送す�
 
 詳細は [04-gateway.md](04-gateway.md) の 7 節。
 
-ほかのサービスの読み取りは、3 台の URL を並べて指定する（01 章 8 節）。止まった組を避けて読む。
+ほかのサービスの読み取りは 3 台の URL を並べて指定する（01 章 8 節）。止まった組を避けて読む。
 
 ### 11.4 障害試験（デモ場面 7）
 
@@ -609,7 +609,7 @@ Rust のバージョンは fork の `rust/rust-toolchain.toml` に従う。
 
 3. `OP_RETH_IMAGE` を `chain/versions.env` に書く。
 
-- ビルドの文脈は `rust/`。`superchain-registry` は名前付き文脈で渡す。
+- ビルドコンテキストは `rust/`。`superchain-registry` は名前付きコンテキストで渡す。
 - `BUILD_PROFILE` の上流既定は `maxperf`。ビルド時間を縮めるため `release` にする。
 
 ## 13. 作り直しと復旧
