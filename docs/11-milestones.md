@@ -191,10 +191,10 @@ flowchart LR
 - [x] `packages/shared` の署名付きリクエスト
 - [x] `services/vasp`: 顧客、KYC の承認、鍵の保管
 - [x] `services/vasp`: メタトランザクションの作成、送金の状態管理、入金の検知
-- [ ] `services/vasp`: 再編成への対応（入金、送金、アラートの照合し直し）
+- [x] `services/vasp`: 再編成への対応（入金、送金、アラートの照合し直し）
 - [x] `services/vasp`: トラベルルール（送付側、受取側）
 - [x] `services/vasp`: 交換（taker、maker）
-- [ ] `services/vasp`: AML 規則、アラート、凍結申請、取り下げの依頼
+- [x] `services/vasp`: AML 規則、アラート、凍結申請、取り下げの依頼
 - [x] `services/vasp`: 開示請求
 - [x] `services/consortium`: 申請、承認、実行
 - [x] `services/consortium`: 取り下げ（取消取引）、L2 との照合

@@ -271,3 +271,44 @@ export const disclosureRequests = pgTable(
   },
   (row) => [index("disclosures_created").on(row.createdAt, row.id)],
 );
+
+export const amlChecked = pgTable("aml_checked_transfers", {
+  transferId: text("transfer_id")
+    .primaryKey()
+    .references(() => transfers.id),
+});
+
+export const alerts = pgTable(
+  "alerts",
+  {
+    id: text("id").primaryKey(),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => customers.id),
+    transferId: text("transfer_id")
+      .notNull()
+      .references(() => transfers.id),
+    address: bytes("address").notNull(),
+    rule: text("rule", { enum: ["LARGE_AMOUNT", "WATCHLIST"] }).notNull(),
+    detail: jsonb("detail")
+      .$type<{ token: "tUSD" | "tJPY"; amount: string }>()
+      .notNull(),
+    status: text("status", {
+      enum: ["open", "freeze_requested", "frozen", "closed", "invalidated"],
+    }).notNull(),
+    blockNumber: bigint("block_number", { mode: "bigint" }).notNull(),
+    blockHash: bytes("block_hash").notNull(),
+    reasonId: bytes("reason_id").unique(),
+    requestTimestamp: bigint("request_timestamp", { mode: "number" }),
+    proposalId: text("proposal_id"),
+    evidenceReorged: boolean("evidence_reorged").notNull().default(false),
+    withdrawalSentAt: instant("withdrawal_sent_at"),
+    proposalSettled: boolean("proposal_settled").notNull().default(false),
+    createdAt: instant("created_at").notNull().defaultNow(),
+    updatedAt: instant("updated_at").notNull().defaultNow(),
+  },
+  (row) => [
+    uniqueIndex("alerts_transfer_rule").on(row.transferId, row.rule),
+    index("alerts_status").on(row.status, row.id),
+  ],
+);

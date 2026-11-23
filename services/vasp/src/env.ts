@@ -9,6 +9,7 @@ const privateKey = z.templateLiteral([
   z.string().regex(/^[a-fA-F0-9]{64}$/),
 ]);
 
+import { amlThreshold, amlWatchlist } from "./aml-rules.ts";
 import { rfqRate } from "./quote-model.ts";
 import { maximumTravelRuleTtlSeconds } from "./travel-rule-model.ts";
 
@@ -19,6 +20,7 @@ export const vaspEnv = serverEnv
     DEPLOYMENTS_FILE: z.string().min(1),
     L2_RPC_URL: httpUrl,
     GATEWAY_URL: httpUrl,
+    CONSORTIUM_URL: httpUrl.optional(),
     GATEWAY_API_KEY: token,
     VASP_ID: z.coerce.number().pipe(z.union([z.literal(1), z.literal(2)])),
     VASP_NAME: z.string().min(1),
@@ -44,6 +46,9 @@ export const vaspEnv = serverEnv
       .positive()
       .max(maximumTravelRuleTtlSeconds)
       .default(600),
+    AML_THRESHOLD_TUSD: amlThreshold.prefault("5000"),
+    AML_THRESHOLD_TJPY: amlThreshold.prefault("500000"),
+    AML_WATCHLIST: amlWatchlist,
     MARKET_MAKER_VASP_ID: z.coerce
       .number()
       .int()

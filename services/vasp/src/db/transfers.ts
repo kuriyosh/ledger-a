@@ -17,6 +17,7 @@ import { type Address, bytesToHex, getAddress, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { createWalletVault } from "../wallet-vault.ts";
 import {
+  alerts,
   customers,
   processedBlocks,
   quotesIssued,
@@ -460,6 +461,21 @@ export class TransferStore {
         .update(quotesIssued)
         .set({ filledTxHash: null, filledBlockNumber: null })
         .where(gt(quotesIssued.filledBlockNumber, ancestor));
+      await tx
+        .update(alerts)
+        .set({ status: "invalidated", updatedAt: new Date() })
+        .where(
+          and(
+            gt(alerts.blockNumber, ancestor),
+            inArray(alerts.status, ["open", "freeze_requested"]),
+          ),
+        );
+      await tx
+        .update(alerts)
+        .set({ evidenceReorged: true, updatedAt: new Date() })
+        .where(
+          and(gt(alerts.blockNumber, ancestor), eq(alerts.status, "frozen")),
+        );
       const walletsOrphaned = await tx
         .update(wallets)
         .set({ registeredBlockNumber: null, registeredBlockHash: null })
