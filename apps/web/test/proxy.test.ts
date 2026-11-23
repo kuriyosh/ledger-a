@@ -85,7 +85,7 @@ test("requires a loopback host before forwarding either admin reads or writes", 
   expect(send).not.toHaveBeenCalled();
 });
 
-test("accepts the loopback Host supplied by Next's standalone server", async () => {
+test("accepts a loopback Host when Next standalone constructs a different internal URL", async () => {
   const sent = vi.fn(async () => Response.json({ indexedBlock: "1" }));
   const result = await proxyApi(
     new Request("http://0.0.0.0:3000/api/indexer/v1/status", {
@@ -98,4 +98,18 @@ test("accepts the loopback Host supplied by Next's standalone server", async () 
   );
   expect(result.status).toBe(200);
   expect(sent).toHaveBeenCalledOnce();
+});
+
+test("rejects unsafe segments before constructing the upstream URL", async () => {
+  const sent = vi.fn(async () => Response.json({}));
+  const request = new Request("http://localhost:3000/api/vasp-a/v1/admin");
+  const result = await proxyApi(
+    request,
+    "vasp-a",
+    ["v1", "..", "admin"],
+    {},
+    sent,
+  );
+  expect(result.status).toBe(404);
+  expect(sent).not.toHaveBeenCalled();
 });

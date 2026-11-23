@@ -1,108 +1,22 @@
 "use client";
 
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQuery,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useState } from "react";
-import { api } from "./api";
+import { ChainPanel } from "./chain-panel";
 import { roles } from "./roles";
-
-type IndexStatus = {
-  indexedBlock: string;
-  unsafeBlock: string | null;
-  safeBlock: string | null;
-  finalizedBlock: string | null;
-  enforcementEnabled: boolean;
-  registryVersion: string;
-};
-
-const number = new Intl.NumberFormat("ja-JP");
-const show = (value: string | null | undefined) =>
-  value === null || value === undefined || value.startsWith("-")
-    ? "—"
-    : number.format(BigInt(value));
-
-function NetworkPanel() {
-  const index = useQuery({
-    queryKey: ["indexer", "status"],
-    queryFn: () => api<IndexStatus>("indexer", "/v1/status"),
-    refetchInterval: 2_000,
-  });
-  const head = useQuery({
-    queryKey: ["gateway", "log", "head"],
-    queryFn: () => api<{ seq: string }>("gateway", "/v1/log/head"),
-    refetchInterval: 2_000,
-  });
-  const status = index.data;
-
-  return (
-    <aside className="chain-panel" aria-label="チェーン表示">
-      <div className="chain-heading">
-        <h2>チェーン表示</h2>
-        <span
-          className={
-            index.isError ? "connection connection-error" : "connection"
-          }
-        >
-          {index.isError
-            ? "接続を確認中"
-            : index.isPending
-              ? "取得中"
-              : "接続中"}
-        </span>
-      </div>
-      <div className="chain-content">
-        <h3>ネットワーク</h3>
-        <dl className="network-list">
-          <div>
-            <dt>取り込み済み</dt>
-            <dd className="metric">{show(status?.indexedBlock)}</dd>
-          </div>
-          <div>
-            <dt>最新ブロック</dt>
-            <dd>{show(status?.unsafeBlock)}</dd>
-          </div>
-          <div>
-            <dt>Safe</dt>
-            <dd>{show(status?.safeBlock)}</dd>
-          </div>
-          <div>
-            <dt>Finalized</dt>
-            <dd>{show(status?.finalizedBlock)}</dd>
-          </div>
-          <div>
-            <dt>登録規則</dt>
-            <dd>
-              {status ? (status.enforcementEnabled ? "有効" : "無効") : "—"}
-            </dd>
-          </div>
-          <div>
-            <dt>Registry バージョン</dt>
-            <dd>{show(status?.registryVersion)}</dd>
-          </div>
-          <div>
-            <dt>Gateway の最新通番</dt>
-            <dd>{show(head.data?.seq)}</dd>
-          </div>
-        </dl>
-        {head.isError && (
-          <p className="notice">Gateway の通番を取得できません。</p>
-        )}
-      </div>
-    </aside>
-  );
-}
 
 export function Dashboard({
   children,
   mode,
+  demo,
+  batcher,
 }: {
   children: ReactNode;
   mode: string;
+  demo: boolean;
+  batcher?: string;
 }) {
   const [query] = useState(
     () =>
@@ -146,7 +60,7 @@ export function Dashboard({
         <main className="role-workspace" id="role-workspace">
           {children}
         </main>
-        <NetworkPanel />
+        <ChainPanel demo={demo} batcher={batcher} />
       </div>
     </QueryClientProvider>
   );

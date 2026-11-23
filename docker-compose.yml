@@ -303,6 +303,7 @@ services:
       AUDITOR_URL: http://auditor:8650
       GATEWAY_URL: http://gateway:8600
       DEMO_TOOLS_URL: http://demo-tools:8660
+      BATCHER_ADDRESS: ${BATCHER_ADDRESS:-}
       GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run make keys}
     ports:
       - 127.0.0.1:3000:3000
