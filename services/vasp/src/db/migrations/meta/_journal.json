@@ -15,6 +15,13 @@
       "when": 1795458959497,
       "tag": "0001_registry-scan-floor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795461730318,
+      "tag": "0002_transfers-and-inclusion",
+      "breakpoints": true
     }
   ]
 }

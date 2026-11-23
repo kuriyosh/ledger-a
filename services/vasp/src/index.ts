@@ -6,8 +6,12 @@ import { privateKeyToAccount } from "viem/accounts";
 import { registryChain, registryGateway } from "./chain.ts";
 import { customerService } from "./customers.ts";
 import { VaspStore } from "./db/store.ts";
+import { TransferStore } from "./db/transfers.ts";
 import { vaspEnv } from "./env.ts";
 import { vaspApp } from "./http.ts";
+import { transferChain } from "./transfer-chain.ts";
+import { transferGateway } from "./transfer-gateway.ts";
+import { transferService } from "./transfers.ts";
 import { createWalletVault } from "./wallet-vault.ts";
 
 const env = vaspEnv.parse(process.env);
@@ -28,11 +32,8 @@ if (
 
 const migrations = fileURLToPath(new URL("./db/migrations/", import.meta.url));
 const database = await openDatabase(env.DATABASE_URL, env.schema, migrations);
-const store = new VaspStore(
-  database.db,
-  env.CUSTOMER_ID_PREFIX,
-  createWalletVault(env.VASP_KEY_ENCRYPTION_KEY),
-);
+const vault = createWalletVault(env.VASP_KEY_ENCRYPTION_KEY);
+const store = new VaspStore(database.db, env.CUSTOMER_ID_PREFIX, vault);
 await store.verifyWalletKey();
 const customers = customerService(
   store,
@@ -40,12 +41,30 @@ const customers = customerService(
   registryGateway(env.GATEWAY_URL),
   env.KYC_VALIDITY_DAYS,
 );
+const transfers = transferService(
+  new TransferStore(database.db, vault),
+  transferChain(chain.client, deployments),
+  transferGateway(
+    env.GATEWAY_URL,
+    env.GATEWAY_API_KEY,
+    deployments.contracts.ledgerForwarder,
+  ),
+  chain,
+  database.exclusive,
+);
 const shutdown = new AbortController();
-const polling = customers.poll(shutdown.signal);
-startService(vaspApp(store, customers, chain, env.ADMIN_TOKEN), env, {
-  onShutdown: () => shutdown.abort(),
-  onClose: async () => {
-    await polling;
-    await database.close();
+const polling = Promise.all([
+  customers.poll(shutdown.signal),
+  transfers.poll(shutdown.signal),
+]);
+startService(
+  vaspApp(store, customers, chain, env.ADMIN_TOKEN, transfers, env.DEMO_MODE),
+  env,
+  {
+    onShutdown: () => shutdown.abort(),
+    onClose: async () => {
+      await polling;
+      await database.close();
+    },
   },
-});
+);

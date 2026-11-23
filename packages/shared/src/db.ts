@@ -27,5 +27,30 @@ export async function openDatabase(
     await pool.end();
     throw error;
   }
-  return { db, close: () => pool.end() };
+  async function exclusive(name: string, work: () => Promise<void>) {
+    const client = await pool.connect();
+    const key = `${schema}:${name}`;
+    let failed = false;
+    try {
+      const result = await client.query<{ acquired: boolean }>(
+        "select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired",
+        [key],
+      );
+      if (!result.rows[0]?.acquired) return;
+      try {
+        await work();
+      } finally {
+        await client.query(
+          "select pg_advisory_unlock(hashtextextended($1, 0))",
+          [key],
+        );
+      }
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
+      client.release(failed);
+    }
+  }
+  return { db, exclusive, close: () => pool.end() };
 }
