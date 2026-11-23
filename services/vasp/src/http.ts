@@ -7,6 +7,9 @@ import { z } from "zod";
 import type { registryChain } from "./chain.ts";
 import type { customerService } from "./customers.ts";
 import type { VaspStore } from "./db/store.ts";
+import { quoteInput, rfqInput } from "./quote-model.ts";
+import type { quoteService } from "./quotes.ts";
+import type { swapService } from "./swaps.ts";
 import type { transferService } from "./transfers.ts";
 import {
   confirmInput,
@@ -50,6 +53,11 @@ const historyLimit = z.coerce.number().int().positive().max(1000).default(100);
 const sessionInput = z.object({ email });
 const authHash = (value: string) => createHash("sha256").update(value).digest();
 
+const swapId = z.string().regex(/^q_[0-9a-f]{32}$/);
+const swapInput = z.object({
+  quoteId: swapId,
+  demo: z.object({ allowExpired: z.boolean().optional() }).optional(),
+});
 function signedJson(bytes: Uint8Array): unknown {
   try {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
@@ -74,6 +82,8 @@ export function vaspApp(
   adminToken: string,
   transfers: ReturnType<typeof transferService>,
   travelRule: ReturnType<typeof travelRuleService>,
+  quotes: ReturnType<typeof quoteService>,
+  swaps: ReturnType<typeof swapService>,
   demoMode: boolean,
 ) {
   const app = serviceApp("vasp");
@@ -178,6 +188,78 @@ export function vaspApp(
       return context.json({ ...updated.customer, txHash: updated.txHash });
     });
   }
+  app.post("/v1/me/swaps/quote", async (context) => {
+    const customer = await session(context.req.header("Authorization"));
+    if (!customer.address || customer.kycStatus !== "approved")
+      throw new ServiceError(
+        "KYC_REQUIRED",
+        "An approved customer wallet is required",
+        403,
+      );
+    const input = parse(
+      quoteInput,
+      await context.req.json().catch(() => undefined),
+    );
+    return context.json(
+      await quotes.acquire(customer.id, customer.address, input),
+      201,
+    );
+  });
+  app.post("/v1/me/swaps", async (context) => {
+    const customer = await session(context.req.header("Authorization"));
+    if (!demoMode && (!customer.address || customer.kycStatus !== "approved"))
+      throw new ServiceError(
+        "KYC_REQUIRED",
+        "An approved customer wallet is required",
+        403,
+      );
+    const input = parse(
+      swapInput,
+      await context.req.json().catch(() => undefined),
+    );
+    if (input.demo !== undefined && !demoMode)
+      throw new ServiceError(
+        "DEMO_MODE_DISABLED",
+        "Demo mode is disabled",
+        403,
+      );
+    return context.json(
+      await swaps.submit(
+        customer.id,
+        input.quoteId,
+        input.demo?.allowExpired === true,
+      ),
+      201,
+    );
+  });
+  app.get("/v1/me/swaps", async (context) => {
+    const customer = await session(context.req.header("Authorization"));
+    const limit = parse(
+      z.coerce.number().int().min(1).max(100).default(30),
+      context.req.query("limit"),
+    );
+    return context.json({ swaps: await swaps.list(customer.id, limit) });
+  });
+  app.get("/v1/me/swaps/:id", async (context) => {
+    const customer = await session(context.req.header("Authorization"));
+    return context.json(
+      await swaps.get(customer.id, parse(swapId, context.req.param("id"))),
+    );
+  });
+  app.post("/vasp/v1/rfq/quotes", async (context) => {
+    const caller = await verifyHttpRequest(
+      context.req.raw,
+      travelRule.resolveVasp,
+    );
+    return context.json(
+      await quotes.issue(
+        caller.vaspId,
+        parse(rfqInput, signedJson(caller.body)),
+        caller.digest,
+      ),
+    );
+  });
+
   const travelRoot = "/vasp/v1/travel-rule/transfers";
   const verified = (request: Request) =>
     verifyHttpRequest(request, travelRule.resolveVasp);

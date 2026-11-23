@@ -19,6 +19,8 @@ import type { createWalletVault } from "../wallet-vault.ts";
 import {
   customers,
   processedBlocks,
+  quotesIssued,
+  swaps,
   transfers,
   travelRuleMessages,
   wallets,
@@ -71,6 +73,32 @@ export type TransferBlock = { number: bigint; hash: Hex; parentHash: Hex };
 export const transferBytes = (value: Hex) => Buffer.from(value.slice(2), "hex");
 const transferId = () => `tr_${randomUUID().replaceAll("-", "")}`;
 const active = ["created", "tr_pending", "tr_approved", "submitted"] as const;
+export const walletLock = (customerId: string) =>
+  sql`select pg_advisory_xact_lock(hashtext(current_schema() || ':wallet:' || ${customerId}))`;
+
+export async function findWalletOperation(
+  db: Pick<Database, "select">,
+  customerId: string,
+) {
+  const [transfer] = await db
+    .select({ id: transfers.id })
+    .from(transfers)
+    .where(
+      and(
+        eq(transfers.customerId, customerId),
+        eq(transfers.direction, "out"),
+        inArray(transfers.status, active),
+      ),
+    )
+    .limit(1);
+  if (transfer) return transfer;
+  const [swap] = await db
+    .select({ id: swaps.id })
+    .from(swaps)
+    .where(and(eq(swaps.customerId, customerId), eq(swaps.status, "submitted")))
+    .limit(1);
+  return swap;
+}
 
 export function transferJson(row: Transfer, tokenSymbol: string) {
   return {
@@ -105,9 +133,7 @@ export class TransferStore {
 
   async create(customerId: string, command: TransferCommand) {
     return this.db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(current_schema() || ':wallet:' || ${customerId}))`,
-      );
+      await tx.execute(walletLock(customerId));
       const [customer] = await tx
         .select({ status: customers.kycStatus })
         .from(customers)
@@ -120,17 +146,7 @@ export class TransferStore {
           403,
         );
       }
-      const [pending] = await tx
-        .select({ id: transfers.id })
-        .from(transfers)
-        .where(
-          and(
-            eq(transfers.customerId, customerId),
-            eq(transfers.direction, "out"),
-            inArray(transfers.status, active),
-          ),
-        )
-        .limit(1);
+      const pending = await findWalletOperation(tx, customerId);
       if (pending) {
         throw new ServiceError(
           "OPERATION_IN_PROGRESS",
@@ -242,7 +258,11 @@ export class TransferStore {
     return row ? { number: row.number, hash: bytesToHex(row.hash) } : undefined;
   }
 
-  async saveBlock(block: TransferBlock, events: IncomingTransfer[]) {
+  async saveBlock(
+    block: TransferBlock,
+    events: IncomingTransfer[],
+    fills: Array<{ quoteHash: Hex; transactionHash: Hex }> = [],
+  ) {
     await this.db.transaction(async (tx) => {
       await tx
         .insert(processedBlocks)
@@ -270,6 +290,15 @@ export class TransferStore {
               ),
             ),
           );
+      for (const fill of fills) {
+        await tx
+          .update(quotesIssued)
+          .set({
+            filledTxHash: transferBytes(fill.transactionHash),
+            filledBlockNumber: block.number,
+          })
+          .where(eq(quotesIssued.quoteHash, transferBytes(fill.quoteHash)));
+      }
       if (!events.length) return;
       const addresses = [
         ...new Set(events.map((event) => event.to.toLowerCase() as Address)),
@@ -410,6 +439,27 @@ export class TransferStore {
             blockRemoved,
           ),
         );
+      await tx
+        .update(swaps)
+        .set({
+          status: "submitted",
+          txHash: sql`coalesce(${swaps.gatewayTxHash}, ${swaps.txHash})`,
+          blockNumber: null,
+          blockHash: null,
+          errorCode: null,
+          revision: sql`${swaps.revision} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            inArray(swaps.status, ["confirmed", "failed", "submitted"]),
+            gt(swaps.blockNumber, ancestor),
+          ),
+        );
+      await tx
+        .update(quotesIssued)
+        .set({ filledTxHash: null, filledBlockNumber: null })
+        .where(gt(quotesIssued.filledBlockNumber, ancestor));
       const walletsOrphaned = await tx
         .update(wallets)
         .set({ registeredBlockNumber: null, registeredBlockHash: null })

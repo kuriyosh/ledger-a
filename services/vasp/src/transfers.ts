@@ -9,6 +9,7 @@ import {
   transferBytes,
   transferJson,
 } from "./db/transfers.ts";
+import type { swapService } from "./swaps.ts";
 import type { transferChain } from "./transfer-chain.ts";
 import type { transferGateway } from "./transfer-gateway.ts";
 
@@ -29,6 +30,7 @@ export function transferService(
   registry: Registry,
   travelRule: Travel,
   exclusive: Awaited<ReturnType<typeof openDatabase>>["exclusive"],
+  swaps?: Pick<ReturnType<typeof swapService>, "fills" | "sweep">,
 ) {
   const batchSize = 50;
   let cursor: string | undefined;
@@ -271,8 +273,11 @@ export function transferService(
           : await chain.block({ blockNumber: number });
       if (parent && block.parentHash !== parent)
         throw new Error("L2 changed while scanning transfers");
-      const incoming = await chain.events(block.hash);
-      await store.saveBlock(block, incoming);
+      const [incoming, fills] = await Promise.all([
+        chain.events(block.hash),
+        swaps?.fills(block.hash),
+      ]);
+      await store.saveBlock(block, incoming, fills);
       parent = block.hash;
     }
     if (!chain.isAnvil) {
@@ -316,6 +321,7 @@ export function transferService(
       try {
         await exclusive("transfer-reconcile", async () => {
           await sweep(signal);
+          if (!signal.aborted) await swaps?.sweep(tracked, signal);
           if (!signal.aborted) await travelRule.report();
         });
       } catch (error) {

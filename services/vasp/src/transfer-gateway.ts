@@ -53,9 +53,11 @@ type Rejected = {
   code: string;
   receipt?: z.infer<typeof receipt>;
 };
+type ForwardCommands = ForwardPayload | ForwardPayload[];
+
 type RelayResult = Accepted | Rejected | { status: "unavailable" };
 
-export function matchesForwardCall(data: Hex, request: ForwardPayload) {
+export function matchesForwardCall(data: Hex, request: ForwardCommands) {
   try {
     const decoded = decodeFunctionData({ abi: ledgerForwarderAbi, data });
     if (
@@ -64,18 +66,28 @@ export function matchesForwardCall(data: Hex, request: ForwardPayload) {
       decoded.functionName !== "executeBatch"
     )
       return false;
+    if (Array.isArray(request) && decoded.functionName !== "executeAll")
+      return false;
     const operations =
       decoded.functionName === "execute" ? [decoded.args[0]] : decoded.args[0];
-    return operations.some(
-      (operation) =>
-        operation.from.toLowerCase() === request.from.toLowerCase() &&
-        operation.to.toLowerCase() === request.to.toLowerCase() &&
-        operation.signature.toLowerCase() === request.signature.toLowerCase() &&
-        operation.data.toLowerCase() === request.data.toLowerCase() &&
-        operation.value === BigInt(request.value) &&
-        operation.gas === BigInt(request.gas) &&
-        operation.deadline === request.deadline,
-    );
+    const match = (
+      operation: (typeof operations)[number],
+      target: ForwardPayload,
+    ) =>
+      operation.from.toLowerCase() === target.from.toLowerCase() &&
+      operation.to.toLowerCase() === target.to.toLowerCase() &&
+      operation.signature.toLowerCase() === target.signature.toLowerCase() &&
+      operation.data.toLowerCase() === target.data.toLowerCase() &&
+      operation.value === BigInt(target.value) &&
+      operation.gas === BigInt(target.gas) &&
+      operation.deadline === target.deadline;
+    return Array.isArray(request)
+      ? operations.length === request.length &&
+          operations.every((operation, index) => {
+            const target = request[index];
+            return target !== undefined && match(operation, target);
+          })
+      : operations.some((operation) => match(operation, request));
   } catch {
     return false;
   }
@@ -85,7 +97,7 @@ function matches(
   raw: string,
   hash: Hex,
   forwarder: Address,
-  request: ForwardPayload,
+  request: ForwardCommands,
 ) {
   try {
     const serialized = raw as TransactionSerialized;
@@ -134,7 +146,7 @@ export function transferGateway(
   return {
     head,
     async forward(
-      payload: ForwardPayload,
+      payload: ForwardCommands,
       submitOnRevert: boolean,
     ): Promise<RelayResult> {
       try {
@@ -144,7 +156,10 @@ export function transferGateway(
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ requests: [payload], submitOnRevert }),
+          body: JSON.stringify({
+            requests: Array.isArray(payload) ? payload : [payload],
+            submitOnRevert,
+          }),
         });
         if (response.status === 200) {
           const result = z
@@ -197,7 +212,7 @@ export function transferGateway(
       }
     },
     async find(
-      payload: ForwardPayload,
+      payload: ForwardCommands,
       from: bigint,
     ): Promise<Accepted | Rejected | undefined> {
       const through = await head();

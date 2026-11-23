@@ -15,6 +15,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+import type { QuoteWire } from "../quote-model.ts";
 import type { AttestationWire, TravelMessage } from "../travel-rule-model.ts";
 
 const bytes = customType<{ data: Buffer; driverData: Buffer }>({
@@ -182,3 +183,70 @@ export const travelRuleMessages = pgTable(
     ),
   ],
 );
+
+export const swaps = pgTable(
+  "swaps",
+  {
+    id: text("id").primaryKey(),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => customers.id),
+    quoteHash: bytes("quote_hash").notNull().unique(),
+    quote: jsonb("quote").$type<QuoteWire>().notNull(),
+    makerSignature: bytes("maker_signature").notNull(),
+    status: text("status", {
+      enum: ["quoted", "submitted", "confirmed", "failed", "expired"],
+    }).notNull(),
+    allowExpired: boolean("allow_expired").notNull().default(false),
+    txHash: bytes("tx_hash"),
+    gatewayTxHash: bytes("gateway_tx_hash"),
+    blockNumber: bigint("block_number", { mode: "bigint" }),
+    blockHash: bytes("block_hash"),
+    gatewaySeq: bigint("gateway_seq", { mode: "bigint" }),
+    firstGatewaySeq: bigint("first_gateway_seq", { mode: "bigint" }),
+    forwardNonce: numeric("forward_nonce", {
+      precision: 78,
+      scale: 0,
+      mode: "bigint",
+    }),
+    forwardFirstBlock: bigint("forward_first_block", { mode: "bigint" }),
+    forwardRequests:
+      jsonb("forward_requests").$type<
+        Array<{
+          from: `0x${string}`;
+          to: `0x${string}`;
+          value: string;
+          gas: string;
+          data: `0x${string}`;
+          deadline: number;
+          signature: `0x${string}`;
+        }>
+      >(),
+    simulationError: text("simulation_error"),
+    errorCode: text("error_code"),
+    revision: integer("revision").notNull().default(0),
+    createdAt: instant("created_at").notNull().defaultNow(),
+    updatedAt: instant("updated_at").notNull().defaultNow(),
+  },
+  (row) => [
+    index("swaps_customer_date").on(row.customerId, row.createdAt),
+    index("swaps_block").on(row.blockNumber),
+    index("swaps_pending").on(row.id).where(sql`${row.status} = 'submitted'`),
+  ],
+);
+
+export const quotesIssued = pgTable("quotes_issued", {
+  nonce: numeric("nonce", {
+    precision: 78,
+    scale: 0,
+    mode: "bigint",
+  }).primaryKey(),
+  quote: jsonb("quote").$type<QuoteWire>().notNull(),
+  signature: bytes("signature").notNull(),
+  quoteHash: bytes("quote_hash").notNull().unique(),
+  requestDigest: bytes("request_digest").notNull().unique(),
+  requestedByVaspId: integer("requested_by_vasp_id").notNull(),
+  expiresAt: instant("expires_at").notNull(),
+  filledTxHash: bytes("filled_tx_hash"),
+  filledBlockNumber: bigint("filled_block_number", { mode: "bigint" }),
+});

@@ -55,6 +55,14 @@ export function registryChain(
 
   return {
     client,
+    account(address: Address) {
+      return client.readContract({
+        address: registry,
+        abi: kycRegistryAbi,
+        functionName: "getAccount",
+        args: [address],
+      });
+    },
     vasp(id: number) {
       return client.readContract({
         address: registry,

@@ -334,7 +334,7 @@ VASP 間 API（署名付きリクエスト）。
    - nonce n: `takerToken.approve(AtomicSwap, takerAmount)`
    - nonce n + 1: `AtomicSwap.fill(quote, makerSignature)`
 3. 2 件を 1 回の `POST /relay/v1/forward` で送る。Gateway が `executeAll` で 1 取引にする。
-4. レシートを待つ。
+4. 正規ブロックの `Filled` イベントを Quote のダイジェストと照合してから `confirmed` にする。L2 で失敗した場合も、署名期限または nonce の消費が確定するまで操作枠を保持する。
 
 期限切れの見積もりは、通常は送らずに 409 `QUOTE_EXPIRED` で拒否する。`DEMO_MODE` のときは、期限切れでも送る指定ができる（8.3）。L2 上で `QuoteExpired` として失敗し、両方の残高が変わらないことを見せる。
 
