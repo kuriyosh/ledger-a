@@ -1,10 +1,16 @@
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "@ledgera/shared/db";
 import { type Hex, zeroHash } from "viem";
-import { expect, test } from "vitest";
-import type { AuditBlock, AuditReceipt, Violation } from "../src/checks.ts";
+import { expect, test, vi } from "vitest";
+import {
+  type AuditBlock,
+  type AuditReceipt,
+  auditJson,
+  type Violation,
+} from "../src/checks.ts";
 import { AuditStore } from "../src/db/store.ts";
 import { auditorApp } from "../src/http.ts";
+import { createAuditRunner } from "../src/run.ts";
 
 const connection = process.env.TEST_AUDITOR_DATABASE_URL;
 const receipt: AuditReceipt = {
@@ -183,6 +189,74 @@ test.skipIf(!connection)(
         violations: 1,
         checks: { C2: 1, C5: 0, C6: 0 },
       });
+      const storedAncestor = replacement;
+      const previousHash: Hex = `0x${"c".repeat(64)}`;
+      const currentHash: Hex = `0x${"d".repeat(64)}`;
+      let end = {
+        ...storedAncestor,
+        number: 6n,
+        hash: previousHash,
+        parentHash: replacementHash,
+        timestampMs: 128_000n,
+      };
+      const source = {
+        chainId: async () => 31337,
+        tip: async () => end.number,
+        blockHash: async (height: bigint) =>
+          height === 5n ? replacementHash : end.hash,
+        blocks: async () => [end],
+        policy: async () => ({
+          chainId: 31337,
+          verifyingContract: receipt.sender,
+          gatewaySigner: receipt.sender,
+          genesisHash: zeroHash,
+        }),
+        readSender: async () => ({ active: true, balance: 1_000_000n }),
+      };
+      const reads = vi.fn(() => store.inputs());
+      const checked = vi.fn(
+        async (step: Parameters<AuditStore["persist"]>[0]) => {
+          expect(step.priorState).toEqual((await store.inputs()).state);
+          const state = await store.persist(step);
+          const persisted = await store.inputs();
+          expect(persisted.state).toEqual(state);
+          expect(persisted.blocks.at(-1)?.hash).toBe(step.tip?.hash);
+          expect(auditJson(persisted.receipts)).toEqual(
+            auditJson(step.snapshot.entries.map((entry) => entry.receipt)),
+          );
+          expect(auditJson([...persisted.decisions])).toEqual(
+            auditJson(
+              step.snapshot.decisions.map((decision) => [
+                decision.seq,
+                decision,
+              ]),
+            ),
+          );
+          return state;
+        },
+      );
+      const worker = createAuditRunner({
+        source,
+        gateway: {
+          head: async () => ({ seq: 1n, entryHash: receipt.entryHash }),
+          page: async () => [receipt],
+        },
+        store: { inputs: reads, persist: checked },
+        signal: new AbortController().signal,
+        startBlock: 6n,
+        intervalMs: 1000,
+        inclusionDeadlineMs: 125_000n,
+        timeToleranceMs: 5_000n,
+      });
+      await worker.run();
+      await worker.run();
+      end = { ...end, hash: currentHash };
+      await worker.run();
+      expect(reads).toHaveBeenCalledTimes(1);
+      expect(checked).toHaveBeenCalledTimes(3);
+      expect((await store.inputs()).decisions.get(1n)?.deadlineHash).toBe(
+        currentHash,
+      );
     } finally {
       await database.close();
     }

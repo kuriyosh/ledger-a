@@ -104,27 +104,48 @@ export async function scanReceipts(
     if (next === before) break;
   }
 
-  if (full) {
-    const missing = saved.filter(
-      ({ seq }) => seq < next && seq <= head.seq && !published.has(seq),
-    );
-    if (missing.length) {
-      const repeated = await gateway.head(signal);
-      if (repeated.seq >= head.seq) {
-        for (const receipt of missing) {
-          problems.push(
-            observation(
-              receipt.seq,
-              "Gateway omitted an archived Receipt",
-              { archived: receiptEvidence(receipt), advertised: head },
-              {
-                seq: receipt.seq,
-                entryHash: receipt.entryHash,
-                signature: receipt.signature,
-              },
-            ),
-          );
-        }
+  const missing = full
+    ? saved.filter(
+        ({ seq }) => seq < next && seq <= head.seq && !published.has(seq),
+      )
+    : [];
+  const incomplete = next <= head.seq;
+  if (missing.length || incomplete) {
+    const repeated = await gateway.head(signal);
+    const changed =
+      repeated.seq < head.seq ||
+      (repeated.seq === head.seq && repeated.entryHash !== head.entryHash);
+    if (changed) {
+      problems.push(
+        observation(head.seq, "Gateway changed its head without appending", {
+          advertised: head,
+          observed: repeated,
+        }),
+      );
+    } else {
+      if (incomplete) {
+        problems.push(
+          observation(
+            next,
+            "Gateway log did not reach the advertised head",
+            { fromSeq: next, advertised: head, observed: repeated },
+            { fromSeq: next, check: "incomplete ledger page" },
+          ),
+        );
+      }
+      for (const receipt of missing) {
+        problems.push(
+          observation(
+            receipt.seq,
+            "Gateway omitted an archived Receipt",
+            { archived: receiptEvidence(receipt), advertised: head },
+            {
+              seq: receipt.seq,
+              entryHash: receipt.entryHash,
+              signature: receipt.signature,
+            },
+          ),
+        );
       }
     }
   }

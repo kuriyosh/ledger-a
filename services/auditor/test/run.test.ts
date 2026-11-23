@@ -230,7 +230,7 @@ test("records a skipped sequence once while the Gateway head advances", async ()
   expect(a.problems[0].observationId).toBe(b.problems[0].observationId);
 });
 
-test("does not file an omitted receipt when the scan never reached its sequence", async () => {
+test("reports an incomplete log separately from a skipped receipt", async () => {
   const skipped = await scanReceipts(
     {
       async head() {
@@ -244,5 +244,45 @@ test("does not file an omitted receipt when the scan never reached its sequence"
     true,
     signal,
   );
-  expect(skipped.problems).toEqual([]);
+  expect(skipped.problems).toMatchObject([
+    {
+      type: "BROKEN_CHAIN",
+      detail: "Gateway log did not reach the advertised head",
+      evidence: { fromSeq: 1n, advertised: { seq: 2n } },
+    },
+  ]);
 });
+
+test.each([
+  { seq: 2n, entryHash: zeroHash },
+  { seq: 3n, entryHash: zeroHash },
+])(
+  "reports a head rollback or rewrite at the same sequence",
+  async (changed) => {
+    const third = { ...second, seq: 3n };
+    const result = await scanReceipts(
+      {
+        head: vi
+          .fn()
+          .mockResolvedValueOnce({ seq: 3n, entryHash: hash })
+          .mockResolvedValueOnce(changed),
+        async page() {
+          return [first, third];
+        },
+      },
+      [first, second, third],
+      true,
+      signal,
+    );
+    expect(result.problems).toMatchObject([
+      {
+        type: "BROKEN_CHAIN",
+        detail: "Gateway changed its head without appending",
+        evidence: {
+          advertised: { seq: 3n, entryHash: hash },
+          observed: changed,
+        },
+      },
+    ]);
+  },
+);

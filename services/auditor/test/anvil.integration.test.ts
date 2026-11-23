@@ -4,9 +4,11 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { setTimeout } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { ledgerForwarderAbi, ledgerTokenAbi } from "@ledgera/abis";
 import { readDeployment } from "@ledgera/config";
+import { openDatabase } from "@ledgera/shared/db";
 import { signForwardRequest } from "@ledgera/shared/forward-request";
 import {
   createPublicClient,
@@ -17,6 +19,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { expect, test } from "vitest";
+import { AuditStore } from "../src/db/store.ts";
 
 const config = {
   l2: process.env.TEST_AUDITOR_E2E_L2_RPC,
@@ -126,12 +129,39 @@ test.skipIf(!Object.values(config).every(Boolean))(
     const sender = (role: string) =>
       privateKeyToAccount(roleValue(`${role}_PRIVATE_KEY`) as Hex);
     const senders = [
-      "RELAYER_A",
-      "RELAYER_B",
       "VASP_A_ADMIN",
       "VASP_B_ADMIN",
       "ISSUER",
+      "CONSORTIUM_1",
+      "CONSORTIUM_2",
     ].map(sender);
+    const initial = await chain.getBlockNumber();
+    for (
+      let blockNumber = BigInt(deployment.auditStartBlock);
+      blockNumber <= initial;
+      blockNumber++
+    ) {
+      const block = await chain.getBlock({ blockNumber });
+      expect(
+        block.transactions,
+        `Use a fresh Anvil; block ${blockNumber} already has transactions`,
+      ).toHaveLength(0);
+    }
+    const migrations = fileURLToPath(
+      new URL("../src/db/migrations/", import.meta.url),
+    );
+    const auditDb = await openDatabase(database, "auditor", migrations);
+    try {
+      const audit = await new AuditStore(auditDb.db).inputs();
+      expect(
+        audit.state,
+        "Use a fresh PostgreSQL database for the Auditor E2E",
+      ).toBeUndefined();
+      expect(audit.receipts).toEqual([]);
+      expect(audit.blocks).toEqual([]);
+    } finally {
+      await auditDb.close();
+    }
     let blockWrites = false;
     let blocked = 0;
     const proxy = createServer(async (request, response) => {
@@ -216,7 +246,7 @@ test.skipIf(!Object.values(config).every(Boolean))(
         AUDIT_RPC_URL: l2,
         GATEWAY_URL: gateway,
         AUDIT_INTERVAL_SEC: "1",
-        INCLUSION_DEADLINE_SEC: "6",
+        INCLUSION_DEADLINE_SEC: "120",
       });
       for (const service of [gateway, auditor]) {
         await until(
@@ -263,6 +293,7 @@ test.skipIf(!Object.values(config).every(Boolean))(
             await submit(await sign(account, nonce + i));
         }),
       );
+      await rpc<string>(l2, "evm_mine");
       const last = await until(async () => {
         const entries = await log();
         return entries.length === 100 &&
@@ -360,6 +391,7 @@ test.skipIf(!Object.values(config).every(Boolean))(
         12n,
       );
       const first = await held;
+      await rpc<string>(l2, "evm_mine");
       const reverse = await until(
         async () =>
           (await findings(cutoff)).find(
@@ -388,22 +420,27 @@ test.skipIf(!Object.values(config).every(Boolean))(
               item.type === "NOT_INCLUDED" && item.txHash === receipt.txHash,
           ),
         );
+      await until(async () => blocked > 0, "transfer attempt blocked");
+      await rpc<number>(l2, "evm_increaseTime", [121]);
+      await rpc<string>(l2, "evm_mine");
       const onDeadline = await until(lateFinding, "C5 at the L2 deadline");
       expect(blocked).toBeGreaterThan(0);
       expect(onDeadline.evidence.position).toBeUndefined();
       blockWrites = false;
+      expect((await delayed).txHash).toBe(receipt.txHash);
+      await rpc<string>(l2, "evm_mine");
       const late = await until(async () => {
         const item = await lateFinding();
         return item?.evidence.position ? item : undefined;
       }, "late inclusion evidence");
       expect(late.id).toBe(onDeadline.id);
-      expect((await delayed).txHash).toBe(receipt.txHash);
       expect(late.evidence.position?.blockHash).toBeTruthy();
 
       const snapshot = await rpc<string>(l2, "evm_snapshot");
       const direct = await rpc<Hex>(l2, "eth_sendRawTransaction", [
         await sign(senders[0], await nonceOf(senders[0])),
       ]);
+      await rpc<string>(l2, "evm_mine");
       const orphan = await until(
         async () =>
           (await findings()).find(
@@ -412,6 +449,9 @@ test.skipIf(!Object.values(config).every(Boolean))(
         "C6 on direct transaction",
       );
       expect(await rpc<boolean>(l2, "evm_revert", [snapshot])).toBe(true);
+      while ((await chain.getBlockNumber()) < BigInt(orphan.block)) {
+        await rpc<string>(l2, "evm_mine");
+      }
       await until(async () => {
         const result = await summary();
         if (BigInt(result.lastBlock) < BigInt(orphan.block)) return undefined;
