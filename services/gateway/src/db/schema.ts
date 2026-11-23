@@ -121,3 +121,13 @@ export const commitments = gateway.table("commitments", {
     .notNull()
     .defaultNow(),
 });
+
+export const demoReorder = gateway.table("demo_reorder", {
+  id: integer("id").primaryKey(),
+  status: text("status", {
+    enum: ["armed", "held", "completed", "expired"],
+  }).notNull(),
+  heldSeq: bigint("held_seq", { mode: "bigint" }),
+  nextSeq: bigint("next_seq", { mode: "bigint" }),
+  heldUntil: timestamp("held_until", { withTimezone: true }),
+});

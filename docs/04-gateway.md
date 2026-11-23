@@ -413,7 +413,8 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 - 同じ送信者の 2 件では入れ替わらない。nonce の順に並ぶため。デモでは VASP A と VASP B の利用者が 1 件ずつ送る。
 - 保留の上限（60 秒）は監査の取り込み期限（120 秒）より短くしている。保留だけでは `NOT_INCLUDED` にならない。
 
-`GET /admin/demo/state` は仕掛けの状態（待機中、保留中、完了）を返す。
+`GET /admin/demo/state` は `status`、`heldSeq`、`nextSeq`、`heldUntil` を返す。状態は `idle`、`armed`、`held`、`completed`、`expired`。
+保留中の状態は PostgreSQL に保存する。Gateway の再起動後も保留期限を引き継ぐ。
 
 ## 13. テスト
 

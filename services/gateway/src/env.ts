@@ -34,6 +34,8 @@ export const gatewayEnv = serverEnv
   .extend({
     PORT: serverEnv.shape.PORT.default(8600),
     DATABASE_URL: databaseUrl,
+    DEMO_MODE: z.stringbool().default(false),
+    ADMIN_TOKEN: z.string().regex(/^\S+$/).optional(),
     DEPLOYMENTS_FILE: z.string().min(1),
     SEQUENCER_RPC_URLS: z
       .string()
@@ -73,4 +75,8 @@ export const gatewayEnv = serverEnv
       message:
         "Expected a positive uint256 fee cap at or above FIXED_PRIORITY_FEE_WEI",
     },
-  );
+  )
+  .refine((env) => !env.DEMO_MODE || env.ADMIN_TOKEN !== undefined, {
+    path: ["ADMIN_TOKEN"],
+    message: "Expected ADMIN_TOKEN when DEMO_MODE is enabled",
+  });
