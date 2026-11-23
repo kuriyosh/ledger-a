@@ -1,10 +1,12 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { ServiceError } from "@ledgera/shared/errors";
 import { serviceApp } from "@ledgera/shared/server";
+import { getAddress, isAddress } from "viem";
 import { z } from "zod";
 import type { registryChain } from "./chain.ts";
 import type { customerService } from "./customers.ts";
 import type { VaspStore } from "./db/store.ts";
+import type { transferService } from "./transfers.ts";
 
 const email = z
   .email()
@@ -20,6 +22,24 @@ const customerInput = z.object({
   email,
 });
 const customerId = z.string().regex(/^[AB]-\d{6,19}$/);
+const transferInput = z.object({
+  toAddress: z
+    .string()
+    .refine((value) => isAddress(value, { strict: false }))
+    .transform((value) => getAddress(value.toLowerCase())),
+  token: z.enum(["tJPY", "tUSD"]),
+  amount: z
+    .string()
+    .regex(/^\d{1,78}$/)
+    .transform(BigInt)
+    .refine((amount) => amount > 0n && amount < 1n << 256n),
+  beneficiaryName: z
+    .object({ primaryIdentifier: name, secondaryIdentifier: name })
+    .optional(),
+  demo: z.object({ skipChecks: z.boolean() }).optional(),
+});
+const transferId = z.string().regex(/^tr_[a-zA-Z0-9-]{1,64}$/);
+const historyLimit = z.coerce.number().int().positive().max(1000).default(100);
 const sessionInput = z.object({ email });
 const authHash = (value: string) => createHash("sha256").update(value).digest();
 
@@ -37,6 +57,8 @@ export function vaspApp(
   service: ReturnType<typeof customerService>,
   chain: Pick<ReturnType<typeof registryChain>, "balances">,
   adminToken: string,
+  transfers: ReturnType<typeof transferService>,
+  demoMode: boolean,
 ) {
   const app = serviceApp("vasp");
   const knownAdmin = authHash(`Bearer ${adminToken}`);
@@ -78,6 +100,46 @@ export function vaspApp(
     const customer = await session(context.req.header("Authorization"));
     if (!customer.address) return context.json({ tJPY: "0", tUSD: "0" });
     return context.json(await chain.balances(customer.address));
+  });
+  app.post("/v1/me/transfers", async (context) => {
+    const customer = await session(context.req.header("Authorization"));
+    const transfer = parse(
+      transferInput,
+      await context.req.json().catch(() => undefined),
+    );
+    if (transfer.demo && !demoMode)
+      throw new ServiceError(
+        "INVALID_REQUEST",
+        "Demo options are disabled",
+        400,
+      );
+    const accepted = await transfers.create(customer.id, {
+      to: transfer.toAddress,
+      symbol: transfer.token,
+      amount: transfer.amount,
+      beneficiaryName: transfer.beneficiaryName,
+      skipChecks: transfer.demo?.skipChecks ?? false,
+      submitOnRevert: demoMode,
+    });
+    return context.json(accepted, 201);
+  });
+  app.get("/v1/me/transfers", async (context) => {
+    const customer = await session(context.req.header("Authorization"));
+    return context.json({
+      transfers: await transfers.list(
+        customer.id,
+        parse(historyLimit, context.req.query("limit")),
+      ),
+    });
+  });
+  app.get("/v1/me/transfers/:id", async (context) => {
+    const customer = await session(context.req.header("Authorization"));
+    return context.json(
+      await transfers.get(
+        customer.id,
+        parse(transferId, context.req.param("id")),
+      ),
+    );
   });
   app.get("/v1/admin/customers", async (context) =>
     context.json({ customers: await store.listCustomers() }),
