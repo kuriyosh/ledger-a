@@ -84,3 +84,19 @@ export const inclusionDecisions = auditor.table("inclusion_decisions", {
   deadlineHash: hash("deadline_hash").notNull(),
   exclusion: jsonb("exclusion"),
 });
+
+export const disclosures = auditor.table(
+  "disclosures",
+  {
+    id: text("id").primaryKey(),
+    address: text("address").$type<`0x${string}`>().notNull(),
+    vaspId: integer("vasp_id").notNull(),
+    vaspRequestId: text("vasp_request_id").notNull(),
+    reason: text("reason").notNull(),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected"],
+    }).notNull(),
+    createdAt: instant("created_at"),
+  },
+  (row) => [index("disclosures_address").on(row.address)],
+);
