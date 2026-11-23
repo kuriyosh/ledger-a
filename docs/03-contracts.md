@@ -795,7 +795,7 @@ contract DepositProbe {
 ```json
 {
   "environment": "devnet",
-  "chainId": 20261,
+  "chainId": 202610,
   "enforcementBlock": 0,
   "auditStartBlock": 0,
   "l1": {

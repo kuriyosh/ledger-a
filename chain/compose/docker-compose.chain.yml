@@ -1,0 +1,132 @@
+name: ledgera-chain
+
+services:
+  op-reth:
+    image: ${OP_RETH_IMAGE:-${OP_RETH_STOCK_IMAGE}}
+    command:
+      - node
+      - --chain=/workspace/genesis.json
+      - --datadir=/data
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=debug,eth,net,txpool,web3
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=debug,eth,net,txpool,web3
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/workspace/jwt.txt
+      - --rollup.disable-tx-pool-gossip
+      - --builder.deadline=2
+      - --builder.interval=100ms
+    volumes:
+      - ../runtime/genesis.json:/workspace/genesis.json:ro
+      - ../runtime/jwt.txt:/workspace/jwt.txt:ro
+      - op-reth-data:/data
+    networks: [chain]
+
+  op-node:
+    image: ${OP_NODE_IMAGE}
+    command:
+      - op-node
+      - --l2=http://op-reth:8551
+      - --l2.jwt-secret=/workspace/jwt.txt
+      - --l2.enginekind=reth
+      - --rollup.config=/workspace/rollup.json
+      - --sequencer.enabled=true
+      - --sequencer.stopped=false
+      - --verifier.l1-confs=4
+      - --p2p.disable
+      - --rpc.addr=0.0.0.0
+      - --rpc.port=8547
+      - --rpc.enable-admin
+    environment:
+      OP_NODE_L1_ETH_RPC: ${L1_RPC_URL:?Set L1_RPC_URL in .env}
+      OP_NODE_L1_BEACON: ${L1_BEACON_URL:?Set L1_BEACON_URL in .env}
+    volumes:
+      - ../runtime/rollup.json:/workspace/rollup.json:ro
+      - ../runtime/jwt.txt:/workspace/jwt.txt:ro
+    networks: [chain]
+    depends_on:
+      - op-reth
+
+  op-batcher:
+    image: ${OP_BATCHER_IMAGE}
+    command:
+      - op-batcher
+      - --rpc.addr=0.0.0.0
+      - --rpc.port=8548
+      - --rpc.enable-admin
+      - --max-channel-duration=${BATCHER_MAX_CHANNEL_DURATION:-25}
+      - --data-availability-type=calldata
+      - --throttle.unsafe-da-bytes-lower-threshold=0
+      - --resubmission-timeout=30s
+    environment:
+      OP_BATCHER_L1_ETH_RPC: ${L1_RPC_URL:?Set L1_RPC_URL in .env}
+      OP_BATCHER_L2_ETH_RPC: http://op-reth:8545
+      OP_BATCHER_ROLLUP_RPC: http://op-node:8547
+      OP_BATCHER_PRIVATE_KEY: ${BATCHER_PRIVATE_KEY:?Run make keys}
+      OP_BATCHER_POLL_INTERVAL: 1s
+      OP_BATCHER_SUB_SAFETY_MARGIN: "6"
+      OP_BATCHER_NUM_CONFIRMATIONS: "1"
+      OP_BATCHER_SAFE_ABORT_NONCE_TOO_LOW_COUNT: "3"
+    networks: [chain]
+    depends_on:
+      rpc-proxy:
+        condition: service_healthy
+
+  rpc-proxy:
+    build:
+      context: ../..
+      dockerfile: services/rpc-proxy/Dockerfile
+    environment:
+      UPSTREAM_L2_RPC_URLS: http://op-reth:8545
+      UPSTREAM_ROLLUP_RPC_URLS: http://op-node:8547
+    ports:
+      - 127.0.0.1:8545:8545
+    networks: [chain, app]
+    depends_on:
+      - op-reth
+      - op-node
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          const checks = [['/', 'eth_blockNumber'], ['/rollup', 'optimism_syncStatus']];
+          Promise.all(checks.map(async ([path, method]) => {
+            const response = await fetch('http://127.0.0.1:8545' + path, {
+              method: 'POST',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify({jsonrpc: '2.0', id: 1, method}),
+              signal: AbortSignal.timeout(3000)
+            });
+            if (!response.ok || (await response.json()).result == null) process.exit(1);
+          })).catch(() => process.exit(1));
+      interval: 5s
+      timeout: 4s
+      retries: 24
+
+  chain-shell:
+    image: ${FOUNDRY_IMAGE}
+    profiles: [tools]
+    entrypoint: [sh]
+    environment:
+      ETH_RPC_URL: http://op-reth:8545
+      L1_RPC_URL: ${L1_RPC_URL:?Set L1_RPC_URL in .env}
+    networks: [chain]
+    volumes:
+      - ../../deployments:/deployments:ro
+
+networks:
+  chain:
+    name: ledgera-chain
+  app:
+    name: ledgera
+
+volumes:
+  op-reth-data:

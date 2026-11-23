@@ -45,11 +45,11 @@ flowchart LR
 
 - [x] リポジトリの骨組み（`Makefile`、`.env.example`、`.gitignore`、`chain/versions.env`）
 - [x] `chain/scripts/derive-accounts.ts` と `make keys`
-- [ ] `chain/scripts/deploy-l1.sh`、`gen-config.sh` と `make chain-deploy`。`SystemConfig.setGasConfigEcotone(0, 0)` を含む
+- [x] `chain/scripts/deploy-l1.sh`、`gen-config.sh` と `make chain-deploy`。`SystemConfig.setGasConfigEcotone(0, 0)` を含む
 - [x] `services/rpc-proxy`（単一の転送先。10 章 7 節）
-- [ ] `chain/compose/docker-compose.chain.yml` と `make chain-up`。op-reth は `OP_RETH_STOCK_IMAGE` を使う。ネットワークを `ledgera-chain` と `ledgera` に分ける
-- [ ] `make chain-shell`（`ledgera-chain` につないだ Foundry コンテナ）
-- [ ] `make status`（ブロック高、safe ブロック、残高）
+- [x] `chain/compose/docker-compose.chain.yml` と `make chain-up`。op-reth は `OP_RETH_STOCK_IMAGE` を使う。ネットワークを `ledgera-chain` と `ledgera` に分ける
+- [x] `make chain-shell`（`ledgera-chain` につないだ Foundry コンテナ）
+- [x] `make status`（ブロック高、safe ブロック、残高）
 - [ ] admin から `OptimismPortal.depositTransaction` を `cast send` で呼び、L2 に入ることを確認する
 - [ ] ダミーの実装コントラクトで `ProxyAdmin.upgradeAndCall(0x42…0700, …)` を試す
 
