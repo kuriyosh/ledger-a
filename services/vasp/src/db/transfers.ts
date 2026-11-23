@@ -1,7 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { openDatabase } from "@ledgera/shared/db";
 import { ServiceError } from "@ledgera/shared/errors";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  sql,
+} from "drizzle-orm";
 import { type Address, bytesToHex, getAddress, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { createWalletVault } from "../wallet-vault.ts";
@@ -32,6 +43,7 @@ type TransferChange = Partial<
     | "logIndex"
     | "gatewaySeq"
     | "forwardRequest"
+    | "forwardNonce"
     | "firstGatewaySeq"
     | "simulationError"
     | "errorCode"
@@ -221,6 +233,29 @@ export class TransferStore {
       await tx
         .insert(processedBlocks)
         .values({ number: block.number, hash: transferBytes(block.hash) });
+      const walletsOrphaned = await tx
+        .update(wallets)
+        .set({ registeredBlockNumber: null, registeredBlockHash: null })
+        .where(
+          and(
+            eq(wallets.registeredBlockNumber, block.number),
+            ne(wallets.registeredBlockHash, transferBytes(block.hash)),
+          ),
+        )
+        .returning({ id: wallets.customerId });
+      if (walletsOrphaned.length)
+        await tx
+          .update(customers)
+          .set({ kycStatus: "error", updatedAt: new Date() })
+          .where(
+            and(
+              eq(customers.kycStatus, "approved"),
+              inArray(
+                customers.id,
+                walletsOrphaned.map(({ id }) => id),
+              ),
+            ),
+          );
       if (!events.length) return;
       const addresses = [
         ...new Set(events.map((event) => event.to.toLowerCase() as Address)),
@@ -289,6 +324,7 @@ export class TransferStore {
           status: "submitted",
           blockNumber: null,
           blockHash: null,
+          logIndex: null,
           errorCode: null,
           revision: sql`${transfers.revision} + 1`,
           updatedAt: new Date(),

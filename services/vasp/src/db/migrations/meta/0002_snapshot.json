@@ -1,5 +1,5 @@
 {
-  "id": "cdd27e53-898d-45c7-b487-77561a7467ff",
+  "id": "742acaa9-3590-43ea-bfaa-2f60d8a5c236",
   "prevId": "3502cf5f-ca95-4c32-8163-56f91413ed3f",
   "version": "7",
   "dialect": "postgresql",
@@ -338,6 +338,12 @@
         "forward_request": {
           "name": "forward_request",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forward_nonce": {
+          "name": "forward_nonce",
+          "type": "numeric(78, 0)",
           "primaryKey": false,
           "notNull": false
         },

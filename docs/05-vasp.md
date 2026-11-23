@@ -124,7 +124,9 @@ flowchart TD
 3. 顧客の秘密鍵を復号し、EIP-712 で署名する。
 4. Gateway の `POST /relay/v1/forward` に送る。API キーは `GATEWAY_API_KEY`。`DEMO_MODE` のときは `submitOnRevert: true` を付ける。
 5. 返ってきた `txHash` と Receipt の `seq` を保存する。
-6. レシートを待つ。成功なら `confirmed`、失敗なら `failed`。
+6. 追跡済みの L2 ブロックでレシートを確認する。署名済みの依頼と一致する取引が成功し、指定した送金の `Transfer` があれば `confirmed` にする。レシートが失敗なら `failed` にする。
+
+Gateway Receipt がある場合は、Sequencer への転送が拒否されても L2 を照合する。L2 のレシートが見つからない場合は、finalized ブロックで署名期限を過ぎ、署名者の nonce が消費されていないことを確認してから `failed` にする。
 
 `failed` のときの `error_code`。
 
@@ -133,7 +135,9 @@ flowchart TD
 | Gateway が 422 `SIMULATION_REVERTED` を返した（取引は送られていない） | `details` の `errorName`。復号できなければ `REVERTED` |
 | Gateway の応答の `simulation.reverted` が true で、L2 でも失敗した | `simulation.errorName`。復号できなければ `REVERTED` |
 | シミュレーションは通ったが L2 で失敗した | `REVERTED` |
-| Gateway がその他のエラーを返した | Gateway のエラーコード |
+| 宛先、送信元、金額が一致する `Transfer` が見つからない | `TRANSFER_EFFECT_MISSING` |
+| finalized ブロックで署名が失効した | `FORWARD_REQUEST_EXPIRED`。転送拒否の記録がある場合は `FORWARD_REJECTED` |
+| Gateway がその他の確定したエラーを返した | Gateway のエラーコード |
 
 `gas`（呼び出し先に渡すガス）の値。
 

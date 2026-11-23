@@ -12,9 +12,13 @@ import {
   getAbiItem,
   type Hex,
   type LocalAccount,
+  parseEventLogs,
+  TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
 } from "viem";
 import type { registryChain } from "./chain.ts";
-import type { IncomingTransfer } from "./db/transfers.ts";
+import type { ForwardPayload, IncomingTransfer } from "./db/transfers.ts";
+import { matchesForwardCall } from "./transfer-gateway.ts";
 
 const transferEvent = getAbiItem({ abi: ledgerTokenAbi, name: "Transfer" });
 const travelRuleEvent = getAbiItem({
@@ -97,14 +101,73 @@ export function transferChain(
         request,
       );
       return {
-        from: request.from,
-        to: token,
-        value: "0",
-        gas: "200000",
-        deadline: request.deadline,
-        data,
-        signature,
+        nonce,
+        request: {
+          from: request.from,
+          to: token,
+          value: "0",
+          gas: "200000",
+          deadline: request.deadline,
+          data,
+          signature,
+        },
       };
+    },
+    async expired(request: ForwardPayload, nonce: bigint) {
+      const finalized = await client.getBlock({ blockTag: "finalized" });
+      if (finalized.timestamp <= BigInt(request.deadline)) return false;
+      const current = await client.readContract({
+        address: contracts.ledgerForwarder,
+        abi: ledgerForwarderAbi,
+        functionName: "nonces",
+        args: [request.from],
+        blockHash: finalized.hash,
+        requireCanonical: true,
+      });
+      return current <= nonce;
+    },
+    async execution(
+      hash: Hex,
+      request: ForwardPayload,
+      beneficiary: Address,
+      amount: bigint,
+    ) {
+      try {
+        const [transaction, receipt] = await Promise.all([
+          client.getTransaction({ hash }),
+          client.getTransactionReceipt({ hash }),
+        ]);
+        if (
+          transaction.to?.toLowerCase() !==
+            contracts.ledgerForwarder.toLowerCase() ||
+          transaction.hash !== hash ||
+          receipt.transactionHash !== hash ||
+          transaction.blockHash !== receipt.blockHash ||
+          !matchesForwardCall(transaction.input, request)
+        )
+          return;
+        const transfers = parseEventLogs({
+          abi: [transferEvent],
+          eventName: "Transfer",
+          logs: receipt.logs.filter(
+            (log) => log.address.toLowerCase() === request.to.toLowerCase(),
+          ),
+          strict: true,
+        });
+        const logIndex = transfers.find(
+          ({ args }) =>
+            args.from.toLowerCase() === request.from.toLowerCase() &&
+            args.to.toLowerCase() === beneficiary.toLowerCase() &&
+            args.value === amount,
+        )?.logIndex;
+        return { ...receipt, logIndex };
+      } catch (error) {
+        if (
+          !(error instanceof TransactionReceiptNotFoundError) &&
+          !(error instanceof TransactionNotFoundError)
+        )
+          throw error;
+      }
     },
     async events(blockHash: Hex): Promise<IncomingTransfer[]> {
       const logs = await client.getLogs({

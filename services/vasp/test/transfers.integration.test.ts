@@ -128,6 +128,17 @@ test.skipIf(!url)(
         status: "confirmed",
         blockHash: transferBytes(firstHash),
       });
+      await store.saveBlock(
+        { number: 4n, hash: firstHash, parentHash: zeroHash },
+        [],
+      );
+      expect(await customers.customer(owner.id)).toMatchObject({
+        kycStatus: "error",
+      });
+      expect(await store.orphanedWallets()).toContainEqual({
+        id: owner.id,
+        hash: approval.txHash,
+      });
     } finally {
       await database.close();
     }

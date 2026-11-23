@@ -124,6 +124,11 @@ export const transfers = pgTable(
       deadline: number;
       signature: `0x${string}`;
     }>(),
+    forwardNonce: numeric("forward_nonce", {
+      precision: 78,
+      scale: 0,
+      mode: "bigint",
+    }),
     firstGatewaySeq: bigint("first_gateway_seq", { mode: "bigint" }),
     submitOnRevert: boolean("submit_on_revert").notNull().default(false),
     skipChecks: boolean("skip_checks").notNull().default(false),

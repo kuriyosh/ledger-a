@@ -50,6 +50,7 @@ const transfers = transferService(
     deployments.contracts.ledgerForwarder,
   ),
   chain,
+  database.exclusive,
 );
 const shutdown = new AbortController();
 const polling = Promise.all([

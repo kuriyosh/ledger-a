@@ -1,4 +1,5 @@
 import { setTimeout } from "node:timers/promises";
+import type { openDatabase } from "@ledgera/shared/db";
 import { logService } from "@ledgera/shared/server";
 import { type Address, bytesToHex, getAddress, type Hex } from "viem";
 import type { registryChain } from "./chain.ts";
@@ -20,18 +21,41 @@ export function transferService(
   chain: Chain,
   gateway: Gateway,
   registry: Registry,
+  exclusive: Awaited<ReturnType<typeof openDatabase>>["exclusive"],
 ) {
   const batchSize = 50;
   let cursor: string | undefined;
 
-  async function canonicalReceipt(hash: Hex) {
-    const result = await registry.receipt(hash);
+  async function tracked(position: { blockNumber: bigint; blockHash: Hex }) {
+    const known = await store.trackedBlock(position.blockNumber);
+    if (!known) {
+      if (
+        chain.isAnvil ||
+        (await chain.block({ blockTag: "finalized" })).number <
+          position.blockNumber
+      )
+        return false;
+    } else if (known.hash !== position.blockHash) {
+      return false;
+    }
+    return (
+      (await chain.block({ blockNumber: position.blockNumber })).hash ===
+      position.blockHash
+    );
+  }
+
+  async function expire(row: Transfer) {
     if (
-      result &&
-      (await chain.block({ blockNumber: result.blockNumber })).hash ===
-        result.blockHash
+      !row.forwardRequest ||
+      row.forwardNonce === null ||
+      !(await chain.expired(row.forwardRequest, row.forwardNonce))
     )
-      return result;
+      return false;
+    await store.update(row, {
+      status: "failed",
+      errorCode: row.simulationError ?? "FORWARD_REQUEST_EXPIRED",
+    });
+    return true;
   }
 
   function view(row: Transfer) {
@@ -44,15 +68,31 @@ export function transferService(
   }
 
   async function submitted(row: Transfer) {
-    if (!row.txHash)
-      throw new Error("Submitted transfer has no transaction hash");
-    const result = await canonicalReceipt(bytesToHex(row.txHash));
-    if (!result) return;
+    if (!row.txHash || !row.forwardRequest)
+      throw new Error("Submitted transfer has no signed request");
+    const result = await chain.execution(
+      bytesToHex(row.txHash),
+      row.forwardRequest,
+      bytesToHex(row.counterpartyAddress),
+      row.amount,
+    );
+    if (!result) {
+      await expire(row);
+      return;
+    }
+    if (!(await tracked(result))) return;
+    const confirmed =
+      result.status === "success" && result.logIndex !== undefined;
+    const errorCode =
+      result.status === "success"
+        ? "TRANSFER_EFFECT_MISSING"
+        : (row.simulationError ?? "REVERTED");
     await store.update(row, {
-      status: result.success ? "confirmed" : "failed",
+      status: confirmed ? "confirmed" : "failed",
       blockNumber: result.blockNumber,
       blockHash: transferBytes(result.blockHash),
-      errorCode: result.success ? null : (row.simulationError ?? "REVERTED"),
+      logIndex: result.logIndex ?? null,
+      errorCode: confirmed ? null : errorCode,
     });
   }
 
@@ -85,39 +125,40 @@ export function transferService(
           return;
         }
       }
-      requested = await chain.plan(signer, token, counterparty, row.amount);
+      const plan = await chain.plan(signer, token, counterparty, row.amount);
+      requested = plan.request;
       initial = (await gateway.head()) + 1n;
       const retained = await store.update(row, {
         forwardRequest: requested,
         firstGatewaySeq: initial,
+        forwardNonce: plan.nonce,
         counterpartyVaspId: vaspId,
       });
       if (!retained) return;
       row = retained;
       fresh = true;
     }
-    let result =
-      (!fresh ? await gateway.find(requested, initial) : undefined) ??
-      (await gateway.forward(requested, row.submitOnRevert));
+    let result: Awaited<ReturnType<Gateway["forward"]>> | undefined = !fresh
+      ? await gateway.find(requested, initial)
+      : undefined;
+    if (!result && (await expire(row))) return;
+    result ??= await gateway.forward(requested, row.submitOnRevert);
     if (result.status === "rejected" && !result.receipt)
       result = (await gateway.find(requested, initial)) ?? result;
     if (result.status === "unavailable") return;
-    if (result.status === "rejected") {
-      await store.update(row, {
-        status: "failed",
-        errorCode: result.code,
-        txHash: result.receipt
-          ? transferBytes(result.receipt.txHash)
-          : undefined,
-        gatewaySeq: result.receipt?.seq,
-      });
+    if (result.status === "rejected" && !result.receipt) {
+      await store.update(row, { status: "failed", errorCode: result.code });
       return;
     }
+
+    const recorded = result.status === "accepted" ? result : result.receipt;
+    if (!recorded) throw new Error("Missing Gateway Receipt");
     await store.update(row, {
       status: "submitted",
-      txHash: transferBytes(result.txHash),
-      gatewaySeq: result.seq,
-      simulationError: result.simulationError,
+      txHash: transferBytes(recorded.txHash),
+      gatewaySeq: recorded.seq,
+      simulationError:
+        result.status === "accepted" ? result.simulationError : result.code,
     });
   }
 
@@ -161,31 +202,43 @@ export function transferService(
     }
   }
 
+  async function sweep(signal: AbortSignal) {
+    try {
+      await track();
+      for (const wallet of await store.orphanedWallets()) {
+        const check = await registry.receipt(wallet.hash);
+        if (check?.success && (await tracked(check)))
+          await store.restoreWallet(wallet.id, wallet.hash, check);
+      }
+    } catch (error) {
+      if (!signal.aborted)
+        logService("vasp", "error", "Transfer scan did not advance", null, {
+          errorName: error instanceof Error ? error.name : "Error",
+        });
+    }
+
+    const pending = await store.pending(cursor, batchSize);
+    cursor = pending.length === batchSize ? pending.at(-1)?.id : undefined;
+    for (const item of pending) {
+      signal.throwIfAborted();
+      try {
+        await route(item);
+      } catch (error) {
+        logService("vasp", "error", "Transfer did not advance", null, {
+          id: item.id,
+          errorName: error instanceof Error ? error.name : "Error",
+        });
+      }
+    }
+  }
+
   async function poll(signal: AbortSignal) {
     while (!signal.aborted) {
       try {
-        await track();
-        for (const wallet of await store.orphanedWallets()) {
-          const check = await canonicalReceipt(wallet.hash);
-          if (check?.success)
-            await store.restoreWallet(wallet.id, wallet.hash, check);
-        }
-        const pending = await store.pending(cursor, batchSize);
-        cursor = pending.length === batchSize ? pending.at(-1)?.id : undefined;
-        for (const item of pending) {
-          signal.throwIfAborted();
-          try {
-            await route(item);
-          } catch (error) {
-            logService("vasp", "error", "Transfer did not advance", null, {
-              id: item.id,
-              errorName: error instanceof Error ? error.name : "Error",
-            });
-          }
-        }
+        await exclusive("transfer-reconcile", () => sweep(signal));
       } catch (error) {
         if (!signal.aborted)
-          logService("vasp", "error", "Transfer scan did not advance", null, {
+          logService("vasp", "error", "Transfer worker did not advance", null, {
             errorName: error instanceof Error ? error.name : "Error",
           });
       }

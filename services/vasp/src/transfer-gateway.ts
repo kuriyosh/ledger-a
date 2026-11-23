@@ -4,6 +4,7 @@ import {
   type Address,
   decodeFunctionData,
   type Hex,
+  keccak256,
   parseTransaction,
   type TransactionSerialized,
 } from "viem";
@@ -54,15 +55,9 @@ type Rejected = {
 };
 type RelayResult = Accepted | Rejected | { status: "unavailable" };
 
-function matches(raw: string, forwarder: Address, request: ForwardPayload) {
+export function matchesForwardCall(data: Hex, request: ForwardPayload) {
   try {
-    const signed = parseTransaction(raw as TransactionSerialized);
-    if (signed.to?.toLowerCase() !== forwarder.toLowerCase() || !signed.data)
-      return false;
-    const decoded = decodeFunctionData({
-      abi: ledgerForwarderAbi,
-      data: signed.data,
-    });
+    const decoded = decodeFunctionData({ abi: ledgerForwarderAbi, data });
     if (
       decoded.functionName !== "execute" &&
       decoded.functionName !== "executeAll"
@@ -85,13 +80,42 @@ function matches(raw: string, forwarder: Address, request: ForwardPayload) {
   }
 }
 
+function matches(
+  raw: string,
+  hash: Hex,
+  forwarder: Address,
+  request: ForwardPayload,
+) {
+  try {
+    const serialized = raw as TransactionSerialized;
+    const signed = parseTransaction(serialized);
+    if (
+      signed.to?.toLowerCase() !== forwarder.toLowerCase() ||
+      signed.data === undefined ||
+      !matchesForwardCall(signed.data, request)
+    )
+      return false;
+    if (keccak256(serialized) !== hash)
+      throw new ServiceError(
+        "GATEWAY_LOG_INVALID",
+        "Gateway transaction hash differs from its raw transaction",
+        503,
+      );
+    return true;
+  } catch (error) {
+    if (error instanceof ServiceError) throw error;
+    return false;
+  }
+}
+
 export function transferGateway(
   url: string,
   token: string,
   forwarder: Address,
+  requestHttp = fetch,
 ) {
   async function request(path: string, init?: RequestInit) {
-    const response = await fetch(new URL(path, url), {
+    const response = await requestHttp(new URL(path, url), {
       ...init,
       signal: AbortSignal.timeout(18_000),
     });
@@ -148,12 +172,15 @@ export function transferGateway(
         const failure = errors.safeParse(response.body);
         if (!failure.success) return { status: "unavailable" };
         const { code, details } = failure.data.error;
-        if (code === "FORWARD_REJECTED")
-          return { status: "rejected", code, receipt: details?.receipt };
+        if (code === "FORWARD_REJECTED" && details?.receipt)
+          return { status: "rejected", code, receipt: details.receipt };
         if (details?.receipt) return { status: "accepted", ...details.receipt };
         if (
           response.status >= 500 ||
+          response.status === 401 ||
+          response.status === 403 ||
           response.status === 429 ||
+          code === "FORWARD_REJECTED" ||
           code === "DUPLICATE_TX"
         )
           return { status: "unavailable" };
@@ -174,6 +201,7 @@ export function transferGateway(
     ): Promise<Accepted | Rejected | undefined> {
       const through = await head();
       let cursor = from;
+      let best: Accepted | Rejected | undefined;
       while (cursor <= through) {
         const result = await request(`/v1/log?fromSeq=${cursor}&limit=1000`);
         const page = log.parse(result.body).entries;
@@ -191,18 +219,22 @@ export function transferGateway(
               503,
             );
           cursor = entry.seq + 1n;
-          if (entry.seq > through) return undefined;
+          if (entry.seq > through) return best;
           if (
             entry.source !== "relay" ||
-            !matches(entry.rawTx, forwarder, payload)
+            !matches(entry.rawTx, entry.txHash, forwarder, payload)
           )
             continue;
           const receipt = { txHash: entry.txHash, seq: entry.seq };
-          return entry.forwardStatus === "rejected"
-            ? { status: "rejected", code: "FORWARD_REJECTED", receipt }
-            : { status: "accepted", ...receipt };
+          if (entry.forwardStatus === "forwarded")
+            return { status: "accepted", ...receipt };
+          if (entry.forwardStatus !== "rejected")
+            best = { status: "accepted", ...receipt };
+          else if (!best)
+            best = { status: "rejected", code: "FORWARD_REJECTED", receipt };
         }
       }
+      return best;
     },
   };
 }
