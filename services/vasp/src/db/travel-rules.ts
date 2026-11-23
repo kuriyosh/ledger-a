@@ -1,6 +1,17 @@
 import type { openDatabase } from "@ledgera/shared/db";
 import { ServiceError } from "@ledgera/shared/errors";
-import { and, desc, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { bytesToHex, type Hex } from "viem";
 import type {
   AttestationWire,
@@ -214,7 +225,10 @@ export class TravelRuleStore {
       await tx
         .update(travelRuleMessages)
         .set({
-          deliveredAt: decision?.status === "expired" ? undefined : new Date(),
+          deliveredAt:
+            decision?.status === "expired"
+              ? undefined
+              : sql`coalesce(${travelRuleMessages.deliveredAt}, now())`,
           ...(decision && decisionFields(decision)),
         })
         .where(
@@ -239,7 +253,7 @@ export class TravelRuleStore {
       );
   }
 
-  async unreported() {
+  async unreported(after: Buffer | undefined, limit: number) {
     return this.db
       .select({
         refId: travelRuleMessages.refId,
@@ -250,6 +264,7 @@ export class TravelRuleStore {
       .innerJoin(transfers, eq(transfers.refId, travelRuleMessages.refId))
       .where(
         and(
+          after === undefined ? undefined : gt(travelRuleMessages.refId, after),
           eq(travelRuleMessages.direction, "out"),
           eq(travelRuleMessages.status, "approved"),
           eq(transfers.direction, "out"),
@@ -261,7 +276,8 @@ export class TravelRuleStore {
           ),
         ),
       )
-      .limit(20);
+      .orderBy(asc(travelRuleMessages.refId))
+      .limit(limit);
   }
 
   async hasIncoming(refId: Hex, hash: Hex) {

@@ -15,6 +15,7 @@ const signatureInput = z
   .regex(/^0x[0-9a-fA-F]{130}$/)
   .transform((value) => value.toLowerCase() as Hex);
 const vaspId = z.int().min(1).max(0x7fff_ffff);
+export const maximumTravelRuleTtlSeconds = 86_400;
 const maximumAmount = (1n << 256n) - 1n;
 const amount = z
   .string()

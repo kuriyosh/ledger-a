@@ -185,19 +185,43 @@ export function vaspApp(
   app.post(travelRoot, async (context) => {
     const identity = await verified(context.req.raw);
     const input = parse(travelMessage, signedJson(identity.body));
-    return context.json(await travelRule.receive(identity.vaspId, input));
+    const body = JSON.stringify(
+      await travelRule.receive(identity.vaspId, input, identity.timestamp),
+    );
+    const headers = await travelRule.responseHeaders(
+      identity.digest,
+      200,
+      body,
+    );
+    return context.body(body, 200, {
+      ...headers,
+      "Content-Type": "application/json; charset=utf-8",
+    });
   });
   app.get(`${travelRoot}/:refId`, async (context) => {
     const identity = await verified(context.req.raw);
     const refId = parse(refIdInput, context.req.param("refId"));
-    return context.json(await travelRule.get(identity.vaspId, refId));
+    const body = JSON.stringify(await travelRule.get(identity.vaspId, refId));
+    const headers = await travelRule.responseHeaders(
+      identity.digest,
+      200,
+      body,
+    );
+    return context.body(body, 200, {
+      ...headers,
+      "Content-Type": "application/json; charset=utf-8",
+    });
   });
   app.post(`${travelRoot}/:refId/confirm`, async (context) => {
     const identity = await verified(context.req.raw);
     const refId = parse(refIdInput, context.req.param("refId"));
     const { txHash } = parse(confirmInput, signedJson(identity.body));
     await travelRule.confirm(identity.vaspId, refId, txHash);
-    return context.body(null, 204);
+    return context.body(
+      null,
+      204,
+      await travelRule.responseHeaders(identity.digest, 204, ""),
+    );
   });
   app.get("/v1/admin/travel-rule", async (context) => {
     const direction = parse(

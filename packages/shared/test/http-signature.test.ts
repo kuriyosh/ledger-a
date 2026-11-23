@@ -1,7 +1,13 @@
 import { hashMessage, keccak256, recoverAddress, stringToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { expect, test, vi } from "vitest";
-import { signHttpRequest, verifyHttpRequest } from "../src/http-signature.ts";
+import {
+  signHttpRequest,
+  signHttpRequestWithDigest,
+  signHttpResponse,
+  verifyHttpRequest,
+  verifyHttpResponse,
+} from "../src/http-signature.ts";
 
 const signer = privateKeyToAccount(`0x${"1".padStart(64, "0")}`);
 const other = privateKeyToAccount(`0x${"2".padStart(64, "0")}`);
@@ -127,5 +133,55 @@ test("preserves binary bodies, including bytes that text decoding changes", asyn
   ).resolves.toMatchObject({ vaspId: 2 });
   await expect(
     verifyHttpRequest(post(Uint8Array.of(0xaa), text), active, timestamp),
+  ).rejects.toMatchObject(unauthorized);
+});
+
+test("authenticates a response's exact bytes, status and originating request digest", async () => {
+  const { digest } = await signHttpRequestWithDigest(
+    other,
+    post(),
+    1,
+    timestamp,
+  );
+  const signed = await signHttpResponse(
+    signer,
+    2,
+    digest,
+    200,
+    bytes,
+    timestamp,
+  );
+  const peer = { vaspId: 2, signer: signer.address };
+  await expect(
+    verifyHttpResponse(
+      new Response(bytes, { headers: signed }),
+      digest,
+      peer,
+      timestamp,
+    ),
+  ).resolves.toEqual(bytes);
+  for (const response of [
+    new Response("rejected", { headers: signed }),
+    new Response(bytes, { headers: signed, status: 409 }),
+    new Response(bytes),
+  ]) {
+    await expect(
+      verifyHttpResponse(response, digest, peer, timestamp),
+    ).rejects.toMatchObject(unauthorized);
+  }
+  const response = () => new Response(bytes, { headers: signed });
+  await expect(
+    verifyHttpResponse(response(), keccak256(bytes), peer, timestamp),
+  ).rejects.toMatchObject(unauthorized);
+  await expect(
+    verifyHttpResponse(
+      response(),
+      digest,
+      { ...peer, signer: other.address },
+      timestamp,
+    ),
+  ).rejects.toMatchObject(unauthorized);
+  await expect(
+    verifyHttpResponse(response(), digest, peer, timestamp + 301),
   ).rejects.toMatchObject(unauthorized);
 });

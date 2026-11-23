@@ -1,7 +1,11 @@
 import { randomBytes } from "node:crypto";
 import type { Deployment } from "@ledgera/config";
 import { ServiceError } from "@ledgera/shared/errors";
-import { signHttpRequest } from "@ledgera/shared/http-signature";
+import {
+  signHttpRequestWithDigest,
+  signHttpResponse,
+  verifyHttpResponse,
+} from "@ledgera/shared/http-signature";
 import {
   hashTravelRuleAttestation,
   signTravelRuleAttestation,
@@ -20,6 +24,7 @@ import type { Transfer } from "./db/transfers.ts";
 import { peerView, type TravelRuleStore } from "./db/travel-rules.ts";
 import type { transferChain } from "./transfer-chain.ts";
 import {
+  maximumTravelRuleTtlSeconds,
   namesMatch,
   type PeerReply,
   peerReply,
@@ -65,6 +70,8 @@ export function travelRuleService(
     chainId: deployment.chainId,
     verifyingContract: deployment.contracts.travelRuleCompliance,
   };
+  const confirmationBatchSize = 20;
+  let confirmationCursor: Buffer | undefined;
   const tokens = [deployment.contracts.tJPY, deployment.contracts.tUSD].map(
     (address) => address.toLowerCase(),
   );
@@ -122,11 +129,15 @@ export function travelRuleService(
         redirect: "error",
         signal: AbortSignal.timeout(5_000),
       });
-      const headers = await signHttpRequest(signer, request, ownId);
+      const { headers, digest } = await signHttpRequestWithDigest(
+        signer,
+        request,
+        ownId,
+      );
       for (const [key, value] of Object.entries(headers))
         request.headers.set(key, value);
       const response = await requestHttp(request);
-      if (response.ok) return response;
+      if (response.ok) return { response, digest };
     } catch {
       return undefined;
     }
@@ -152,7 +163,16 @@ export function travelRuleService(
       const vasp = await registry.vasp(id);
       return { active: vasp.status === 1, signer: vasp.travelRuleSigner };
     },
-    async receive(peer: number, message: TravelMessage) {
+    responseHeaders(requestDigest: Hex, status: number, body: string) {
+      return signHttpResponse(
+        signer,
+        ownId,
+        requestDigest,
+        status,
+        new TextEncoder().encode(body),
+      );
+    },
+    async receive(peer: number, message: TravelMessage, signedAt: number) {
       if (
         peer === ownId ||
         message.originatorVaspId !== peer ||
@@ -163,6 +183,12 @@ export function travelRuleService(
         throw new ServiceError(
           "TRAVEL_RULE_TOKEN_INVALID",
           "Unsupported token",
+          400,
+        );
+      if (message.expiry > signedAt + maximumTravelRuleTtlSeconds)
+        throw new ServiceError(
+          "TRAVEL_RULE_EXPIRY_INVALID",
+          "Travel Rule expiry is too far in the future",
           400,
         );
       if (message.expiry <= now())
@@ -259,12 +285,20 @@ export function travelRuleService(
       }
       const peer = await registry.vasp(stored.counterpartyVaspId);
       if (peer.status !== 1) return;
-      const response = stored.deliveredAt
+      const exchange = stored.deliveredAt
         ? await transmit(peer.endpoint, `${root}/${refId}`)
         : await transmit(peer.endpoint, root, stored.payload);
-      if (!response) return;
+      if (exchange?.response.status !== 200) return;
+      const body = await verifyHttpResponse(
+        exchange.response,
+        exchange.digest,
+        {
+          vaspId: stored.counterpartyVaspId,
+          signer: peer.travelRuleSigner,
+        },
+      );
       const result = peerReply.safeParse(
-        await response.json().catch(() => undefined),
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)),
       );
       if (!result.success || result.data.refId !== refId) return;
       if (stored.payload.expiry <= now()) {
@@ -298,18 +332,33 @@ export function travelRuleService(
     },
     async report() {
       await store.expireInbox(now());
-      for (const row of await store.unreported()) {
+      const items = await store.unreported(
+        confirmationCursor,
+        confirmationBatchSize,
+      );
+      confirmationCursor =
+        items.length === confirmationBatchSize
+          ? items.at(-1)?.refId
+          : undefined;
+      for (const row of items) {
         if (!row.hash) continue;
         const refId = bytesToHex(row.refId);
         const hash = bytesToHex(row.hash);
         const peer = await registry.vasp(row.peer);
-        if (
-          peer.status === 1 &&
-          (await transmit(peer.endpoint, `${root}/${refId}/confirm`, {
-            txHash: hash,
-          }))
-        )
+        if (peer.status !== 1) continue;
+        const exchange = await transmit(
+          peer.endpoint,
+          `${root}/${refId}/confirm`,
+          { txHash: hash },
+        );
+        if (exchange?.response.status !== 204) continue;
+        try {
+          await verifyHttpResponse(exchange.response, exchange.digest, {
+            vaspId: row.peer,
+            signer: peer.travelRuleSigner,
+          });
           await store.recordHash(refId, "out", hash);
+        } catch {}
       }
     },
   };
