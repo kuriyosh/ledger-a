@@ -8,6 +8,7 @@ case "$LEDGERA_APP_MODE" in
   anvil)
     account_file=chain/runtime/anvil/.env.generated
     fallback_rpc=http://anvil:8545
+    export SEQUENCER_RPC_URLS="$fallback_rpc" AUDIT_RPC_URL=http://rpc-proxy:8545
     ;;
   devnet)
     account_file=.env.generated
@@ -24,9 +25,11 @@ read_env() {
   fi
 }
 
-export SEQUENCER_RPC_URLS
-SEQUENCER_RPC_URLS=$(read_env 'process.env.SEQUENCER_RPC_URLS || ""')
-SEQUENCER_RPC_URLS=${SEQUENCER_RPC_URLS:-$fallback_rpc}
+if [[ "$LEDGERA_APP_MODE" == devnet ]]; then
+  export SEQUENCER_RPC_URLS
+  SEQUENCER_RPC_URLS=$(read_env 'process.env.SEQUENCER_RPC_URLS || ""')
+  SEQUENCER_RPC_URLS=${SEQUENCER_RPC_URLS:-$fallback_rpc}
+fi
 export POSTGRES_PASSWORD
 POSTGRES_PASSWORD=$(read_env 'process.env.POSTGRES_PASSWORD || ""')
 if [[ -z "$POSTGRES_PASSWORD" && "$LEDGERA_APP_MODE" == anvil ]]; then

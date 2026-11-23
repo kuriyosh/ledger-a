@@ -74,6 +74,7 @@ test.skipIf(!connection)(
           entries: [{ receipt }],
           violations: [missing, unreceipted],
           exclusions: [],
+          decisions: [],
         },
       });
       const app = auditorApp(new AuditStore(database.db), async () => {});
@@ -99,10 +100,26 @@ test.skipIf(!connection)(
         violations: 0,
       });
 
+      const persistent: Violation = {
+        check: "C2",
+        type: "BROKEN_CHAIN",
+        seqA: 1n,
+        detail: "conflicting gateway receipt",
+        evidence: {
+          archived: receipt,
+          observed: { ...receipt, signature: "0x11" },
+        },
+        observationId: "conflict-fixture",
+      };
       const persisted = await store.inputs();
       expect(persisted.receipts).toEqual([receipt]);
       expect(persisted.blocks[0]?.hash).toBe(canonicalHash);
-      const position = { block: 6n, index: 0, timestampMs: 125_000n };
+      const position = {
+        block: 6n,
+        blockHash: replacementHash,
+        index: 0,
+        timestampMs: 125_000n,
+      };
       const added = {
         ...block,
         number: 6n,
@@ -123,8 +140,10 @@ test.skipIf(!connection)(
           violations: [
             { ...missing, evidence: { receipt, position } },
             unreceipted,
+            persistent,
           ],
           exclusions: [],
+          decisions: [],
         },
       });
       const late = (
@@ -146,16 +165,23 @@ test.skipIf(!connection)(
           entries: [
             {
               receipt,
-              position: { block: 5n, timestampMs: 121_000n, index: 0 },
+              position: {
+                block: 5n,
+                blockHash: replacementHash,
+                timestampMs: 121_000n,
+                index: 0,
+              },
             },
           ],
           violations: [],
           exclusions: [],
+          decisions: [],
         },
       });
       expect(await summary("")).toMatchObject({
         lastBlockHash: replacementHash,
-        violations: 0,
+        violations: 1,
+        checks: { C2: 1, C5: 0, C6: 0 },
       });
     } finally {
       await database.close();

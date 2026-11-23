@@ -8,6 +8,13 @@
       "when": 1795454671329,
       "tag": "0000_fifo-audit",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795456680241,
+      "tag": "0001_audit-observations",
+      "breakpoints": true
     }
   ]
 }

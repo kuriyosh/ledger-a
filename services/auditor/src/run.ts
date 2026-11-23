@@ -1,11 +1,13 @@
 import { setTimeout } from "node:timers/promises";
 import { logService } from "@ledgera/shared/server";
-import type { Address } from "viem";
+import { type Address, keccak256, stringToHex } from "viem";
 import {
   type AuditBlock,
   type AuditReceipt,
   audit,
+  auditJson,
   checkReceipt,
+  receiptEvidence,
   type Violation,
 } from "./checks.ts";
 import type { AuditStore } from "./db/store.ts";
@@ -22,60 +24,100 @@ type RunnerOptions = {
   signal: AbortSignal;
 };
 
-async function scanReceipts(
+function observation(
+  seq: bigint,
+  detail: string,
+  evidence: Violation["evidence"],
+): Violation {
+  return {
+    check: "C2",
+    type: "BROKEN_CHAIN",
+    seqA: seq,
+    detail,
+    evidence,
+    observationId: keccak256(stringToHex(JSON.stringify(auditJson(evidence)))),
+  };
+}
+
+export async function scanReceipts(
   gateway: RunnerOptions["gateway"],
   saved: AuditReceipt[],
+  full: boolean,
   signal: AbortSignal,
 ) {
   const head = await gateway.head(signal);
-  const receipts = [...saved];
-  const verifiedUntil = saved.at(-1)?.seq ?? 0n;
-  let next = verifiedUntil + 1n;
+  const receipts = new Map(saved.map((receipt) => [receipt.seq, receipt]));
+  const last = saved.at(-1)?.seq ?? 0n;
+  const firstWaiting = saved.find(
+    (entry) =>
+      entry.forwardStatus === "queued" || entry.forwardStatus === "held_demo",
+  );
+  let next = full ? 1n : (firstWaiting?.seq ?? (last > 0n ? last : 1n));
   const problems: Violation[] = [];
 
   while (next <= head.seq) {
     signal.throwIfAborted();
     const before = next;
     const page = await gateway.page(next, signal);
-    if (!page.length) break;
     for (const receipt of page) {
-      if (receipt.seq > head.seq) break;
+      if (receipt.seq > head.seq) continue;
+      const archived = receipts.get(receipt.seq);
+      const observed = receiptEvidence(receipt);
       if (receipt.seq < next) {
-        problems.push({
-          check: "C2",
-          type: "BROKEN_CHAIN",
-          seqA: next - 1n,
-          detail: "Gateway returned a duplicate or out-of-order sequence",
-          evidence: { receipt, expectedSeq: next },
-        });
-        continue;
+        problems.push(
+          observation(
+            receipt.seq,
+            "Gateway returned a duplicate or out-of-order sequence",
+            {
+              observed,
+              expectedSeq: next,
+            },
+          ),
+        );
+      } else {
+        next = receipt.seq + 1n;
       }
-      receipts.push(receipt);
-      next = receipt.seq + 1n;
+      if (archived) {
+        const saved = receiptEvidence(archived);
+        if (
+          JSON.stringify(auditJson(saved)) !==
+          JSON.stringify(auditJson(observed))
+        ) {
+          problems.push(
+            observation(
+              receipt.seq,
+              "Gateway returned conflicting Receipt data",
+              { archived: saved, observed },
+            ),
+          );
+          continue;
+        }
+        archived.forwardStatus = receipt.forwardStatus;
+        archived.forwardError = receipt.forwardError;
+      } else {
+        receipts.set(receipt.seq, receipt);
+      }
     }
     if (next === before) break;
   }
 
-  const firstWaiting = saved.find(
-    (entry) =>
-      entry.forwardStatus === "queued" || entry.forwardStatus === "held_demo",
+  const ordered = [...receipts.values()].sort((a, b) =>
+    a.seq === b.seq ? 0 : a.seq < b.seq ? -1 : 1,
   );
-  if (firstWaiting) {
-    const updates = await gateway.page(firstWaiting.seq, signal);
-    const bySeq = new Map(updates.map((entry) => [entry.seq, entry]));
-    for (const receipt of receipts) {
-      const updated = bySeq.get(receipt.seq);
-      if (
-        updated?.signature !== receipt.signature ||
-        updated.entryHash !== receipt.entryHash
-      )
-        continue;
-      receipt.forwardStatus = updated.forwardStatus;
-      receipt.forwardError = updated.forwardError;
-    }
-  }
+  return { receipts: ordered, head, problems };
+}
 
-  return { receipts, head, problems };
+type BlockLookup = Pick<RunnerOptions["source"], "blockHash">;
+
+export async function isLagging(
+  source: BlockLookup,
+  saved: readonly AuditBlock[],
+  tip: bigint,
+) {
+  const previous = saved.at(-1);
+  if (!previous || tip >= previous.number) return false;
+  const known = saved.find((block) => block.number === tip);
+  return !known || (await source.blockHash(tip)) === known.hash;
 }
 
 export function createAuditRunner({
@@ -139,8 +181,13 @@ export function createAuditRunner({
       historical.clear();
     }
     const saved = await store.inputs();
-    let retained = reset ? [] : saved.blocks;
+    let retained = saved.blocks;
     const tip = await source.tip();
+    if (await isLagging(source, retained, tip)) {
+      if (reset)
+        throw new Error("Audit RPC has not reached the previous checkpoint");
+      return;
+    }
     let keep = retained.length;
 
     while (keep > 0) {
@@ -155,9 +202,14 @@ export function createAuditRunner({
     retained = retained.slice(0, keep);
     const firstBlock = startBlock - 1n;
     const ancestor = retained.at(-1)?.number ?? firstBlock - 1n;
+    if (reset) retained = [];
     const added: AuditBlock[] = [];
     let previous = retained.at(-1);
-    for (let from = ancestor + 1n; from <= tip; from += 250n) {
+    for (
+      let from = reset ? firstBlock : ancestor + 1n;
+      from <= tip;
+      from += 250n
+    ) {
       signal.throwIfAborted();
       const lastInBatch = from + 249n;
       const to = lastInBatch <= tip ? lastInBatch : tip;
@@ -182,7 +234,7 @@ export function createAuditRunner({
       receipts,
       head: advertised,
       problems,
-    } = await scanReceipts(gateway, reset ? [] : saved.receipts, signal);
+    } = await scanReceipts(gateway, saved.receipts, reset, signal);
     const policy = await source.policy();
     const snapshot = await audit(
       receipts,
@@ -195,6 +247,7 @@ export function createAuditRunner({
       },
       readHistorical,
       verifyReceipt,
+      saved.decisions,
     );
     const lastReceipt = receipts.at(-1);
     const lastSeq = lastReceipt?.seq ?? 0n;
@@ -202,17 +255,23 @@ export function createAuditRunner({
       advertised.seq !== lastSeq ||
       advertised.entryHash !== (lastReceipt?.entryHash ?? policy.genesisHash)
     ) {
-      problems.push({
-        check: "C2",
-        type: "BROKEN_CHAIN",
-        seqA: lastSeq > advertised.seq ? lastSeq : advertised.seq,
-        detail: "Gateway log does not match its advertised head",
-        evidence: {
-          advertised,
-          observedSeq: lastSeq,
-          observedHash: lastReceipt?.entryHash,
-        },
-      });
+      const repeated = await gateway.head(signal);
+      if (
+        repeated.seq === advertised.seq &&
+        repeated.entryHash === advertised.entryHash
+      ) {
+        const sequence = lastSeq > advertised.seq ? lastSeq : advertised.seq;
+        problems.push(
+          observation(
+            sequence,
+            "Gateway log does not match its advertised head",
+            {
+              advertised,
+              archived: lastReceipt ? receiptEvidence(lastReceipt) : null,
+            },
+          ),
+        );
+      }
     }
     snapshot.violations.push(...problems);
     if (head && (await source.blockHash(head.number)) !== head.hash) {

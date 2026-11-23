@@ -21,7 +21,12 @@ export type AuditReceipt = Receipt & {
   forwardError: string | null;
 };
 
-export type Position = { block: bigint; index: number; timestampMs: bigint };
+export type Position = {
+  block: bigint;
+  blockHash: Hex;
+  index: number;
+  timestampMs: bigint;
+};
 
 export type AuditBlock = {
   number: bigint;
@@ -60,6 +65,7 @@ export type Violation = {
   block?: bigint;
   detail: string;
   evidence: Evidence;
+  observationId?: string;
 };
 
 export type Exclusion = {
@@ -69,6 +75,23 @@ export type Exclusion = {
   block: bigint;
   evidence: Evidence;
 };
+
+export type InclusionDecision = {
+  seq: bigint;
+  txHash: Hex;
+  deadlineMs: bigint;
+  deadlineHash: Hex;
+  exclusion?: Exclusion;
+};
+
+export function receiptEvidence(receipt: AuditReceipt) {
+  const { forwardStatus: _status, forwardError: _error, ...signed } = receipt;
+  return signed;
+}
+
+function blockEvidence({ number, hash, timestampMs }: AuditBlock) {
+  return { number, hash, timestampMs };
+}
 
 type ReadSender = (
   sender: Address,
@@ -97,7 +120,10 @@ export function orderViolation(
     seqB: later.receipt.seq,
     block: a.block,
     detail: "Receipts are included out of sequence",
-    evidence: { earlier, later },
+    evidence: {
+      earlier: { receipt: receiptEvidence(earlier.receipt), position: a },
+      later: { receipt: receiptEvidence(later.receipt), position: b },
+    },
   };
 }
 
@@ -119,7 +145,11 @@ export async function checkReceipt(
       type: "BAD_SIGNATURE",
       seqA: receipt.seq,
       detail: "Receipt signature does not match the Gateway signer",
-      evidence: { receipt, recovered, gatewaySigner: policy.gatewaySigner },
+      evidence: {
+        receipt: receiptEvidence(receipt),
+        recovered,
+        gatewaySigner: policy.gatewaySigner,
+      },
     });
   }
   const expectedSeq = previous.seq + 1n;
@@ -134,7 +164,7 @@ export async function checkReceipt(
       seqA: receipt.seq,
       detail: "Receipt sequence, entry hash, or previous hash does not match",
       evidence: {
-        receipt,
+        receipt: receiptEvidence(receipt),
         expectedSeq,
         expectedEntryHash: entryHash,
         expectedPrevHash: previous.hash,
@@ -195,7 +225,8 @@ export async function checkInclusion(
   blocks: readonly AuditBlock[],
   policy: Pick<AuditPolicy, "inclusionDeadlineMs" | "timeToleranceMs">,
   readSender: ReadSender,
-) {
+  prior?: InclusionDecision,
+): Promise<{ violations: Violation[]; decision?: InclusionDecision }> {
   const violations: Violation[] = [];
   if (
     position &&
@@ -208,7 +239,11 @@ export async function checkInclusion(
       txHash: receipt.txHash,
       block: position.block,
       detail: "Receipt time is later than the inclusion time plus tolerance",
-      evidence: { receipt, position, toleranceMs: policy.timeToleranceMs },
+      evidence: {
+        receipt: receiptEvidence(receipt),
+        position,
+        toleranceMs: policy.timeToleranceMs,
+      },
     });
   }
   const deadlineMs = receipt.receivedAtMs + policy.inclusionDeadlineMs;
@@ -218,42 +253,63 @@ export async function checkInclusion(
   if (firstAfterDeadline === blocks.length) return { violations };
   const firstAtReceipt = firstBlockAt(blocks, receipt.receivedAtMs, false);
   const start = Math.max(0, firstAtReceipt - 1);
-  const proof = await exclusionProof(receipt);
-  if (proof) {
-    for (let index = start; index <= firstAfterDeadline; index++) {
-      const block = blocks[index];
-      const state = await readSender(proof.sender, block);
-      if (state.active && state.balance >= proof.cost) continue;
-      const exclusion: Exclusion = {
-        seq: receipt.seq,
-        txHash: receipt.txHash,
-        block: block.number,
-        reason: state.active ? "INSUFFICIENT_FUNDS" : "SENDER_INACTIVE",
-        evidence: {
+  const end = blocks[firstAfterDeadline];
+  let decision =
+    prior?.txHash === receipt.txHash &&
+    prior.deadlineMs === deadlineMs &&
+    prior.deadlineHash === end.hash
+      ? prior
+      : undefined;
+  if (!decision) {
+    decision = {
+      seq: receipt.seq,
+      txHash: receipt.txHash,
+      deadlineMs,
+      deadlineHash: end.hash,
+    };
+    const proof = await exclusionProof(receipt);
+    if (proof) {
+      for (let index = start; index <= firstAfterDeadline; index++) {
+        const block = blocks[index];
+        if (position && block.number >= position.block) break;
+        const state = await readSender(proof.sender, block);
+        if (state.active && state.balance >= proof.cost) continue;
+        decision.exclusion = {
+          seq: receipt.seq,
+          txHash: receipt.txHash,
           block: block.number,
-          blockHash: block.hash,
-          ...proof,
-          ...state,
-        },
-      };
-      return { violations, exclusion };
+          reason: state.active ? "INSUFFICIENT_FUNDS" : "SENDER_INACTIVE",
+          evidence: {
+            block: block.number,
+            blockHash: block.hash,
+            ...proof,
+            ...state,
+            intervalStart: blockEvidence(blocks[start]),
+            deadlineBlock: blockEvidence(end),
+          },
+        };
+        break;
+      }
     }
   }
-  violations.push({
-    check: "C5",
-    type: "NOT_INCLUDED",
-    seqA: receipt.seq,
-    txHash: receipt.txHash,
-    block: blocks[firstAfterDeadline].number,
-    detail: "Transaction was absent at its L2 inclusion deadline",
-    evidence: {
-      receipt,
-      deadlineMs,
-      deadlineBlock: blocks[firstAfterDeadline].number,
-      position,
-    },
-  });
-  return { violations };
+  if (!decision.exclusion) {
+    violations.push({
+      check: "C5",
+      type: "NOT_INCLUDED",
+      seqA: receipt.seq,
+      txHash: receipt.txHash,
+      block: end.number,
+      detail: "Transaction was absent at its L2 inclusion deadline",
+      evidence: {
+        receipt: receiptEvidence(receipt),
+        deadlineMs,
+        intervalStart: blockEvidence(blocks[start]),
+        deadlineBlock: blockEvidence(end),
+        position,
+      },
+    });
+  }
+  return { violations, decision };
 }
 
 export async function audit(
@@ -263,9 +319,11 @@ export async function audit(
   policy: AuditPolicy,
   readSender: ReadSender,
   verifyReceipt = checkReceipt,
+  decisions: ReadonlyMap<bigint, InclusionDecision> = new Map(),
 ) {
   const violations: Violation[] = [];
   const exclusions: Exclusion[] = [];
+  const checkedDecisions: InclusionDecision[] = [];
   const entries: Array<{ receipt: AuditReceipt; position?: Position }> = [];
   const positions = new Map<Hex, Position>();
   const knownHashes = new Set(receipts.map((receipt) => receipt.txHash));
@@ -282,6 +340,7 @@ export async function audit(
       if (transaction.deposit) continue;
       const position = {
         block: block.number,
+        blockHash: block.hash,
         index,
         timestampMs: block.timestampMs,
       };
@@ -337,9 +396,14 @@ export async function audit(
       blocks,
       policy,
       readCached,
+      decisions.get(receipt.seq),
     );
     violations.push(...inclusion.violations);
-    if (inclusion.exclusion) exclusions.push(inclusion.exclusion);
+    if (inclusion.decision) {
+      checkedDecisions.push(inclusion.decision);
+      if (inclusion.decision.exclusion)
+        exclusions.push(inclusion.decision.exclusion);
+    }
   }
 
   for (const block of blocks) {
@@ -368,5 +432,5 @@ export async function audit(
     }
   }
 
-  return { entries, violations, exclusions };
+  return { entries, violations, exclusions, decisions: checkedDecisions };
 }

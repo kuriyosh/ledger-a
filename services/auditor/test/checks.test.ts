@@ -6,7 +6,12 @@ import {
 import { type Hex, keccak256, numberToHex, zeroHash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { expect, test, vi } from "vitest";
-import { type AuditBlock, type AuditReceipt, audit } from "../src/checks.ts";
+import {
+  type AuditBlock,
+  type AuditReceipt,
+  audit,
+  receiptEvidence,
+} from "../src/checks.ts";
 
 const signer = privateKeyToAccount(`0x${"1".padStart(64, "0")}`);
 const customer = privateKeyToAccount(`0x${"2".padStart(64, "0")}`);
@@ -116,12 +121,22 @@ test("finds signature, sequence, commitment, order, unreceipted and timing viola
   ]);
   expect(violations.find((item) => item.check === "C4")?.evidence).toEqual({
     earlier: {
-      receipt: first,
-      position: { block: 2n, index: 1, timestampMs: 12_000n },
+      receipt: receiptEvidence(first),
+      position: {
+        block: 2n,
+        blockHash: included.hash,
+        index: 1,
+        timestampMs: 12_000n,
+      },
     },
     later: {
-      receipt: third,
-      position: { block: 2n, index: 0, timestampMs: 12_000n },
+      receipt: receiptEvidence(third),
+      position: {
+        block: 2n,
+        blockHash: included.hash,
+        index: 0,
+        timestampMs: 12_000n,
+      },
     },
   });
 });
@@ -196,4 +211,46 @@ test("positions and C4 are recalculated for replacement blocks", async () => {
   expect(
     (await audit([first, second], fork, 2n, policy, readSender)).violations,
   ).toMatchObject([{ type: "ORDER_VIOLATION" }]);
+});
+
+test("does not use a late transaction's own debited balance to excuse it", async () => {
+  const entry = await receipt(1n);
+  const history = [
+    block(1n, 8_000n),
+    block(2n, 130_000n),
+    block(3n, 132_000n, [entry.txHash]),
+  ];
+  const state = vi.fn(
+    async (_: typeof customer.address, at: Pick<AuditBlock, "number">) => ({
+      active: true,
+      balance: at.number < 3n ? 210_001n : 1n,
+    }),
+  );
+  const result = await audit([entry], history, 2n, policy, state);
+  expect(result.exclusions).toEqual([]);
+  expect(result.violations).toMatchObject([
+    {
+      type: "NOT_INCLUDED",
+      evidence: {
+        deadlineBlock: { hash: history[2].hash },
+        position: { blockHash: history[2].hash },
+      },
+    },
+  ]);
+  expect(state).toHaveBeenCalledTimes(2);
+  const archived = new Map(result.decisions.map((item) => [item.seq, item]));
+  const noArchiveRpc = vi.fn(async () => {
+    throw new Error("state pruned");
+  });
+  const repeated = await audit(
+    [entry],
+    history,
+    2n,
+    policy,
+    noArchiveRpc,
+    undefined,
+    archived,
+  );
+  expect(repeated).toEqual(result);
+  expect(noArchiveRpc).not.toHaveBeenCalled();
 });

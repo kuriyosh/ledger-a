@@ -51,6 +51,7 @@ export const violations = auditor.table(
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
     identity: text("identity").notNull().unique(),
+    observationId: text("observation_id"),
     check: text("check_code").$type<Violation["check"]>().notNull(),
     type: text("type").$type<Violation["type"]>().notNull(),
     seqA: sequence("seq_a"),
@@ -74,4 +75,12 @@ export const exclusions = auditor.table("exclusions", {
   block: height("verified_block").notNull(),
   evidence: jsonb("evidence").notNull(),
   detectedAt: instant("detected_at"),
+});
+
+export const inclusionDecisions = auditor.table("inclusion_decisions", {
+  seq: sequence("seq").primaryKey(),
+  txHash: hash("tx_hash").notNull(),
+  deadlineMs: sequence("deadline_ms").notNull(),
+  deadlineHash: hash("deadline_hash").notNull(),
+  exclusion: jsonb("exclusion"),
 });

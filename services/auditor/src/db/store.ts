@@ -13,13 +13,19 @@ import {
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
-import { type AuditBlock, type audit, auditJson } from "../checks.ts";
+import {
+  type AuditBlock,
+  type audit,
+  auditJson,
+  type InclusionDecision,
+} from "../checks.ts";
 import { receiptSchema, uint64 } from "../sources.ts";
 import {
   auditBlocks,
   auditState,
   exclusions,
   fifoEntries,
+  inclusionDecisions,
   violations,
 } from "./schema.ts";
 
@@ -39,6 +45,14 @@ const blockSchema = z.object({
       headHash: z.custom<AuditBlock["hash"]>(),
     }),
   ),
+});
+
+const inclusionProof = z.object({
+  seq: uint64,
+  txHash: z.custom<InclusionDecision["txHash"]>(),
+  reason: z.enum(["SENDER_INACTIVE", "INSUFFICIENT_FUNDS"]),
+  block: uint64,
+  evidence: z.record(z.string(), z.unknown()),
 });
 
 type Filters = { fromSeq: bigint; fromBlock: bigint };
@@ -68,6 +82,7 @@ export class AuditStore {
           .select({ receipt: fifoEntries.receipt })
           .from(fifoEntries)
           .orderBy(asc(fifoEntries.seq));
+        const storedDecisions = await tx.select().from(inclusionDecisions);
         const [state] = await tx
           .select()
           .from(auditState)
@@ -75,6 +90,18 @@ export class AuditStore {
         return {
           blocks: storedBlocks.map(({ info }) => blockSchema.parse(info)),
           receipts: entries.map(({ receipt }) => receiptSchema.parse(receipt)),
+          decisions: new Map(
+            storedDecisions.map(({ exclusion, ...row }) => [
+              row.seq,
+              {
+                ...row,
+                exclusion:
+                  exclusion === null
+                    ? undefined
+                    : inclusionProof.parse(exclusion),
+              },
+            ]),
+          ),
           state,
         };
       },
@@ -112,16 +139,10 @@ export class AuditStore {
       ) {
         throw new Error("Audit checkpoint changed during inspection");
       }
-      if (reset) {
-        await tx.delete(auditBlocks);
-        await tx.delete(fifoEntries);
-        await tx.delete(violations);
-        await tx.delete(exclusions);
-      } else {
-        await tx.delete(auditBlocks).where(gt(auditBlocks.number, ancestor));
-        await tx.delete(violations).where(gt(violations.block, ancestor));
-        await tx.delete(exclusions).where(gt(exclusions.block, ancestor));
-      }
+      if (reset) await tx.delete(auditBlocks);
+      else await tx.delete(auditBlocks).where(gt(auditBlocks.number, ancestor));
+      await tx.delete(violations).where(gt(violations.block, ancestor));
+      await tx.delete(exclusions).where(gt(exclusions.block, ancestor));
       for (let offset = 0; offset < blocks.length; offset += 1_000) {
         await tx.insert(auditBlocks).values(
           blocks.slice(offset, offset + 1_000).map((block) => ({
@@ -138,6 +159,10 @@ export class AuditStore {
       const storedViolations = new Map(
         (await tx.select().from(violations)).map((row) => [row.identity, row]),
       );
+      for (const saved of storedViolations.values()) {
+        if (saved.observationId === null || saved.seqA === null) continue;
+        failuresBySeq.set(saved.seqA, new Set(["C2"]));
+      }
       const visited = new Set<string>();
       for (const violation of snapshot.violations) {
         for (const seq of [violation.seqA, violation.seqB]) {
@@ -149,14 +174,16 @@ export class AuditStore {
           }
           checks.add(violation.check);
         }
-        const identity = [
-          violation.check,
-          violation.seqA,
-          violation.seqB,
-          violation.txHash,
-          violation.block,
-          violation.detail,
-        ].join(":");
+        const identity =
+          [
+            violation.check,
+            violation.seqA,
+            violation.seqB,
+            violation.txHash,
+            violation.block,
+            violation.detail,
+          ].join(":") +
+          (violation.observationId ? `:${violation.observationId}` : "");
         if (visited.has(identity)) continue;
         visited.add(identity);
         const previous = storedViolations.get(identity);
@@ -165,7 +192,10 @@ export class AuditStore {
           await tx
             .insert(violations)
             .values({ ...violation, identity, evidence });
-        } else if (!isDeepStrictEqual(previous.evidence, evidence)) {
+        } else if (
+          previous.observationId === null &&
+          !isDeepStrictEqual(previous.evidence, evidence)
+        ) {
           await tx
             .update(violations)
             .set({ evidence })
@@ -173,13 +203,11 @@ export class AuditStore {
         }
         storedViolations.delete(identity);
       }
-      if (storedViolations.size) {
-        await tx.delete(violations).where(
-          inArray(
-            violations.id,
-            Array.from(storedViolations.values(), (row) => row.id),
-          ),
-        );
+      const invalidated = Array.from(storedViolations.values())
+        .filter((row) => row.observationId === null)
+        .map((row) => row.id);
+      if (invalidated.length) {
+        await tx.delete(violations).where(inArray(violations.id, invalidated));
       }
 
       const storedExclusions = new Map(
@@ -202,6 +230,35 @@ export class AuditStore {
         await tx
           .delete(exclusions)
           .where(inArray(exclusions.seq, Array.from(storedExclusions.keys())));
+      }
+
+      const previousDecisions = new Map(
+        (await tx.select().from(inclusionDecisions)).map((row) => [
+          row.seq,
+          row,
+        ]),
+      );
+      for (const { exclusion, ...decision } of snapshot.decisions) {
+        const row = {
+          ...decision,
+          exclusion: exclusion ? auditJson(exclusion) : null,
+        };
+        const previous = previousDecisions.get(decision.seq);
+        if (!previous) await tx.insert(inclusionDecisions).values(row);
+        else if (!isDeepStrictEqual(previous, row)) {
+          await tx
+            .update(inclusionDecisions)
+            .set(row)
+            .where(eq(inclusionDecisions.seq, decision.seq));
+        }
+        previousDecisions.delete(decision.seq);
+      }
+      if (previousDecisions.size) {
+        await tx
+          .delete(inclusionDecisions)
+          .where(
+            inArray(inclusionDecisions.seq, [...previousDecisions.keys()]),
+          );
       }
 
       const priorEntries = new Map(
