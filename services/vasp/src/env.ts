@@ -9,6 +9,7 @@ const privateKey = z.templateLiteral([
   z.string().regex(/^[a-fA-F0-9]{64}$/),
 ]);
 
+import { rfqRate } from "./quote-model.ts";
 import { maximumTravelRuleTtlSeconds } from "./travel-rule-model.ts";
 
 export const vaspEnv = serverEnv
@@ -43,12 +44,30 @@ export const vaspEnv = serverEnv
       .positive()
       .max(maximumTravelRuleTtlSeconds)
       .default(600),
+    MARKET_MAKER_VASP_ID: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(0x7fff_ffff)
+      .default(2),
+    MARKET_MAKER_ENABLED: z.stringbool().default(false),
+    TREASURY_PRIVATE_KEY: privateKey.optional(),
+    RFQ_RATE_JPY_PER_USD: rfqRate.prefault("155.20"),
+    RFQ_TTL_SEC: z.coerce.number().int().positive().max(86_400).default(30),
     DEMO_MODE: z.stringbool().default(false),
   })
   .refine((env) => env.CUSTOMER_ID_PREFIX === (env.VASP_ID === 1 ? "A" : "B"), {
     path: ["CUSTOMER_ID_PREFIX"],
     message: "Customer ID prefix must match VASP_ID",
   })
+  .refine(
+    (value) =>
+      !value.MARKET_MAKER_ENABLED || value.TREASURY_PRIVATE_KEY !== undefined,
+    {
+      path: ["TREASURY_PRIVATE_KEY"],
+      message: "Market maker requires a treasury key",
+    },
+  )
   .transform((env) => ({
     ...env,
     PORT: env.PORT ?? 8620 + env.VASP_ID,

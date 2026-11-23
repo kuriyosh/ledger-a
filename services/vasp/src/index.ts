@@ -6,10 +6,14 @@ import { privateKeyToAccount } from "viem/accounts";
 import { registryChain, registryGateway } from "./chain.ts";
 import { customerService } from "./customers.ts";
 import { VaspStore } from "./db/store.ts";
+import { SwapStore } from "./db/swaps.ts";
 import { TransferStore } from "./db/transfers.ts";
 import { TravelRuleStore } from "./db/travel-rules.ts";
 import { vaspEnv } from "./env.ts";
 import { vaspApp } from "./http.ts";
+import { quoteService } from "./quotes.ts";
+import { swapChain } from "./swap-chain.ts";
+import { swapService } from "./swaps.ts";
 import { transferChain } from "./transfer-chain.ts";
 import { transferGateway } from "./transfer-gateway.ts";
 import { transferService } from "./transfers.ts";
@@ -55,17 +59,43 @@ const travelRule = travelRuleService(
   env.TRAVEL_RULE_AUTO_APPROVE,
   env.TRAVEL_RULE_TTL_SEC,
 );
+const transferStore = new TransferStore(database.db, vault);
+const swapStore = new SwapStore(database.db);
+const gateway = transferGateway(
+  env.GATEWAY_URL,
+  env.GATEWAY_API_KEY,
+  deployments.contracts.ledgerForwarder,
+);
+const maker =
+  env.MARKET_MAKER_ENABLED && env.TREASURY_PRIVATE_KEY
+    ? {
+        signer: privateKeyToAccount(env.TREASURY_PRIVATE_KEY),
+        ttl: env.RFQ_TTL_SEC,
+        rate: env.RFQ_RATE_JPY_PER_USD,
+      }
+    : undefined;
+const quotes = quoteService(swapStore, chain, transferReader, deployments, {
+  ownId: env.VASP_ID,
+  vaspSigner: signer,
+  makerId: env.MARKET_MAKER_VASP_ID,
+  maker,
+});
+await quotes.verifyMaker();
+const swaps = swapService(
+  swapStore,
+  transferStore,
+  swapChain(chain.client, deployments, transferReader),
+  gateway,
+  env.DEMO_MODE,
+);
 const transfers = transferService(
-  new TransferStore(database.db, vault),
+  transferStore,
   transferReader,
-  transferGateway(
-    env.GATEWAY_URL,
-    env.GATEWAY_API_KEY,
-    deployments.contracts.ledgerForwarder,
-  ),
+  gateway,
   chain,
   travelRule,
   database.exclusive,
+  swaps,
 );
 const shutdown = new AbortController();
 const polling = Promise.all([
@@ -80,6 +110,8 @@ startService(
     env.ADMIN_TOKEN,
     transfers,
     travelRule,
+    quotes,
+    swaps,
     env.DEMO_MODE,
   ),
   env,

@@ -29,6 +29,13 @@
       "when": 1795463539108,
       "tag": "0003_travel-rule-messages",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795465130917,
+      "tag": "0004_swaps-and-quotes",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,60 @@ export function transferChain(
 ) {
   const contracts = deployment.contracts;
   const tokens = { tJPY: contracts.tJPY, tUSD: contracts.tUSD };
+  async function sign(
+    signer: LocalAccount,
+    calls: ReadonlyArray<{ to: Address; gas: bigint; data: Hex }>,
+    deadline = Math.floor(Date.now() / 1_000) + 300,
+  ) {
+    const [head, finalized] = await Promise.all([
+      client.getBlock({ blockTag: "latest" }),
+      client.getBlock({ blockTag: "finalized" }),
+    ]);
+    const nonce = await client.readContract({
+      address: contracts.ledgerForwarder,
+      abi: ledgerForwarderAbi,
+      functionName: "nonces",
+      args: [signer.address],
+      blockHash: head.hash,
+      requireCanonical: true,
+    });
+    const domain = {
+      chainId: deployment.chainId,
+      verifyingContract: contracts.ledgerForwarder,
+    };
+    const requests: ForwardPayload[] = await Promise.all(
+      calls.map(async ({ to, gas, data }, index) => {
+        const request = {
+          from: signer.address,
+          to,
+          value: 0n,
+          gas,
+          deadline,
+          nonce: nonce + BigInt(index),
+          data,
+        };
+        const signature = await signForwardRequest(signer, domain, request);
+        return {
+          from: request.from,
+          to,
+          value: "0",
+          gas: gas.toString(),
+          deadline,
+          data,
+          signature,
+        };
+      }),
+    );
+    return {
+      nonce,
+      firstBlock:
+        deployment.environment === "anvil"
+          ? BigInt(deployment.auditStartBlock)
+          : finalized.number,
+      requests,
+    };
+  }
+
   return {
     tokens,
     forwarder: contracts.ledgerForwarder,
@@ -81,18 +135,6 @@ export function transferChain(
       amount: bigint,
       travel?: { attestation: TravelRuleAttestation; signature: Hex },
     ) {
-      const [head, finalized] = await Promise.all([
-        client.getBlock({ blockTag: "latest" }),
-        client.getBlock({ blockTag: "finalized" }),
-      ]);
-      const nonce = await client.readContract({
-        address: contracts.ledgerForwarder,
-        abi: ledgerForwarderAbi,
-        functionName: "nonces",
-        args: [signer.address],
-        blockHash: head.hash,
-        requireCanonical: true,
-      });
       const data = travel
         ? encodeFunctionData({
             abi: ledgerTokenAbi,
@@ -105,43 +147,18 @@ export function transferChain(
             args: [to, amount],
           });
       const gas = travel ? 300_000n : 200_000n;
-      const deadline = Math.floor(Date.now() / 1000) + 300;
-      const request = {
-        from: signer.address,
-        to: token,
-        value: 0n,
-        gas,
-        deadline: travel
-          ? Math.min(deadline, Number(travel.attestation.expiry))
-          : deadline,
-        nonce,
-        data,
-      };
-      const signature = await signForwardRequest(
-        signer,
-        {
-          chainId: deployment.chainId,
-          verifyingContract: contracts.ledgerForwarder,
-        },
-        request,
-      );
-      return {
-        nonce,
-        firstBlock:
-          deployment.environment === "anvil"
-            ? BigInt(deployment.auditStartBlock)
-            : finalized.number,
-        request: {
-          from: request.from,
-          to: token,
-          value: "0",
-          gas: gas.toString(),
-          deadline: request.deadline,
-          data,
-          signature,
-        },
-      };
+      const localDeadline = Math.floor(Date.now() / 1000) + 300;
+      const deadline = travel
+        ? Math.min(localDeadline, Number(travel.attestation.expiry))
+        : localDeadline;
+      const {
+        requests: [request],
+        ...metadata
+      } = await sign(signer, [{ to: token, data, gas }], deadline);
+      if (!request) throw new Error("Forward request could not be prepared");
+      return { ...metadata, request };
     },
+    sign,
     async finalizedRequest(
       request: ForwardPayload,
       nonce: bigint,
