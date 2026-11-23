@@ -1,106 +1,131 @@
-import { hashMessage, keccak256, recoverAddress, toBytes } from "viem";
+import { hashMessage, keccak256, recoverAddress, stringToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { expect, test, vi } from "vitest";
 import { signHttpRequest, verifyHttpRequest } from "../src/http-signature.ts";
 
-const gateway = privateKeyToAccount(`0x${"1".padStart(64, "0")}`);
+const signer = privateKeyToAccount(`0x${"1".padStart(64, "0")}`);
 const other = privateKeyToAccount(`0x${"2".padStart(64, "0")}`);
 const timestamp = 1_795_000_000;
-const payload = {
-  method: "POST",
-  path: "/vasp/v1/rfq/quotes",
-  body: toBytes('{"value":"￥", "amount":"123"}'),
-};
+const url = "https://vasp-b.example/vasp/v1/rfq/quotes";
+const json = '{"value":"￥", "amount":"123"}';
+const bytes = Uint8Array.from(stringToBytes(json));
+const unauthorized = { code: "INVALID_VASP_SIGNATURE", status: 401 };
+const active = async () => ({ active: true, signer: signer.address });
 
-test("signs the exact UTF-8 bytes, method, path and decimal UNIX time", async () => {
-  const signed = await signHttpRequest(gateway, payload, 2, timestamp);
+function post(body: BodyInit = bytes, headers?: HeadersInit) {
+  return new Request(url, { method: "POST", body, headers });
+}
+
+test("signs the exact UTF-8 bytes, method, URL pathname and decimal UNIX time", async () => {
+  const request = post();
+  const signed = await signHttpRequest(signer, request, 2, timestamp);
+  expect(request.bodyUsed).toBe(false);
   const digest = hashMessage(
-    `POST\n/vasp/v1/rfq/quotes\n1795000000\n${keccak256(payload.body)}`,
+    `POST\n/vasp/v1/rfq/quotes\n1795000000\n${keccak256(bytes)}`,
   );
   expect(
     await recoverAddress({
       hash: digest,
       signature: signed["X-Ledgera-Signature"],
     }),
-  ).toBe(gateway.address);
-  const lookup = vi.fn(async () => ({ active: true, signer: gateway.address }));
+  ).toBe(signer.address);
+  const lookup = vi.fn(active);
   for (const delta of [0, 300, -300]) {
     const verified = await verifyHttpRequest(
-      { ...payload, headers: new Headers(signed) },
+      post(bytes, signed),
       lookup,
       timestamp + delta,
     );
-    expect(verified).toEqual({ vaspId: 2, timestamp, signer: gateway.address });
+    expect(verified).toEqual({
+      vaspId: 2,
+      timestamp,
+      signer: signer.address,
+      digest,
+      body: bytes,
+    });
   }
   expect(lookup.mock.calls).toEqual([[2], [2], [2]]);
 });
 
-test("rejects modified payloads and requests outside the time window", async () => {
-  const headers = new Headers(
-    await signHttpRequest(gateway, payload, 2, timestamp),
-  );
-  const lookup = vi.fn(async () => ({ active: true, signer: gateway.address }));
-  const unauthorized = { code: "INVALID_VASP_SIGNATURE", status: 401 };
+test("rejects modified bodies, paths, methods and times outside the permitted window", async () => {
+  const headers = await signHttpRequest(signer, post(), 2, timestamp);
   for (const candidate of [
-    { ...payload, body: '{"value":"￥","amount":"123"}' },
-    { ...payload, path: "/v1/proposals" },
-    { ...payload, path: `${payload.path}?field=1` },
-    { ...payload, method: "GET" },
+    post('{"value":"￥","amount":"123"}', headers),
+    new Request("https://vasp-b.example/v1/proposals", {
+      method: "POST",
+      body: bytes,
+      headers,
+    }),
+    new Request(`${url}?field=1`, { method: "POST", body: bytes, headers }),
+    new Request(url, { method: "GET", headers }),
   ]) {
     await expect(
-      verifyHttpRequest({ ...candidate, headers }, lookup, timestamp),
+      verifyHttpRequest(candidate, active, timestamp),
     ).rejects.toMatchObject(unauthorized);
   }
   for (const delta of [301, -301]) {
     await expect(
-      verifyHttpRequest({ ...payload, headers }, lookup, timestamp + delta),
+      verifyHttpRequest(post(bytes, headers), active, timestamp + delta),
     ).rejects.toMatchObject(unauthorized);
   }
   await expect(
+    verifyHttpRequest(post(), active, timestamp),
+  ).rejects.toMatchObject(unauthorized);
+});
+
+test("requires the current signer's canonical signature and an active VASP ID", async () => {
+  const headers = await signHttpRequest(signer, post(), 2, timestamp);
+  for (const candidate of [
+    undefined,
+    { active: false, signer: signer.address },
+    { active: true, signer: other.address },
+  ]) {
+    await expect(
+      verifyHttpRequest(post(bytes, headers), async () => candidate, timestamp),
+    ).rejects.toMatchObject(unauthorized);
+  }
+  const lookup = vi.fn(active);
+  await expect(
     verifyHttpRequest(
-      { ...payload, headers: new Headers() },
+      post(bytes, { ...headers, "X-Ledgera-Vasp-Id": "02" }),
       lookup,
       timestamp,
     ),
   ).rejects.toMatchObject(unauthorized);
-});
-
-test("requires the current signer of an active VASP and a valid ID header", async () => {
-  const headers = new Headers(
-    await signHttpRequest(gateway, payload, 2, timestamp),
-  );
-  const unauthorized = { code: "INVALID_VASP_SIGNATURE", status: 401 };
-  for (const candidate of [
-    undefined,
-    { active: false, signer: gateway.address },
-    { active: true, signer: other.address },
-  ]) {
+  const signature = headers["X-Ledgera-Signature"];
+  const highS = `${signature.slice(0, 66)}${"f".repeat(64)}${signature.slice(130)}`;
+  const alternateV = `${signature.slice(0, 130)}01`;
+  for (const invalid of [highS, alternateV]) {
     await expect(
       verifyHttpRequest(
-        { ...payload, headers },
-        async () => candidate,
+        post(bytes, { ...headers, "X-Ledgera-Signature": invalid }),
+        lookup,
         timestamp,
       ),
     ).rejects.toMatchObject(unauthorized);
   }
-  headers.set("X-Ledgera-Vasp-Id", "02");
-  const lookup = vi.fn(async () => ({ active: true, signer: gateway.address }));
-  await expect(
-    verifyHttpRequest({ ...payload, headers }, lookup, timestamp),
-  ).rejects.toMatchObject(unauthorized);
   expect(lookup).not.toHaveBeenCalled();
 });
 
-test("hashes hex-looking text as UTF-8 and preserves binary bodies", async () => {
-  const text = { ...payload, body: "0xaa" };
-  const binary = { ...payload, body: Uint8Array.of(0xaa) };
-  const signature = await signHttpRequest(gateway, text, 2, timestamp);
-  const lookup = async () => ({ active: true, signer: gateway.address });
-  const headers = new Headers(signature);
+test("preserves binary bodies, including bytes that text decoding changes", async () => {
+  const binary = Uint8Array.of(0xef, 0xbb, 0xbf, 0xff, 0xaa);
+  const signed = await signHttpRequest(signer, post(binary), 2, timestamp);
   await expect(
-    verifyHttpRequest({ ...text, headers }, lookup, timestamp),
+    verifyHttpRequest(post(binary, signed), active, timestamp),
+  ).resolves.toMatchObject({ body: binary });
+  await expect(
+    verifyHttpRequest(
+      post(new TextDecoder().decode(binary), signed),
+      active,
+      timestamp,
+    ),
+  ).rejects.toMatchObject(unauthorized);
+
+  const text = await signHttpRequest(signer, post("0xaa"), 2, timestamp);
+  await expect(
+    verifyHttpRequest(post("0xaa", text), active, timestamp),
   ).resolves.toMatchObject({ vaspId: 2 });
   await expect(
-    verifyHttpRequest({ ...binary, headers }, lookup, timestamp),
-  ).rejects.toMatchObject({ code: "INVALID_VASP_SIGNATURE" });
+    verifyHttpRequest(post(Uint8Array.of(0xaa), text), active, timestamp),
+  ).rejects.toMatchObject(unauthorized);
 });

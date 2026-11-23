@@ -1,10 +1,10 @@
 import {
   type Address,
   type Hex,
+  hashMessage,
   keccak256,
   type LocalAccount,
-  recoverMessageAddress,
-  stringToBytes,
+  recoverAddress,
 } from "viem";
 import { ServiceError } from "./errors.ts";
 
@@ -14,12 +14,8 @@ const headers = {
   signature: "X-Ledgera-Signature",
 } as const;
 const maxClockSkewSeconds = 300;
-
-type RequestPayload = {
-  method: string;
-  path: string;
-  body: Uint8Array | string;
-};
+const halfCurveOrder =
+  0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
 
 type ResolveVasp = (
   vaspId: number,
@@ -31,27 +27,33 @@ function numberHeader(value: string | null, max: number) {
   return parsed <= max ? parsed : undefined;
 }
 
-function message(payload: RequestPayload, timestamp: number) {
-  const method = payload.method.toUpperCase();
-  if (!/^[A-Z]+$/.test(method) || !/^\/[^\r\n?#]*$/.test(payload.path)) {
-    throw new TypeError(
-      "Expected an HTTP method and absolute path without a query",
-    );
-  }
-  const body =
-    typeof payload.body === "string"
-      ? stringToBytes(payload.body)
-      : payload.body;
-  return [method, payload.path, timestamp, keccak256(body)].join("\n");
-}
-
 function unixSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
+function signingMessage(
+  request: Request,
+  url: URL,
+  timestamp: number,
+  body: Uint8Array,
+) {
+  return [
+    request.method.toUpperCase(),
+    url.pathname,
+    timestamp,
+    keccak256(body),
+  ].join("\n");
+}
+
+function canonicalSignature(value: string | null): value is Hex {
+  if (!value || !/^0x[0-9a-f]{128}(1b|1c)$/.test(value)) return false;
+  const s = BigInt(`0x${value.slice(66, 130)}`);
+  return s > 0n && s <= halfCurveOrder;
+}
+
 export async function signHttpRequest(
   signer: LocalAccount,
-  payload: RequestPayload,
+  request: Request,
   vaspId: number,
   timestamp = unixSeconds(),
 ) {
@@ -61,26 +63,32 @@ export async function signHttpRequest(
   if (!Number.isInteger(vaspId) || vaspId < 1 || vaspId > 0xffff_ffff) {
     throw new RangeError("Expected a positive uint32 VASP ID");
   }
+  const url = new URL(request.url);
+  if (url.search)
+    throw new TypeError("Signed VASP requests cannot have a query");
+  const body = new Uint8Array(await request.clone().arrayBuffer());
+  const signature = await signer.signMessage({
+    message: signingMessage(request, url, timestamp, body),
+  });
   return {
     [headers.vaspId]: vaspId.toString(),
     [headers.timestamp]: timestamp.toString(),
-    [headers.signature]: await signer.signMessage({
-      message: message(payload, timestamp),
-    }),
+    [headers.signature]: signature.toLowerCase() as Hex,
   };
 }
 
 export async function verifyHttpRequest(
-  payload: RequestPayload & { headers: Pick<Headers, "get"> },
+  request: Request,
   resolveVasp: ResolveVasp,
   now = unixSeconds(),
 ) {
-  const vaspId = numberHeader(payload.headers.get(headers.vaspId), 0xffff_ffff);
+  const vaspId = numberHeader(request.headers.get(headers.vaspId), 0xffff_ffff);
   const timestamp = numberHeader(
-    payload.headers.get(headers.timestamp),
+    request.headers.get(headers.timestamp),
     Number.MAX_SAFE_INTEGER,
   );
-  const signature = payload.headers.get(headers.signature);
+  const signature = request.headers.get(headers.signature);
+  const url = new URL(request.url);
   const unauthorized = () =>
     new ServiceError(
       "INVALID_VASP_SIGNATURE",
@@ -90,18 +98,17 @@ export async function verifyHttpRequest(
   if (
     vaspId === undefined ||
     vaspId === 0 ||
+    url.search ||
     timestamp === undefined ||
     Math.abs(now - timestamp) > maxClockSkewSeconds ||
-    !signature ||
-    !/^0x[0-9a-fA-F]{130}$/.test(signature)
+    !canonicalSignature(signature)
   )
     throw unauthorized();
+  const body = new Uint8Array(await request.arrayBuffer());
+  const digest = hashMessage(signingMessage(request, url, timestamp, body));
   let recovered: Address;
   try {
-    recovered = await recoverMessageAddress({
-      message: message(payload, timestamp),
-      signature: signature as Hex,
-    });
+    recovered = await recoverAddress({ hash: digest, signature });
   } catch {
     throw unauthorized();
   }
@@ -109,5 +116,5 @@ export async function verifyHttpRequest(
   if (!vasp?.active || vasp.signer.toLowerCase() !== recovered.toLowerCase()) {
     throw unauthorized();
   }
-  return { vaspId, timestamp, signer: recovered };
+  return { vaspId, timestamp, signer: recovered, digest, body };
 }
