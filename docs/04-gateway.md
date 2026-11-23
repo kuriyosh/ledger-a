@@ -45,12 +45,12 @@ flowchart TD
 ```
 
 - 直列区間は非同期ミューテックスで守る。採番と DB への追記は 1 つの DB トランザクションで行う。
-- 受付時刻は直列区間に入った時点の時計の値。通番の順と受付時刻の順は一致する。
+- 受付時刻は直列区間に入った時点の時計の値。時計が戻った場合は前の受付時刻を使う。
 - 応答は転送の結果が出てから返す。転送が拒否された場合も Receipt は発行済みなので、エラーの `details` に Receipt を入れる。
 
 ## 4. 受付の規則
 
-### 4.1 形式検査（直列区間の前）
+### 4.1 形式検査
 
 | 検査 | 拒否コード |
 |---|---|
@@ -61,6 +61,8 @@ flowchart TD
 | `maxFeePerGas >= 現在の base fee × 2 + 1` | `MAX_FEE_TOO_LOW` |
 | `gas <= GAS_LIMIT_CAP` | `GAS_LIMIT_TOO_HIGH` |
 | 同じ取引ハッシュが未受付 | `DUPLICATE_TX` |
+
+最大手数料と重複は直列区間で確認する。最大手数料には最新の base fee を使う。
 
 ### 4.2 事前検査（直列区間の中）
 
@@ -312,6 +314,7 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 | `seq` | bigint、主キー | 通番 |
 | `tx_hash` | bytea、一意 | |
 | `sender` | bytea | |
+| `tx_nonce` | bigint | 送信者ごとの受付済み nonce の検索に使う |
 | `raw_tx` | bytea | 署名済み取引 |
 | `received_at_ms` | bigint | |
 | `prev_hash` | bytea | |
