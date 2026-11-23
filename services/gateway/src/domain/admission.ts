@@ -57,6 +57,7 @@ export type AdmissionRecord = SignedReceipt & {
   source: "raw" | "relay" | "system";
   vaspId?: number;
   operations?: readonly RelayOperation[];
+  commitment?: CommitmentRange;
 };
 
 export type RelayOperation = {
@@ -68,6 +69,8 @@ export type RelayOperation = {
 };
 
 type RelayClaim = { txHash: Hex; digest: Hex; rejected: boolean; seq: bigint };
+
+export type CommitmentRange = { fromSeq: bigint; toSeq: bigint; headHash: Hex };
 
 export type ReceiptHead = Pick<
   SignedReceipt,
@@ -196,17 +199,24 @@ export async function decodeTransaction(
   };
 }
 
-type RelayAdmission = {
+type PreparedTransaction = {
   sender: Address;
+  sign(nonce: bigint): Promise<Hex>;
+};
+
+type RelayMetadata = {
   vaspId: number;
   operations: readonly RelayOperation[];
   isReverted(hash: Hex): Promise<boolean>;
-  sign(nonce: bigint): Promise<Hex>;
 };
 
 type Intake =
   | { source: "raw"; transaction: SignedTransaction }
-  | { source: "relay"; relay: RelayAdmission };
+  | ({ source: "relay"; metadata: RelayMetadata } & PreparedTransaction)
+  | ({
+      source: "system";
+      metadata: { commitment: CommitmentRange };
+    } & PreparedTransaction);
 
 export function createAdmission(
   store: AdmissionStore,
@@ -221,9 +231,7 @@ export function createAdmission(
   async function submit(request: Intake): Promise<SignedReceipt> {
     let tx = request.source === "raw" ? request.transaction : undefined;
     const sender =
-      request.source === "raw"
-        ? request.transaction.sender
-        : request.relay.sender;
+      request.source === "raw" ? request.transaction.sender : request.sender;
     const fromSequencer = async <T>(read: () => Promise<T>): Promise<T> => {
       try {
         return await read();
@@ -246,16 +254,16 @@ export function createAdmission(
           );
         }
         if (request.source === "relay") {
-          const claims = await ledger.relayClaims(request.relay.operations);
+          const claims = await ledger.relayClaims(request.metadata.operations);
           const digests = new Set(
-            request.relay.operations.map((operation) => operation.digest),
+            request.metadata.operations.map((operation) => operation.digest),
           );
           for (const claim of claims) {
             if (
               digests.has(claim.digest) ||
               (!claim.rejected &&
                 !(await fromSequencer(() =>
-                  request.relay.isReverted(claim.txHash),
+                  request.metadata.isReverted(claim.txHash),
                 )))
             ) {
               throw new AdmissionError(
@@ -285,14 +293,11 @@ export function createAdmission(
         if (expected < state.confirmedNonce) expected = state.confirmedNonce;
         while (accepted.has(expected)) expected += 1n;
 
-        if (request.source === "relay") {
-          tx = await decodeTransaction(
-            await request.relay.sign(expected),
-            policy,
-          );
+        if (request.source !== "raw") {
+          tx = await decodeTransaction(await request.sign(expected), policy);
           if (tx.sender !== sender)
             throw new Error(
-              "Relay sender does not match the signed transaction",
+              "Prepared sender does not match the signed transaction",
             );
           if (await ledger.hasReceipt(tx.txHash)) {
             throw new AdmissionError(
@@ -347,10 +352,12 @@ export function createAdmission(
           source: request.source,
           ...(request.source === "relay"
             ? {
-                vaspId: request.relay.vaspId,
-                operations: request.relay.operations,
+                vaspId: request.metadata.vaspId,
+                operations: request.metadata.operations,
               }
-            : {}),
+            : request.source === "system"
+              ? request.metadata
+              : {}),
         });
         return signed;
       }),
@@ -379,8 +386,31 @@ export function createAdmission(
       }
       return submit({ source: "raw", transaction });
     },
-    acceptRelay(relay: RelayAdmission) {
-      return submit({ source: "relay", relay });
+    acceptRelay({
+      sender,
+      vaspId,
+      operations,
+      isReverted,
+      sign,
+    }: RelayMetadata & PreparedTransaction) {
+      return submit({
+        source: "relay",
+        sender,
+        sign,
+        metadata: { vaspId, operations, isReverted },
+      });
+    },
+    acceptCommit({
+      sender,
+      sign,
+      commitment,
+    }: PreparedTransaction & { commitment: CommitmentRange }) {
+      return submit({
+        source: "system",
+        sender,
+        sign,
+        metadata: { commitment },
+      });
     },
   };
 }

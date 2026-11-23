@@ -1,7 +1,11 @@
 import { EventEmitter, once } from "node:events";
 import { setTimeout } from "node:timers/promises";
 import { logService } from "@ledgera/shared/server";
-import { BaseError, RpcRequestError, TransactionNotFoundError } from "viem";
+import {
+  BaseError,
+  RpcRequestError,
+  TransactionReceiptNotFoundError,
+} from "viem";
 import type { GatewayStore } from "../db/store.ts";
 import type { SequencerClient } from "./sequencer.ts";
 
@@ -82,11 +86,13 @@ export async function runForwarder(
   client: SequencerClient,
   notifications: ForwardNotifications,
   signal: AbortSignal,
+  synchronize: () => Promise<void>,
 ) {
   let failures = 0;
   while (!signal.aborted) {
     let seq: bigint | undefined;
     try {
+      await synchronize();
       const next = await store.queued();
       if (next) {
         seq = next.seq;
@@ -110,10 +116,10 @@ export async function runForwarder(
               break;
             case "nonce":
               try {
-                await client.getTransaction({ hash: next.txHash });
+                await client.getTransactionReceipt({ hash: next.txHash });
                 outcome = { status: "forwarded", error: null };
               } catch (findError) {
-                if (!(findError instanceof TransactionNotFoundError))
+                if (!(findError instanceof TransactionReceiptNotFoundError))
                   throw findError;
                 outcome = { status: "rejected", error: "nonce too low" };
               }

@@ -45,6 +45,13 @@ export const logEntries = gateway.table(
   (row) => [
     index("log_entries_sender_nonce").on(row.sender, row.nonce),
     index("log_entries_status_seq").on(row.forwardStatus, row.seq),
+    index("log_entries_included_block").on(row.includedBlock),
+    index("log_entries_forwarded_unobserved")
+      .on(row.seq)
+      .where(
+        sql`${row.includedBlock} is null and ${row.forwardStatus} = 'forwarded'`,
+      ),
+
     check(
       "log_entries_binary_sizes",
       sql`
@@ -94,3 +101,23 @@ export const relayRequests = gateway.table(
     index("relay_requests_nonce").on(row.requestFrom, row.nonce),
   ],
 );
+
+export const trackedBlocks = gateway.table("tracked_blocks", {
+  number: bigint("block_number", { mode: "bigint" }).primaryKey(),
+  hash: bytea("block_hash").notNull(),
+});
+
+export const commitments = gateway.table("commitments", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  fromSeq: bigint("from_seq", { mode: "bigint" }).notNull(),
+  toSeq: bigint("to_seq", { mode: "bigint" }).notNull(),
+  headHash: bytea("head_hash").notNull(),
+  txHash: bytea("tx_hash").notNull().unique(),
+  blockNumber: bigint("block_number", { mode: "bigint" }),
+  status: text("status", { enum: ["pending", "confirmed", "failed"] })
+    .notNull()
+    .default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});

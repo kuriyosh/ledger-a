@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { openDatabase } from "@ledgera/shared/db";
 import { receiptGenesisHash } from "@ledgera/shared/receipt";
 import { eq, sql } from "drizzle-orm";
+import { zeroHash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { expect, test } from "vitest";
 import { ForwardNotifications } from "../src/chain/forwarder.ts";
@@ -167,6 +168,15 @@ test.skipIf(!databaseUrl)(
         genesisHash: receiptGenesisHash(policy),
         store,
         accept: admission.accept,
+        async status() {
+          return {
+            sequencerUrl: "http://localhost:8545",
+            leader: null,
+            queueLength: 0,
+            lastSeq: "0",
+            lastCommittedSeq: "0",
+          };
+        },
         notifications,
         signal: new AbortController().signal,
       });
@@ -176,6 +186,78 @@ test.skipIf(!databaseUrl)(
       expect(
         entries.map((entry: { forwardStatus: string }) => entry.forwardStatus),
       ).toEqual(["rejected", "rejected", "queued", "queued", "queued"]);
+
+      const range = {
+        fromSeq: 1n,
+        toSeq: relay.seq,
+        headHash: relay.entryHash,
+      };
+      const system = await admission.acceptCommit({
+        sender: alice.address,
+        commitment: range,
+        sign: (nonce) =>
+          alice.signTransaction({
+            ...tx,
+            to: policy.verifyingContract,
+            nonce: Number(nonce),
+          }),
+      });
+      expect(system.prevHash).toBe(range.headHash);
+      expect(await store.pendingCommitment()).toEqual({
+        txHash: system.txHash,
+        forwardStatus: "queued",
+        includedBlock: null,
+        includedHash: null,
+      });
+      for (const receipt of [independent, replacement, relay, system]) {
+        await store.setForwardResult(receipt.seq, "forwarded", null);
+      }
+      await store.recordBlock(10n, relay.entryHash, [
+        replacement.txHash,
+        relay.txHash,
+      ]);
+      await store.recordBlock(11n, system.entryHash, [system.txHash]);
+      await store.finishCommitment(system.txHash, "confirmed", 11n);
+
+      expect(await store.trackedTip()).toEqual({
+        number: 11n,
+        hash: system.entryHash,
+      });
+      expect((await store.log(relay.seq, 1))[0]).toMatchObject({
+        includedBlock: "10",
+        includedIndex: 1,
+        entryHash: relay.entryHash,
+      });
+      expect((await store.commitments(1))[0]).toMatchObject({
+        status: "confirmed",
+        blockNumber: "11",
+        headHash: range.headHash,
+      });
+      expect(await store.uncommittedHead(range.toSeq)).toBeUndefined();
+
+      await store.rewindBlocks(9n);
+      expect(await store.trackedTip()).toBeUndefined();
+      expect((await store.queued())?.seq).toBe(independent.seq);
+      expect(await store.pendingCommitment()).toEqual({
+        txHash: system.txHash,
+        forwardStatus: "queued",
+        includedBlock: null,
+        includedHash: null,
+      });
+      expect((await store.log(relay.seq, 1))[0]).toMatchObject({
+        includedBlock: null,
+        includedIndex: null,
+        entryHash: relay.entryHash,
+      });
+      await store.recordBlock(10n, zeroHash, [
+        relay.txHash,
+        replacement.txHash,
+      ]);
+      expect((await store.log(relay.seq, 1))[0]).toMatchObject({
+        includedBlock: "10",
+        includedIndex: 0,
+        entryHash: relay.entryHash,
+      });
     } finally {
       await database.close();
     }

@@ -8,6 +8,8 @@ import {
   gt,
   gte,
   inArray,
+  isNull,
+  lte,
   ne,
   or,
   sql,
@@ -20,7 +22,13 @@ import type {
   ReceiptHead,
   SignedReceipt,
 } from "../domain/admission.ts";
-import { logEntries, rejections, relayRequests } from "./schema.ts";
+import {
+  commitments,
+  logEntries,
+  rejections,
+  relayRequests,
+  trackedBlocks,
+} from "./schema.ts";
 
 type Database = Awaited<ReturnType<typeof openDatabase>>["db"];
 type Entry = typeof logEntries.$inferSelect;
@@ -162,7 +170,7 @@ export class GatewayStore implements AdmissionStore {
             rejected: row.status === "rejected",
           }));
         },
-        async append({ operations, ...record }: AdmissionRecord) {
+        async append({ operations, commitment, ...record }: AdmissionRecord) {
           await tx.insert(logEntries).values({
             ...record,
             txHash: toBuffer(record.txHash),
@@ -172,6 +180,13 @@ export class GatewayStore implements AdmissionStore {
             entryHash: toBuffer(record.entryHash),
             signature: toBuffer(record.signature),
           });
+          if (commitment) {
+            await tx.insert(commitments).values({
+              ...commitment,
+              headHash: toBuffer(commitment.headHash),
+              txHash: toBuffer(record.txHash),
+            });
+          }
           if (operations?.length && record.vaspId !== undefined) {
             const vaspId = record.vaspId;
             await tx.insert(relayRequests).values(
@@ -344,5 +359,217 @@ export class GatewayStore implements AdmissionStore {
       .where(eq(logEntries.seq, 1n))
       .limit(1);
     return row && receipt(row);
+  }
+
+  async trackedTip(): Promise<{ number: bigint; hash: Hex } | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(trackedBlocks)
+      .orderBy(desc(trackedBlocks.number))
+      .limit(1);
+    return row && { number: row.number, hash: bytesToHex(row.hash) };
+  }
+
+  async trackedBlock(
+    number: bigint,
+  ): Promise<{ number: bigint; hash: Hex } | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(trackedBlocks)
+      .where(eq(trackedBlocks.number, number))
+      .limit(1);
+    return row && { number: row.number, hash: bytesToHex(row.hash) };
+  }
+
+  async recordBlock(number: bigint, hash: Hex, transactions: readonly Hex[]) {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      await tx.insert(trackedBlocks).values({ number, hash: toBuffer(hash) });
+      if (!transactions.length) return [];
+      const positions = new Map(
+        transactions.map((hash, index) => [hash.toLowerCase(), index]),
+      );
+      const matches = await tx
+        .select({
+          seq: logEntries.seq,
+          txHash: logEntries.txHash,
+          status: logEntries.forwardStatus,
+        })
+        .from(logEntries)
+        .where(inArray(logEntries.txHash, transactions.map(toBuffer)));
+      for (const match of matches) {
+        await tx
+          .update(logEntries)
+          .set({
+            includedBlock: number,
+            forwardStatus: "forwarded",
+            forwardError: null,
+            forwardedAt: sql`coalesce(${logEntries.forwardedAt}, now())`,
+            includedIndex: positions.get(
+              bytesToHex(match.txHash).toLowerCase(),
+            ),
+          })
+          .where(eq(logEntries.seq, match.seq));
+      }
+      return matches
+        .filter((item) => item.status !== "forwarded")
+        .map((item) => item.seq);
+    });
+  }
+
+  async rewindBlocks(ancestor: bigint) {
+    await this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      await tx
+        .update(logEntries)
+        .set({
+          includedBlock: null,
+          includedIndex: null,
+          forwardStatus: "queued",
+          forwardError: null,
+          forwardedAt: null,
+        })
+        .where(
+          or(
+            gt(logEntries.includedBlock, ancestor),
+            and(
+              isNull(logEntries.includedBlock),
+              eq(logEntries.forwardStatus, "forwarded"),
+            ),
+          ),
+        );
+      await tx
+        .update(commitments)
+        .set({ status: "pending", blockNumber: null })
+        .where(gt(commitments.blockNumber, ancestor));
+      await tx.delete(trackedBlocks).where(gt(trackedBlocks.number, ancestor));
+    });
+  }
+
+  async unobservedForwarded(
+    after: bigint,
+    forwardedBefore: Date,
+    limit: number,
+  ) {
+    const rows = await this.db
+      .select({ seq: logEntries.seq, txHash: logEntries.txHash })
+      .from(logEntries)
+      .where(
+        and(
+          gt(logEntries.seq, after),
+          isNull(logEntries.includedBlock),
+          eq(logEntries.forwardStatus, "forwarded"),
+          lte(logEntries.forwardedAt, forwardedBefore),
+        ),
+      )
+      .orderBy(asc(logEntries.seq))
+      .limit(limit);
+    return rows.map((row) => ({ ...row, txHash: bytesToHex(row.txHash) }));
+  }
+
+  async requeueUnobserved(sequences: bigint[]) {
+    if (!sequences.length) return;
+    await this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      await tx
+        .update(logEntries)
+        .set({ forwardStatus: "queued", forwardedAt: null, forwardError: null })
+        .where(
+          and(
+            inArray(logEntries.seq, sequences),
+            isNull(logEntries.includedBlock),
+            eq(logEntries.forwardStatus, "forwarded"),
+          ),
+        );
+    });
+  }
+
+  async pendingCommitment() {
+    const [row] = await this.db
+      .select({
+        txHash: commitments.txHash,
+        forwardStatus: logEntries.forwardStatus,
+        includedBlock: logEntries.includedBlock,
+        includedHash: trackedBlocks.hash,
+      })
+      .from(commitments)
+      .innerJoin(logEntries, eq(commitments.txHash, logEntries.txHash))
+      .leftJoin(
+        trackedBlocks,
+        eq(logEntries.includedBlock, trackedBlocks.number),
+      )
+      .where(eq(commitments.status, "pending"))
+      .orderBy(asc(commitments.id))
+      .limit(1);
+    return (
+      row && {
+        txHash: bytesToHex(row.txHash),
+        forwardStatus: row.forwardStatus,
+        includedBlock: row.includedBlock,
+        includedHash: row.includedHash && bytesToHex(row.includedHash),
+      }
+    );
+  }
+
+  async lastConfirmedSeq() {
+    const [row] = await this.db
+      .select({ toSeq: commitments.toSeq })
+      .from(commitments)
+      .where(eq(commitments.status, "confirmed"))
+      .orderBy(desc(commitments.toSeq))
+      .limit(1);
+    return row?.toSeq ?? 0n;
+  }
+
+  async finishCommitment(
+    hash: Hex,
+    status: "confirmed" | "failed",
+    blockNumber: bigint | null,
+  ) {
+    await this.db
+      .update(commitments)
+      .set({ status, blockNumber })
+      .where(
+        and(
+          eq(commitments.txHash, toBuffer(hash)),
+          eq(commitments.status, "pending"),
+        ),
+      );
+  }
+
+  async uncommittedHead(lastSeq: bigint) {
+    const [outstanding] = await this.db
+      .select({ seq: logEntries.seq })
+      .from(logEntries)
+      .where(and(gt(logEntries.seq, lastSeq), ne(logEntries.source, "system")))
+      .limit(1);
+    if (!outstanding) return undefined;
+    return this.head();
+  }
+
+  async commitments(limit: number) {
+    const rows = await this.db
+      .select()
+      .from(commitments)
+      .orderBy(desc(commitments.id))
+      .limit(limit);
+    return rows.map((row) => ({
+      id: row.id.toString(),
+      fromSeq: row.fromSeq.toString(),
+      toSeq: row.toSeq.toString(),
+      headHash: bytesToHex(row.headHash),
+      txHash: bytesToHex(row.txHash),
+      blockNumber: row.blockNumber?.toString() ?? null,
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  async queueLength() {
+    const [{ queued }] = await this.db
+      .select({ queued: count() })
+      .from(logEntries)
+      .where(inArray(logEntries.forwardStatus, ["queued", "held_demo"]));
+    return queued;
   }
 }

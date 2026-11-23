@@ -3,9 +3,11 @@ import { receiptLogAbi } from "@ledgera/abis";
 import { readDeployment } from "@ledgera/config";
 import { openDatabase } from "@ledgera/shared/db";
 import { receiptGenesisHash } from "@ledgera/shared/receipt";
-import { startService } from "@ledgera/shared/server";
+import { logService, startService } from "@ledgera/shared/server";
 import { privateKeyToAccount } from "viem/accounts";
+import { createCommitter } from "./chain/commit.ts";
 import { ForwardNotifications, runForwarder } from "./chain/forwarder.ts";
+import { createInclusionTracker } from "./chain/inclusion.ts";
 import { relayChain } from "./chain/relay.ts";
 import { admissionChain, connectSequencer } from "./chain/sequencer.ts";
 import { GatewayStore } from "./db/store.ts";
@@ -81,13 +83,61 @@ const admission = createAdmission(
 );
 const controller = new AbortController();
 const notifications = new ForwardNotifications();
-const forwarder = runForwarder(store, client, notifications, controller.signal);
+const synchronize = createInclusionTracker(
+  client,
+  store,
+  BigInt(deployment.auditStartBlock),
+  (seq) => notifications.publish(seq, { status: "forwarded", error: null }),
+);
+const commit = createCommitter(client, store, admission, signer, {
+  address: deployment.contracts.receiptLog,
+  chainId: deployment.chainId,
+  intervalMs: env.COMMIT_INTERVAL_SEC * 1000,
+  maxFee: env.MAX_FEE_PER_GAS_WEI,
+  priorityFee: env.FIXED_PRIORITY_FEE_WEI,
+});
+const forwarder = runForwarder(
+  store,
+  client,
+  notifications,
+  controller.signal,
+  async () => {
+    await synchronize();
+    try {
+      await commit();
+    } catch (error) {
+      logService(
+        "gateway",
+        "error",
+        "Receipt commitment did not advance",
+        null,
+        {
+          errorName: error instanceof Error ? error.name : "Error",
+        },
+      );
+    }
+  },
+);
 const app = gatewayApp({
   chainId: deployment.chainId,
   genesisHash,
   notifications,
   store,
   accept: admission.accept,
+  async status() {
+    const [head, queueLength, committed] = await Promise.all([
+      store.head(),
+      store.queueLength(),
+      store.lastConfirmedSeq(),
+    ]);
+    return {
+      sequencerUrl: new URL(env.SEQUENCER_RPC_URLS[0]).origin,
+      leader: null,
+      queueLength,
+      lastSeq: (head?.seq ?? 0n).toString(),
+      lastCommittedSeq: committed.toString(),
+    };
+  },
   signal: controller.signal,
 });
 app.route(
