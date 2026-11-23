@@ -42,7 +42,7 @@ if (env.VASP_B_URL && env.VASP_B_AUDITOR_KEY)
     apiKey: env.VASP_B_AUDITOR_KEY,
   });
 const app = auditorApp(store, runner.run);
-traceRoutes(app, database.db, env.INDEXER_URL, peers);
+traceRoutes(app, database.db, env.INDEXER_URL, peers, env.AUDITOR_ADMIN_TOKEN);
 startService(app, env, {
   onShutdown: () => controller.abort(),
   onClose: async () => {

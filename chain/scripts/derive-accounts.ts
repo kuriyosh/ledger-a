@@ -1,9 +1,10 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import {
   link,
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -39,6 +40,7 @@ const secretNames = [
   "VASP_A_ADMIN_TOKEN",
   "VASP_B_ADMIN_TOKEN",
   "CONSORTIUM_ADMIN_TOKEN",
+  "AUDITOR_ADMIN_TOKEN",
   "VASP_A_GATEWAY_API_KEY",
   "VASP_B_GATEWAY_API_KEY",
   "VASP_A_AUDITOR_KEY",
@@ -104,14 +106,39 @@ export async function generateAccounts(mnemonic: string, output: string) {
       if ((await stat(output)).mode & 0o077) {
         throw new Error(`${output} must be accessible only to its owner`);
       }
-      const existing = parseEnv(await readFile(output, "utf8"));
+      const prior = await readFile(output, "utf8");
+      const existing = parseEnv(prior);
+      const needsAuditToken = existing.AUDITOR_ADMIN_TOKEN === undefined;
+      const auditKeyA = existing.VASP_A_AUDITOR_KEY;
+      const auditKeyB = existing.VASP_B_AUDITOR_KEY;
       if (
+        !auditKeyA ||
+        !auditKeyB ||
         accountEnv.some(([name, value]) => existing[name] !== value) ||
-        secretNames.some((name) => !/^[0-9a-f]{64}$/.test(existing[name] ?? ""))
+        secretNames.some(
+          (name) =>
+            (name !== "AUDITOR_ADMIN_TOKEN" || !needsAuditToken) &&
+            !/^[0-9a-f]{64}$/.test(existing[name] ?? ""),
+        )
       ) {
         throw new Error(
           `${output} does not match the requested accounts or is incomplete`,
         );
+      }
+      if (needsAuditToken) {
+        // Concurrent upgrades of an existing file must produce the same added credential.
+        const key = createHmac("sha256", Buffer.from(auditKeyA, "hex"))
+          .update("ledgerA auditor administrator")
+          .update(auditKeyB)
+          .digest("hex");
+        await writeFile(
+          tempFile,
+          `${prior.trimEnd()}
+AUDITOR_ADMIN_TOKEN=${key}
+`,
+          { mode: 0o600 },
+        );
+        await rename(tempFile, output);
       }
     }
   } finally {

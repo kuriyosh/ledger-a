@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
@@ -28,7 +28,8 @@ test("derives the documented paths and creates one private file across concurren
     });
     const contents = await readFile(file, "utf8");
     const env = parseEnv(contents);
-    expect(Object.keys(env)).toHaveLength(46);
+    expect(Object.keys(env)).toHaveLength(47);
+    expect(env.AUDITOR_ADMIN_TOKEN).toMatch(/^[0-9a-f]{64}$/);
     expect(env.ADMIN_PRIVATE_KEY).toMatch(/^0x[0-9a-f]{64}$/);
     expect(env.VASP_A_KEY_ENCRYPTION_KEY).toMatch(/^[0-9a-f]{64}$/);
     expect(env.VASP_A_KEY_ENCRYPTION_KEY).not.toEqual(
@@ -37,6 +38,19 @@ test("derives the documented paths and creates one private file across concurren
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     await generateAccounts(testMnemonic, file);
     expect(await readFile(file, "utf8")).toBe(contents);
+    const old = contents
+      .split("\n")
+      .filter((line) => !line.startsWith("AUDITOR_ADMIN_TOKEN="))
+      .join("\n");
+    await writeFile(file, old);
+    await Promise.all([
+      generateAccounts(testMnemonic, file),
+      generateAccounts(testMnemonic, file),
+    ]);
+    const upgraded = parseEnv(await readFile(file, "utf8"));
+    expect(upgraded.AUDITOR_ADMIN_TOKEN).toMatch(/^[0-9a-f]{64}$/);
+    delete upgraded.AUDITOR_ADMIN_TOKEN;
+    expect(upgraded).toEqual(parseEnv(old));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

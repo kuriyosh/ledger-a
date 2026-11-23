@@ -10,6 +10,7 @@ export const auditorEnv = serverEnv.extend({
   DEPLOYMENTS_FILE: z.string().min(1),
   AUDIT_RPC_URL: httpUrl,
   GATEWAY_URL: httpUrl,
+  AUDITOR_ADMIN_TOKEN: z.string().regex(/^\S+$/).optional(),
   INDEXER_URL: httpUrl.default("http://127.0.0.1:8640"),
   VASP_A_URL: httpUrl.optional(),
   VASP_B_URL: httpUrl.optional(),

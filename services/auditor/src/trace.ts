@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { openDatabase } from "@ledgera/shared/db";
 import { ServiceError } from "@ledgera/shared/errors";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { type Address, getAddress, isAddress } from "viem";
 import { z } from "zod";
 import { disclosures } from "./db/schema.ts";
@@ -67,6 +67,9 @@ const peersReply = z.object({
 const requested = z.object({
   address,
   reason: z.string().trim().min(1).max(500),
+  reasonCategory: z
+    .enum(["AML_INVESTIGATION", "SUPERVISORY_REVIEW", "OTHER"])
+    .default("OTHER"),
 });
 const requestReply = z.object({ id: remoteId, status: z.literal("pending") });
 const disclosureReply = z.discriminatedUnion("status", [
@@ -106,8 +109,28 @@ export function traceRoutes(
   db: Database,
   indexer: string,
   peers: ReadonlyMap<number, Peer>,
+  administrator?: string,
   send = fetch,
 ) {
+  const digest = (value: string) => createHash("sha256").update(value).digest();
+  const expected = administrator
+    ? digest(`Bearer ${administrator}`)
+    : undefined;
+  function authorize(header?: string) {
+    if (!expected)
+      throw new ServiceError(
+        "DISCLOSURE_UNAVAILABLE",
+        "Auditor disclosure authorization is unavailable",
+        503,
+      );
+    if (!timingSafeEqual(expected, digest(header ?? "")))
+      throw new ServiceError(
+        "UNAUTHORIZED",
+        "Auditor administrator token required",
+        401,
+      );
+  }
+
   async function request<T>(
     base: string,
     path: string,
@@ -165,6 +188,7 @@ export function traceRoutes(
     const account = parse(address, context.req.param("address"));
     const registry = await readRegistry(account);
     const next = BigInt(registry.blockNumber) + 1n;
+    const range = next < 1n << 63n ? `?before=${next}` : "";
     const [balances, transfers] = await Promise.all([
       request(
         indexer,
@@ -173,7 +197,7 @@ export function traceRoutes(
       ),
       request(
         indexer,
-        `/v1/accounts/${account}/transfers?before=${next}`,
+        `/v1/accounts/${account}/transfers${range}`,
         transfersReply,
       ),
     ]);
@@ -200,6 +224,7 @@ export function traceRoutes(
     );
   });
   app.post("/v1/disclosures", async (context) => {
+    authorize(context.req.header("Authorization"));
     const input = parse(
       requested,
       await context.req.json().catch(() => undefined),
@@ -217,14 +242,18 @@ export function traceRoutes(
           Authorization: `Bearer ${peer.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ ...input, requestedBy: "auditor" }),
+        body: JSON.stringify({
+          address: input.address,
+          reason: input.reason,
+          requestedBy: "auditor",
+        }),
       },
     );
     const id = `ad_${randomUUID().replaceAll("-", "")}`;
     await db.insert(disclosures).values({
       id,
       address: input.address,
-      reason: input.reason,
+      reason: input.reasonCategory,
       vaspId,
       vaspRequestId: remote.id,
       status: remote.status,
@@ -232,6 +261,7 @@ export function traceRoutes(
     return context.json({ id, status: remote.status }, 201);
   });
   app.get("/v1/disclosures/:id", async (context) => {
+    authorize(context.req.header("Authorization"));
     const id = parse(localId, context.req.param("id"));
     const [row] = await db
       .select()
@@ -262,11 +292,17 @@ export function traceRoutes(
         "Disclosure response did not match the request",
         503,
       );
+    if (row.status !== "pending" && remote.status !== row.status)
+      throw new ServiceError(
+        "TRACE_SOURCE_UNAVAILABLE",
+        "Disclosure decision changed",
+        503,
+      );
     if (remote.status !== row.status)
       await db
         .update(disclosures)
         .set({ status: remote.status })
-        .where(eq(disclosures.id, id));
+        .where(and(eq(disclosures.id, id), eq(disclosures.status, "pending")));
     context.header("Cache-Control", "no-store");
     return context.json({
       id,
