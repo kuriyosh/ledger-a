@@ -80,7 +80,7 @@ flowchart LR
 - [x] `libraries/RegistryLayout.sol`（スロットとビット配置）
 - [x] `KycRegistry.sol` とテスト（03 章 2.7）
 - [x] `TravelRuleCompliance.sol` とテスト（4.4）
-- [ ] `LedgerToken.sol` とテスト（3.5）
+- [x] `LedgerToken.sol` とテスト（3.5）
 - [x] `LedgerForwarder.sol` とテスト（5.4）
 - [ ] `AtomicSwap.sol` とテスト（6.5）
 - [ ] `ReceiptLog.sol` とテスト（7.4）
