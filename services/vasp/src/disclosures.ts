@@ -79,8 +79,6 @@ function registered(database: Pick<Database, "select">, address: Address) {
 export function disclosureStore(database: Database) {
   return {
     async create(command: z.infer<typeof input>) {
-      if (!(await registered(database, command.address)).length)
-        throw invalidAddress();
       const [row] = await database
         .insert(disclosureRequests)
         .values({
@@ -174,6 +172,7 @@ export function disclosureRoutes(
   });
   app.get("/vasp/v1/disclosure-requests/:id", async (context) => {
     authorize(context.req.header("Authorization"));
+    context.header("Cache-Control", "no-store");
     return context.json(await store.get(parse(id, context.req.param("id"))));
   });
   app.get("/v1/admin/disclosure-requests", async (context) => {
