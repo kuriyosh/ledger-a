@@ -61,12 +61,7 @@ async function upgradeAuditToken(
   const proposed = join(temporary, "proposed");
   const ready = join(temporary, "ready");
   const pending = `${output}.auditor-upgrade`;
-  const key = randomBytes(32).toString("hex");
-  await writeFile(
-    proposed,
-    `${prior.trimEnd()}\nAUDITOR_ADMIN_TOKEN=${key}\n`,
-    { mode: 0o600 },
-  );
+  await writeFile(proposed, randomBytes(32).toString("hex"), { mode: 0o600 });
   try {
     await link(proposed, pending);
   } catch (error) {
@@ -77,11 +72,22 @@ async function upgradeAuditToken(
   } catch (error) {
     if (!isFsError(error, "ENOENT")) throw error;
   }
-  // Link before rereading so a late contender cannot replace a published token.
-  if (
-    parseEnv(await readFile(output, "utf8")).AUDITOR_ADMIN_TOKEN === undefined
-  ) {
-    await rename(ready, output);
+  // A leftover proposal contains only a token and cannot restore older service keys.
+  const current = await readFile(output, "utf8");
+  if (parseEnv(current).AUDITOR_ADMIN_TOKEN === undefined) {
+    if (current !== prior)
+      throw new Error("Account file changed during upgrade");
+    const key = await readFile(ready, "utf8");
+    if ((await stat(ready)).mode & 0o077 || !/^[0-9a-f]{64}$/.test(key)) {
+      throw new Error("Invalid pending auditor token");
+    }
+    const replacement = join(temporary, "replacement");
+    await writeFile(
+      replacement,
+      `${current.trimEnd()}\nAUDITOR_ADMIN_TOKEN=${key}\n`,
+      { mode: 0o600 },
+    );
+    await rename(replacement, output);
   }
   await rm(pending, { force: true });
 }

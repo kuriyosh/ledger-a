@@ -43,6 +43,16 @@ test("derives the documented paths and creates one private file across concurren
       .filter((line) => !line.startsWith("AUDITOR_ADMIN_TOKEN="))
       .join("\n");
     await writeFile(file, old);
+    const pending = file + ".auditor-upgrade";
+    await writeFile(pending, "stale file with previous account data", {
+      mode: 0o600,
+    });
+    await expect(generateAccounts(testMnemonic, file)).rejects.toThrow(
+      "Invalid pending auditor token",
+    );
+    expect(await readFile(file, "utf8")).toBe(old);
+    await rm(pending);
+
     const observed = await Promise.all(
       Array.from({ length: 12 }, async () => {
         await generateAccounts(testMnemonic, file);
