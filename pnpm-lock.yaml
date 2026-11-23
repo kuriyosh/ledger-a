@@ -208,6 +208,17 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@types/node@24.19.2)(vite@8.3.8(@types/node@24.19.2))
 
+  packages/abis: {}
+
+  packages/config:
+    dependencies:
+      viem:
+        specifier: 2.58.4
+        version: 2.58.4(typescript@7.0.2)(zod@4.6.7)
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
   packages/shared:
     dependencies:
       viem:

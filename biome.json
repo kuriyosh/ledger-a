@@ -1,6 +1,11 @@
 {
   "files": {
-    "includes": ["**", "!**/*.md", "!!contracts/lib"]
+    "includes": [
+      "**",
+      "!**/*.md",
+      "!!contracts/lib",
+      "!!packages/abis/src/generated.ts"
+    ]
   },
   "vcs": {
     "enabled": true,

@@ -10,3 +10,4 @@ coverage/
 /contracts/cache/
 /contracts/out/
 /contracts/broadcast/
+/packages/abis/src/generated.ts

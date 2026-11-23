@@ -1,8 +1,13 @@
-.PHONY: setup keys lint fmt test test-contracts test-integration
+.PHONY: setup generate-abis keys lint fmt test test-contracts test-integration
 
 setup:
 	pnpm install --frozen-lockfile
 	git submodule update --init --depth 1
+	$(MAKE) generate-abis
+
+generate-abis:
+	forge build --root contracts src lib/safe-contracts/contracts/GnosisSafeL2.sol lib/safe-contracts/contracts/proxies/GnosisSafeProxy.sol
+	pnpm --filter @ledgera/abis generate
 
 keys:
 	node --env-file-if-exists=.env chain/scripts/derive-accounts.ts
