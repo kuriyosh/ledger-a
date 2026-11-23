@@ -560,7 +560,7 @@ M7 までに余力があれば行う。必須ではない。
 
 ## 11. 冗長化（要件 19）
 
-実装は M7。`chain/compose/docker-compose.ha.yml` に書く。
+設定は `chain/compose/docker-compose.ha.yml` にある。
 
 ### 11.1 構成
 
@@ -592,6 +592,7 @@ op-conductor の環境変数。
 
 ```
 OP_CONDUCTOR_NODE_RPC=http://op-node-N:8547
+OP_CONDUCTOR_ROLLUP_CONFIG=/workspace/rollup.json
 OP_CONDUCTOR_EXECUTION_RPC=http://op-reth-N:8545
 OP_CONDUCTOR_CONSENSUS_ADDR=0.0.0.0
 OP_CONDUCTOR_CONSENSUS_PORT=50050
@@ -628,18 +629,23 @@ OP_CONDUCTOR_PAUSED=true            # 起動時
 
 `HEALTHCHECK_MIN_PEER_COUNT` を 1 にする理由。3 台構成で 1 台が止まると、残った op-node のピアは 1 つになる。2 以上にすると、残った 2 台も不健全と判定され、切り替わらない。
 
-起動後の手順。
+初回は L1 を配備し、genesis と 資金を入れたアカウントを用意する。単一 Sequencer が動いている場合は `make chain-down` で停止する。
 
-1. 1 台目の op-conductor に `conductor_addServerAsVoter` で 2 台目と 3 台目を追加する。追加するアドレスは各組の `CONSENSUS_ADVERTISED`。
-2. 3 台に `conductor_resume` を送る。
+```bash
+make ha-up
+make l2-bootstrap-ha
+make app-up APP_MODE=devnet-ha
+```
 
-必須の項目と RPC の既定ポートは、v0.9.6 のソース（`op-conductor/flags/flags.go` の `requiredFlags`、`op-service/rpc/cli.go`）で確認した。ヘルスチェックの値と起動後の手順は、M7 の着手時に公式手順と照合する（V11）。
+`make ha-up` は静的ピア用の鍵を生成する。各 Conductor に rollup 設定を渡し、Raft に 3 台を登録する。初回は選出されたリーダーが最初の unsafe ブロックを作る。Conductor が制御を再開してから Batcher を起動する。op-reth は内部 IPC で同期ピアを登録し、最新ブロックをディスクに保存する。
+
+停止は `make app-down APP_MODE=devnet-ha` と `make ha-down` を使う。各ノードのデータと P2P 鍵を再利用する。
 
 ### 11.3 Gateway の切替
 
 op-conductor は未処理の取引を引き継がない。Gateway が再送する。
 
-- Gateway は 3 つの op-conductor に 1 秒ごとに `conductor_leader` を問い合わせ、リーダーの op-reth を転送先にする。
+- Gateway は 3 台の Conductor のリーダー、稼働、ヘルスを確認する。過半数に到達し、健康なリーダーが 1 台のとき、その op-reth に転送する。
 - リーダーが変わったら、転送済みでブロックに入っていない取引を通番順に新しいリーダーへ送り直す。
 - 通番と Receipt は Gateway の DB にあるので、切替で失われない。
 

@@ -13,6 +13,7 @@ type InclusionStore = Pick<
   | "rewindBlocks"
   | "unobservedForwarded"
   | "requeueUnobserved"
+  | "requeueAllUnobserved"
 >;
 type InclusionChain = {
   getBlock(at: { blockTag: "latest" } | { blockNumber: bigint }): Promise<{
@@ -83,8 +84,8 @@ export function createInclusionTracker(
         : 0n;
   }
 
-  return async () => {
-    if (now() < nextPoll) return;
+  return async (leaderChanged = false) => {
+    if (!leaderChanged && now() < nextPoll) return true;
     const latest = await chain.getBlock({ blockTag: "latest" });
     const priorTip = await store.trackedTip();
     const ancestor = await findAncestor(priorTip, latest.number);
@@ -122,9 +123,16 @@ export function createInclusionTracker(
         parent = block.hash;
       }
     }
-    if (end === latest.number) {
-      await recoverForwarded();
+    if (end === latest.number || latest.number < start) {
+      if (leaderChanged) {
+        await store.requeueAllUnobserved();
+        scanAfter = 0n;
+      } else {
+        await recoverForwarded();
+      }
       nextPoll = now() + 1_000;
+      return true;
     }
+    return !leaderChanged;
   };
 }

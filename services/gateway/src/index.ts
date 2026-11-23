@@ -6,6 +6,7 @@ import { receiptGenesisHash } from "@ledgera/shared/receipt";
 import { logService, startService } from "@ledgera/shared/server";
 import { privateKeyToAccount } from "viem/accounts";
 import { createCommitter } from "./chain/commit.ts";
+import { conductorCluster } from "./chain/conductor.ts";
 import { ForwardNotifications, runForwarder } from "./chain/forwarder.ts";
 import { createInclusionTracker } from "./chain/inclusion.ts";
 import { relayChain } from "./chain/relay.ts";
@@ -44,12 +45,47 @@ if (
 )
   throw new Error("VASP API keys must be unique and each must have a relayer");
 const deployment = await readDeployment(env.DEPLOYMENTS_FILE);
-const client = connectSequencer(deployment, env.SEQUENCER_RPC_URLS[0]);
-if ((await client.getChainId()) !== deployment.chainId) {
+const cluster =
+  env.CONDUCTOR_RPC_URLS &&
+  conductorCluster(
+    env.CONDUCTOR_RPC_URLS.map((conductor, index) => ({
+      id: `sequencer-${String(index + 1)}`,
+      conductor,
+      rpc: env.SEQUENCER_RPC_URLS[index],
+    })),
+  );
+async function selectLeader() {
+  const view = await cluster?.();
+  if (!view?.selected) throw new Error("No active sequencer leader");
+  return view.selected;
+}
+let lastLeader: string | undefined;
+const client = connectSequencer(
+  deployment,
+  env.SEQUENCER_RPC_URLS[0],
+  cluster &&
+    (async (method) => {
+      const peer = await selectLeader();
+      if (method === "eth_sendRawTransaction" && peer.id !== lastLeader) {
+        throw new Error("Sequencer leader changed before forwarding");
+      }
+      return peer.rpc;
+    }),
+);
+const readUrl = env.SEQUENCER_READ_RPC_URL;
+const reading =
+  cluster && readUrl
+    ? connectSequencer(
+        deployment,
+        readUrl,
+        async () => (await cluster()).selected?.rpc ?? readUrl,
+      )
+    : client;
+if ((await reading.getChainId()) !== deployment.chainId) {
   throw new Error("Sequencer chain ID does not match the deployment");
 }
 
-const configuredSigner = await client.readContract({
+const configuredSigner = await reading.readContract({
   address: deployment.contracts.receiptLog,
   abi: receiptLogAbi,
   functionName: "gatewaySigner",
@@ -79,7 +115,7 @@ if (first && first.prevHash !== genesisHash) {
 }
 const admission = createAdmission(
   store,
-  admissionChain(client, deployment.contracts.kycRegistry),
+  admissionChain(reading, deployment.contracts.kycRegistry),
   signer,
   policy,
 );
@@ -104,7 +140,14 @@ const forwarder = runForwarder(
   notifications,
   controller.signal,
   async () => {
-    await synchronize();
+    const leader = cluster ? (await selectLeader()).id : undefined;
+    if (!(await synchronize(leader !== lastLeader))) {
+      throw new Error("Waiting for sequencer canonical chain");
+    }
+    if (cluster && (await selectLeader()).id !== leader) {
+      throw new Error("Sequencer leader changed during synchronization");
+    }
+    lastLeader = leader;
     try {
       await commit();
     } catch (error) {
@@ -127,14 +170,18 @@ const app = gatewayApp({
   store,
   accept: admission.accept,
   async status() {
-    const [head, queueLength, committed] = await Promise.all([
+    const [head, queueLength, committed, view] = await Promise.all([
       store.head(),
       store.queueLength(),
       store.lastConfirmedSeq(),
+      cluster?.(),
     ]);
+    const endpoint =
+      view?.selected?.rpc ?? (cluster ? null : env.SEQUENCER_RPC_URLS[0]);
     return {
-      sequencerUrl: new URL(env.SEQUENCER_RPC_URLS[0]).origin,
-      leader: null,
+      sequencerUrl: endpoint && new URL(endpoint).origin,
+      leader: view?.selected?.id ?? null,
+      ...(view && { sequencers: view.nodes }),
       queueLength,
       lastSeq: (head?.seq ?? 0n).toString(),
       lastCommittedSeq: committed.toString(),
@@ -148,7 +195,7 @@ app.route(
     authorize: createRelayAuth(env.VASP_API_KEYS, env.RELAY_RATE_LIMIT_PER_MIN),
     relayers,
     chain: relayChain(
-      client,
+      reading,
       deployment.contracts.kycRegistry,
       deployment.contracts.ledgerForwarder,
     ),

@@ -1,0 +1,190 @@
+x-ha-reth: &ha-reth
+  extends:
+    file: docker-compose.chain.yml
+    service: op-reth
+  environment:
+    RETH_ENGINE_PERSISTENCE_THRESHOLD: "0"
+    RETH_ENGINE_BACKFILL_THRESHOLD: "1024"
+  volumes: !override
+    - ../runtime/genesis.json:/workspace/genesis.json:ro
+    - ../runtime/jwt.txt:/workspace/jwt.txt:ro
+
+x-ha-node: &ha-node
+  extends:
+    file: docker-compose.chain.yml
+    service: op-node
+  depends_on: !override []
+  command: !override
+    - op-node
+    - --l2.jwt-secret=/workspace/jwt.txt
+    - --l2.enginekind=reth
+    - --rollup.config=/workspace/rollup.json
+    - --sequencer.enabled=true
+    - --sequencer.stopped=true
+    - --verifier.l1-confs=4
+    - --conductor.enabled=true
+    - --p2p.no-discovery
+    - --p2p.priv.path=/workspace/p2p-key
+    - --rpc.addr=0.0.0.0
+    - --rpc.port=8547
+    - --rpc.enable-admin
+
+x-ha-node-env: &ha-node-env
+  OP_NODE_P2P_SEQUENCER_KEY: ${SEQUENCER_PRIVATE_KEY:?Run make keys}
+
+x-ha-conductor: &ha-conductor
+  restart: unless-stopped
+  image: ${OP_CONDUCTOR_IMAGE}
+  command: [op-conductor, --rollup.config=/workspace/rollup.json]
+  networks: [chain]
+
+x-ha-conductor-env: &ha-conductor-env
+  OP_CONDUCTOR_CONSENSUS_ADDR: 0.0.0.0
+  OP_CONDUCTOR_CONSENSUS_PORT: "50050"
+  OP_CONDUCTOR_RAFT_STORAGE_DIR: /data/raft
+  OP_CONDUCTOR_HEALTHCHECK_INTERVAL: "1"
+  OP_CONDUCTOR_HEALTHCHECK_UNSAFE_INTERVAL: "6"
+  OP_CONDUCTOR_HEALTHCHECK_MIN_PEER_COUNT: "1"
+  OP_CONDUCTOR_RPC_ADDR: 0.0.0.0
+  OP_CONDUCTOR_RPC_PORT: "8547"
+  OP_CONDUCTOR_PAUSED: "true"
+
+services:
+  op-reth:
+    profiles: [single]
+  op-node:
+    profiles: [single]
+
+  op-batcher:
+    environment:
+      OP_BATCHER_L2_ETH_RPC: http://op-reth-1:8545,http://op-reth-2:8545,http://op-reth-3:8545
+      OP_BATCHER_ROLLUP_RPC: http://op-node-1:8547,http://op-node-2:8547,http://op-node-3:8547
+
+  rpc-proxy:
+    environment:
+      UPSTREAM_L2_RPC_URLS: http://op-reth-1:8545,http://op-reth-2:8545,http://op-reth-3:8545
+      UPSTREAM_ROLLUP_RPC_URLS: http://op-node-1:8547,http://op-node-2:8547,http://op-node-3:8547
+    depends_on:
+      !override [
+        op-reth-1,
+        op-reth-2,
+        op-reth-3,
+        op-node-1,
+        op-node-2,
+        op-node-3,
+      ]
+
+  ha-control:
+    image: node:24-bookworm-slim
+    profiles: [tools]
+    networks: [chain]
+    volumes:
+      - op-reth-1-data:/reth/1:ro
+      - op-reth-2-data:/reth/2:ro
+      - op-reth-3-data:/reth/3:ro
+
+  chain-shell:
+    environment:
+      ETH_RPC_URL: http://rpc-proxy:8545
+
+  op-reth-1:
+    <<: *ha-reth
+    volumes: !override
+      - ../runtime/genesis.json:/workspace/genesis.json:ro
+      - ../runtime/jwt.txt:/workspace/jwt.txt:ro
+      - op-reth-1-data:/data
+
+  op-node-1:
+    <<: *ha-node
+    environment:
+      <<: *ha-node-env
+      OP_NODE_L2_ENGINE_RPC: http://op-reth-1:8551
+      OP_NODE_CONDUCTOR_RPC: http://op-conductor-1:8547
+      OP_NODE_P2P_STATIC: "${HA_PEERS_1:?Run make ha-up}"
+    depends_on: !override [op-reth-1]
+    volumes:
+      - ../runtime/ha/p2p-1:/workspace/p2p-key:ro
+
+  op-conductor-1:
+    <<: *ha-conductor
+    environment:
+      <<: *ha-conductor-env
+      OP_CONDUCTOR_NODE_RPC: http://op-node-1:8547
+      OP_CONDUCTOR_EXECUTION_RPC: http://op-reth-1:8545
+      OP_CONDUCTOR_CONSENSUS_ADVERTISED: op-conductor-1:50050
+      OP_CONDUCTOR_RAFT_SERVER_ID: sequencer-1
+      OP_CONDUCTOR_RAFT_BOOTSTRAP: "true"
+    volumes:
+      - op-conductor-1-data:/data
+      - ../runtime/rollup.json:/workspace/rollup.json:ro
+    depends_on: [op-node-1]
+
+  op-reth-2:
+    <<: *ha-reth
+    volumes: !override
+      - ../runtime/genesis.json:/workspace/genesis.json:ro
+      - ../runtime/jwt.txt:/workspace/jwt.txt:ro
+      - op-reth-2-data:/data
+
+  op-node-2:
+    <<: *ha-node
+    environment:
+      <<: *ha-node-env
+      OP_NODE_L2_ENGINE_RPC: http://op-reth-2:8551
+      OP_NODE_CONDUCTOR_RPC: http://op-conductor-2:8547
+      OP_NODE_P2P_STATIC: "${HA_PEERS_2:?Run make ha-up}"
+    depends_on: !override [op-reth-2]
+    volumes:
+      - ../runtime/ha/p2p-2:/workspace/p2p-key:ro
+
+  op-conductor-2:
+    <<: *ha-conductor
+    environment:
+      <<: *ha-conductor-env
+      OP_CONDUCTOR_NODE_RPC: http://op-node-2:8547
+      OP_CONDUCTOR_EXECUTION_RPC: http://op-reth-2:8545
+      OP_CONDUCTOR_CONSENSUS_ADVERTISED: op-conductor-2:50050
+      OP_CONDUCTOR_RAFT_SERVER_ID: sequencer-2
+    volumes:
+      - op-conductor-2-data:/data
+      - ../runtime/rollup.json:/workspace/rollup.json:ro
+    depends_on: [op-node-2]
+
+  op-reth-3:
+    <<: *ha-reth
+    volumes: !override
+      - ../runtime/genesis.json:/workspace/genesis.json:ro
+      - ../runtime/jwt.txt:/workspace/jwt.txt:ro
+      - op-reth-3-data:/data
+
+  op-node-3:
+    <<: *ha-node
+    environment:
+      <<: *ha-node-env
+      OP_NODE_L2_ENGINE_RPC: http://op-reth-3:8551
+      OP_NODE_CONDUCTOR_RPC: http://op-conductor-3:8547
+      OP_NODE_P2P_STATIC: "${HA_PEERS_3:?Run make ha-up}"
+    depends_on: !override [op-reth-3]
+    volumes:
+      - ../runtime/ha/p2p-3:/workspace/p2p-key:ro
+
+  op-conductor-3:
+    <<: *ha-conductor
+    environment:
+      <<: *ha-conductor-env
+      OP_CONDUCTOR_NODE_RPC: http://op-node-3:8547
+      OP_CONDUCTOR_EXECUTION_RPC: http://op-reth-3:8545
+      OP_CONDUCTOR_CONSENSUS_ADVERTISED: op-conductor-3:50050
+      OP_CONDUCTOR_RAFT_SERVER_ID: sequencer-3
+    volumes:
+      - op-conductor-3-data:/data
+      - ../runtime/rollup.json:/workspace/rollup.json:ro
+    depends_on: [op-node-3]
+
+volumes:
+  op-reth-1-data:
+  op-conductor-1-data:
+  op-reth-2-data:
+  op-conductor-2-data:
+  op-reth-3-data:
+  op-conductor-3-data:

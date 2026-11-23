@@ -9,6 +9,7 @@ services:
       - node
       - --chain=/workspace/genesis.json
       - --datadir=/data
+      - --ipcpath=/data/reth.ipc
       - --http
       - --http.addr=0.0.0.0
       - --http.port=8545

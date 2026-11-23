@@ -263,16 +263,16 @@ function Transactions() {
                     {amount(row) ??
                       (row.type === "deposit"
                         ? "L1 経由"
-                        : seqs.has(row.hash)
-                          ? `通番 ${seqs.get(row.hash)}`
+                        : seqs.has(row.hash.toLowerCase())
+                          ? `通番 ${seqs.get(row.hash.toLowerCase())}`
                           : "—")}
                   </span>
                   <span className="tx-meta">
                     {amount(row) &&
                       (row.type === "deposit"
                         ? "L1 経由"
-                        : seqs.has(row.hash)
-                          ? `通番 ${seqs.get(row.hash)}`
+                        : seqs.has(row.hash.toLowerCase())
+                          ? `通番 ${seqs.get(row.hash.toLowerCase())}`
                           : null)}
                     <Status
                       value={row.status === "success" ? "成功" : "failed"}
@@ -483,6 +483,14 @@ function Network({ status }: { status?: ChainStatus }) {
         lastSeq?: string;
         lastCommittedSeq?: string;
         queueLength?: number;
+        leader?: string | null;
+        sequencers?: {
+          id: string;
+          reachable: boolean;
+          leader: boolean;
+          active: boolean;
+          healthy: boolean;
+        }[];
       }>("gateway", "/v1/status"),
     refetchInterval: 2_000,
   });
@@ -528,6 +536,31 @@ function Network({ status }: { status?: ChainStatus }) {
           <dd>{gateway.data?.queueLength ?? "—"}</dd>
         </div>
       </dl>
+      {gateway.data?.sequencers && (
+        <>
+          <h3 className="subhead">Sequencer</h3>
+          <ul className="history">
+            {gateway.data.sequencers.map((node) => (
+              <li key={node.id}>
+                <strong>{node.id}</strong>
+                <span>
+                  {node.id === gateway.data?.leader
+                    ? "リーダー"
+                    : node.reachable
+                      ? "フォロワー"
+                      : "—"}
+                </span>
+                <span>
+                  {node.reachable && node.active && node.healthy
+                    ? "稼働中"
+                    : "停止または同期中"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!gateway.data.leader && <p className="notice">リーダーを確認中</p>}
+        </>
+      )}
       <ErrorNotice error={gateway.error} />
     </>
   );

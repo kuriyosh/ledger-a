@@ -2,6 +2,7 @@ import { ServiceError } from "@ledgera/shared/errors";
 import { logService, serviceApp } from "@ledgera/shared/server";
 import { type Hex, numberToHex } from "viem";
 import { z } from "zod";
+import type { SequencerNode } from "../chain/conductor.ts";
 import type { ForwardNotifications } from "../chain/forwarder.ts";
 import { type GatewayStore, receiptJson } from "../db/store.ts";
 import {
@@ -48,8 +49,9 @@ type Options = {
   signal: AbortSignal;
   notifications: ForwardNotifications;
   status(): Promise<{
-    sequencerUrl: string;
-    leader: null;
+    sequencerUrl: string | null;
+    leader: string | null;
+    sequencers?: SequencerNode[];
     queueLength: number;
     lastSeq: string;
     lastCommittedSeq: string;

@@ -42,9 +42,9 @@ if [[ "$mode" == anvil ]]; then
 else
   accounts=.env.generated
   chain_id=$(node --env-file-if-exists=.env -p 'process.env.L2_CHAIN_ID || ""')
-  network=ledgera-chain
-  direct_rpc=http://op-reth:8545
-  read_rpc=http://127.0.0.1:8545
+  network=${BOOTSTRAP_NETWORK:-ledgera-chain}
+  direct_rpc=${BOOTSTRAP_SEQUENCER_RPC:-http://op-reth:8545}
+  read_rpc=${BOOTSTRAP_READ_RPC:-http://127.0.0.1:8545}
 fi
 
 existing_registry=$(node chain/scripts/bootstrap-manifest.ts preflight "$mode" "$read_rpc" "$chain_id")

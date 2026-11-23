@@ -35,6 +35,9 @@ test-integration:
 CHAIN_COMPOSE = docker compose --env-file chain/versions.env --env-file .env --env-file .env.generated -f chain/compose/docker-compose.chain.yml
 CHAIN_NODE = node --env-file-if-exists=.env --env-file=.env.generated
 
+HA_COMPOSE = $(CHAIN_COMPOSE) --env-file chain/runtime/ha/peers.env -f chain/compose/docker-compose.ha.yml
+HA_CONTROL = $(HA_COMPOSE) run -T --rm --no-deps ha-control node --input-type=module -
+
 REPLICA_COMPOSE = docker compose --env-file chain/versions.env --env-file .env -f chain/compose/docker-compose.replica.yml
 CONTROL_COMPOSE = $(REPLICA_COMPOSE) --project-name ledgera-control --profile control
 
@@ -71,11 +74,49 @@ chain-deploy:
 	bash chain/scripts/deploy-l1.sh
 
 chain-up:
+	@running=$$($(CHAIN_COMPOSE) ps --status running --services) && \
+		if printf '%s\n' "$$running" | rg -q '^op-node-[123]$$'; then \
+			echo "Run make ha-down before starting the single sequencer" >&2; exit 1; \
+		fi
 	test -s chain/runtime/genesis.json
 	test -s chain/runtime/rollup.json
 	test -s chain/runtime/jwt.txt
 	bash chain/scripts/check-op-reth-image.sh op-reth $(CHAIN_COMPOSE)
 	$(CHAIN_COMPOSE) up -d --build --wait
+
+.PHONY: ha-up ha-down ha-kill-leader ha-restore
+ha-up:
+	test -s chain/runtime/genesis.json
+	test -s chain/runtime/rollup.json
+	test -s chain/runtime/jwt.txt
+	@running=$$($(CHAIN_COMPOSE) ps --status running --services) && \
+		if printf '%s\n' "$$running" | rg -qx 'op-node'; then \
+			echo "Run make chain-down before starting the sequencer cluster" >&2; exit 1; \
+		fi
+	bash chain/scripts/ha-peers.sh
+	bash chain/scripts/check-op-reth-image.sh op-reth-1 $(HA_COMPOSE)
+	$(HA_COMPOSE) up -d --build rpc-proxy op-conductor-1 op-conductor-2 op-conductor-3
+	$(HA_CONTROL) init < chain/scripts/ha-control.mjs
+	$(HA_COMPOSE) up -d --wait op-batcher
+	rm -f chain/runtime/ha/stopped-sequencer
+
+ha-down:
+	$(HA_COMPOSE) down
+
+ha-kill-leader:
+	@test ! -e chain/runtime/ha/stopped-sequencer || { echo "Run make ha-restore first" >&2; exit 1; }
+	@leader=$$($(HA_CONTROL) leader < chain/scripts/ha-control.mjs) && \
+		case "$$leader" in 1|2|3) ;; *) exit 1 ;; esac && \
+		printf '%s\n' "$$leader" > chain/runtime/ha/stopped-sequencer && \
+		$(HA_COMPOSE) stop "op-node-$$leader" && \
+		$(HA_COMPOSE) stop "op-reth-$$leader"
+
+ha-restore:
+	@leader=$$(cat chain/runtime/ha/stopped-sequencer) && \
+		case "$$leader" in 1|2|3) ;; *) exit 1 ;; esac && \
+		$(HA_COMPOSE) up -d "op-reth-$$leader" "op-node-$$leader" "op-conductor-$$leader" && \
+		$(HA_CONTROL) restore "$$leader" < chain/scripts/ha-control.mjs && \
+		rm chain/runtime/ha/stopped-sequencer
 
 chain-down:
 	$(CHAIN_COMPOSE) down
@@ -128,3 +169,9 @@ anvil-down:
 
 l2-bootstrap:
 	BOOTSTRAP_MODE=devnet bash chain/scripts/bootstrap-l2.sh
+
+.PHONY: l2-bootstrap-ha
+l2-bootstrap-ha:
+	@leader=$$($(HA_CONTROL) leader < chain/scripts/ha-control.mjs) && \
+		case "$$leader" in 1|2|3) ;; *) exit 1 ;; esac && \
+		BOOTSTRAP_MODE=devnet BOOTSTRAP_SEQUENCER_RPC="http://op-reth-$$leader:8545" bash chain/scripts/bootstrap-l2.sh

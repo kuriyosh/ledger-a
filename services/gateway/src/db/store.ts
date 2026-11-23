@@ -653,6 +653,21 @@ export class GatewayStore implements AdmissionStore {
     });
   }
 
+  async requeueAllUnobserved() {
+    await this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      await tx
+        .update(logEntries)
+        .set({ forwardStatus: "queued", forwardedAt: null, forwardError: null })
+        .where(
+          and(
+            isNull(logEntries.includedBlock),
+            eq(logEntries.forwardStatus, "forwarded"),
+          ),
+        );
+    });
+  }
+
   async pendingCommitment() {
     const [row] = await this.db
       .select({

@@ -60,6 +60,8 @@ services:
     environment:
       <<: *app-environment
       SEQUENCER_RPC_URLS: ${SEQUENCER_RPC_URLS:?Run make app-up}
+      CONDUCTOR_RPC_URLS: ${CONDUCTOR_RPC_URLS-}
+      SEQUENCER_READ_RPC_URL: ${SEQUENCER_READ_RPC_URL-}
       GATEWAY_PRIVATE_KEY: ${GATEWAY_PRIVATE_KEY:?Run make keys}
       RELAYER_KEYS: '{"1":"${RELAYER_A_PRIVATE_KEY:?Run make keys}","2":"${RELAYER_B_PRIVATE_KEY:?Run make keys}"}'
       VASP_API_KEYS: '{"1":"${VASP_A_GATEWAY_API_KEY:?Run make keys}","2":"${VASP_B_GATEWAY_API_KEY:?Run make keys}"}'
