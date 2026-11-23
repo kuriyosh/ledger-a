@@ -20,6 +20,10 @@ const statusByCode: Record<string, ContentfulStatusCode> = {
   INVALID_REQUEST: 422,
   SIMULATION_REVERTED: 422,
   RATE_LIMITED: 429,
+  DUPLICATE_TX: 409,
+  GAS_LIMIT_TOO_HIGH: 422,
+  INSUFFICIENT_FUNDS: 503,
+  MAX_FEE_TOO_LOW: 503,
   FORWARD_REJECTED: 502,
   SEQUENCER_UNAVAILABLE: 503,
 };
@@ -28,8 +32,11 @@ type Options = {
   authorize: ReturnType<typeof createRelayAuth>;
   relayers: ReadonlyMap<number, LocalAccount>;
   chain: ReturnType<typeof relayChain>;
-  stores: { receipts: GatewayStore; notifications: ForwardNotifications };
-  admission: ReturnType<typeof createAdmission>;
+  stores: {
+    receipts: Pick<GatewayStore, "forwardResult">;
+    notifications: ForwardNotifications;
+  };
+  admission: Pick<ReturnType<typeof createAdmission>, "acceptRelay">;
   signal: AbortSignal;
   policy: {
     chainId: number;
@@ -39,6 +46,7 @@ type Options = {
     maxFee: bigint;
     fixedPriorityFee: bigint;
     fallbackGas: bigint;
+    gasLimit: bigint;
   };
 };
 
@@ -73,13 +81,24 @@ export function relayRoutes({
       if (!parsed.success)
         throw new AdmissionError("INVALID_REQUEST", "invalid relay request");
 
-      const { data, operations } = await prepareForwardCall(
-        policy,
-        chain,
-        vaspId,
-        parsed.data.requests,
-      );
-      const evaluation = await chain.simulate(relayer.address, data);
+      let call: Awaited<ReturnType<typeof prepareForwardCall>>;
+      let evaluation: Awaited<ReturnType<typeof chain.simulate>>;
+      try {
+        call = await prepareForwardCall(
+          policy,
+          chain,
+          vaspId,
+          parsed.data.requests,
+        );
+        evaluation = await chain.simulate(relayer.address, call.data);
+      } catch (error) {
+        if (error instanceof AdmissionError) throw error;
+        throw new AdmissionError(
+          "SEQUENCER_UNAVAILABLE",
+          "unable to read the sequencer",
+        );
+      }
+      const { data, operations } = call;
       if (evaluation.reverted && !parsed.data.submitOnRevert) {
         throw new AdmissionError(
           "SIMULATION_REVERTED",
@@ -90,11 +109,17 @@ export function relayRoutes({
       const gas = evaluation.reverted
         ? policy.fallbackGas
         : (13n * evaluation.estimatedGas + 9n) / 10n;
+      if (gas > policy.gasLimit)
+        throw new AdmissionError(
+          "GAS_LIMIT_TOO_HIGH",
+          "relay gas exceeds gateway limit",
+        );
       const simulation = evaluation.reverted ? evaluation : { reverted: false };
       const receipt = await admission.acceptRelay({
         sender: relayer.address,
         vaspId,
         operations,
+        isReverted: chain.isReverted,
         sign(nonce): Promise<Hex> {
           if (nonce > BigInt(Number.MAX_SAFE_INTEGER)) {
             throw new AdmissionError(

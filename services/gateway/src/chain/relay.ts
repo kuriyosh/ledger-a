@@ -15,6 +15,7 @@ import {
   isAddress,
   isHex,
   RpcRequestError,
+  TransactionReceiptNotFoundError,
 } from "viem";
 import type { SequencerClient } from "./sequencer.ts";
 
@@ -34,7 +35,9 @@ type SimulationFailure = {
 };
 type Simulation = SimulationFailure | { reverted: false; estimatedGas: bigint };
 
-function simulationFailure(error: unknown): SimulationFailure | undefined {
+export function simulationFailure(
+  error: unknown,
+): SimulationFailure | undefined {
   if (!(error instanceof BaseError)) return undefined;
   const rpc = error.walk((cause) => cause instanceof RpcRequestError);
   const reverted = error.walk(
@@ -50,7 +53,11 @@ function simulationFailure(error: unknown): SimulationFailure | undefined {
     return undefined;
 
   const raw = rpc instanceof RpcRequestError ? rpc.data : undefined;
-  const data = isHex(raw) ? raw : "0x";
+  const nested =
+    typeof raw === "object" && raw !== null && "data" in raw
+      ? raw.data
+      : undefined;
+  const data = isHex(raw) ? raw : isHex(nested) ? nested : "0x";
   if (data === "0x") return { reverted: true, revertData: data };
   try {
     const decoded = decodeErrorResult({ abi: relayErrors, data });
@@ -101,6 +108,16 @@ export function relayChain(
         args: [address],
         blockTag: "pending",
       });
+    },
+    async isReverted(hash: Hex) {
+      try {
+        return (
+          (await client.getTransactionReceipt({ hash })).status === "reverted"
+        );
+      } catch (error) {
+        if (!(error instanceof TransactionReceiptNotFoundError)) throw error;
+        return false;
+      }
     },
     async simulate(relayer: Address, data: Hex): Promise<Simulation> {
       try {

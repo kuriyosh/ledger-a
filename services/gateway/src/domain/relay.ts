@@ -16,7 +16,11 @@ import {
   recoverAddress,
 } from "viem";
 import { z } from "zod";
-import { AdmissionError, type RelayOperation } from "./admission.ts";
+import {
+  AdmissionError,
+  isCanonicalS,
+  type RelayOperation,
+} from "./admission.ts";
 
 const ethereumAddress = z
   .string()
@@ -85,21 +89,22 @@ export function createRelayAuth(
     if (!bearer)
       throw new AdmissionError("UNAUTHORIZED", "invalid VASP API key");
     const digest = secretHash(bearer);
-    const match = credentials.find(({ digest: key }) =>
-      timingSafeEqual(key, digest),
-    );
-    if (!match)
+    let vaspId: number | undefined;
+    for (const { id, digest: key } of credentials) {
+      if (timingSafeEqual(key, digest)) vaspId = id;
+    }
+    if (vaspId === undefined)
       throw new AdmissionError("UNAUTHORIZED", "invalid VASP API key");
 
     const current = now();
-    const recent = (requests.get(match.id) ?? []).filter(
+    const recent = (requests.get(vaspId) ?? []).filter(
       (time) => time > current - 60_000,
     );
     if (recent.length >= rateLimit)
       throw new AdmissionError("RATE_LIMITED", "VASP request limit reached");
     recent.push(current);
-    requests.set(match.id, recent);
-    return match.id;
+    requests.set(vaspId, recent);
+    return vaspId;
   };
 }
 
@@ -113,6 +118,7 @@ type RelayPolicy = {
   forwarder: Address;
   tokenAddresses: readonly Address[];
   swap: Address;
+  gasLimit: bigint;
 };
 
 function validateTarget(request: RelayRequest, policy: RelayPolicy) {
@@ -144,6 +150,15 @@ export async function prepareForwardCall(
     chainId: policy.chainId,
     verifyingContract: policy.forwarder,
   };
+  if (
+    requests.reduce((total, request) => total + request.gas, 0n) >
+    policy.gasLimit
+  ) {
+    throw new AdmissionError(
+      "GAS_LIMIT_TOO_HIGH",
+      "relay requests exceed gateway gas limit",
+    );
+  }
   const nextNonce = new Map<Address, bigint>();
   const operations: RelayOperation[] = [];
   for (const request of requests) {
@@ -165,9 +180,14 @@ export async function prepareForwardCall(
       }
       nonce = await chain.forwarderNonce(request.from);
     }
+    const digest = hashForwardRequest(domain, { ...request, nonce });
     try {
+      const s = `0x${request.signature.slice(66, 130)}` as const;
+      const v = request.signature.slice(130).toLowerCase();
+      if (!isCanonicalS(s) || (v !== "1b" && v !== "1c"))
+        throw new Error("non-canonical signature");
       const recovered = await recoverAddress({
-        hash: hashForwardRequest(domain, { ...request, nonce }),
+        hash: digest,
         signature: request.signature,
       });
       if (recovered !== request.from) throw new Error("unexpected signer");
@@ -182,6 +202,8 @@ export async function prepareForwardCall(
       from: request.from,
       to: request.to,
       selector: request.data.slice(0, 10) as Hex,
+      nonce,
+      digest,
     });
   }
 

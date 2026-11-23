@@ -50,7 +50,7 @@ type Options = {
 };
 
 export async function waitForForwarding(
-  store: GatewayStore,
+  store: Pick<GatewayStore, "forwardResult">,
   receipt: SignedReceipt,
   notifications: ForwardNotifications,
   signal: AbortSignal,

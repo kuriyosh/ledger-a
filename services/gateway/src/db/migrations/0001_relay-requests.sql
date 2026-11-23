@@ -5,8 +5,12 @@ CREATE TABLE "gateway"."relay_requests" (
 	"request_from" "bytea" NOT NULL,
 	"request_to" "bytea" NOT NULL,
 	"selector" "bytea" NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"forwarder_nonce" numeric(78, 0) NOT NULL,
+	"request_hash" "bytea" NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "relay_requests_request_hash_unique" UNIQUE("request_hash")
 );
 --> statement-breakpoint
 ALTER TABLE "gateway"."relay_requests" ADD CONSTRAINT "relay_requests_seq_log_entries_seq_fk" FOREIGN KEY ("seq") REFERENCES "gateway"."log_entries"("seq") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "relay_requests_seq" ON "gateway"."relay_requests" USING btree ("seq");
+CREATE INDEX "relay_requests_seq" ON "gateway"."relay_requests" USING btree ("seq");--> statement-breakpoint
+CREATE INDEX "relay_requests_nonce" ON "gateway"."relay_requests" USING btree ("request_from","forwarder_nonce");

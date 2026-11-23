@@ -14,6 +14,7 @@ const policy = {
   forwarder,
   tokenAddresses: [token],
   swap,
+  gasLimit: 5_000_000n,
 } as const;
 const registry = {
   async vaspOf(address: Address) {
@@ -86,7 +87,9 @@ test("signatures in a batch use consecutive Forwarder nonces per signer", async 
     decodeFunctionData({ abi: ledgerForwarderAbi, data: batch.data })
       .functionName,
   ).toBe("executeAll");
-  expect(batch.operations).toEqual(
+  expect(
+    batch.operations.map(({ from, to, selector }) => ({ from, to, selector })),
+  ).toEqual(
     Array.from({ length: 2 }, () => ({
       from: sender.address,
       to: token,

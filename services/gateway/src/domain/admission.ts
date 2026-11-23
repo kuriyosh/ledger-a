@@ -19,6 +19,11 @@ import {
 const MAX_LOW_S =
   0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
 
+export function isCanonicalS(value: Hex) {
+  const s = BigInt(value);
+  return s > 0n && s <= MAX_LOW_S;
+}
+
 export class AdmissionError extends Error {
   readonly code: string;
   readonly details: Record<string, unknown>;
@@ -54,7 +59,15 @@ export type AdmissionRecord = SignedReceipt & {
   operations?: readonly RelayOperation[];
 };
 
-export type RelayOperation = { from: Address; to: Address; selector: Hex };
+export type RelayOperation = {
+  from: Address;
+  to: Address;
+  selector: Hex;
+  nonce: bigint;
+  digest: Hex;
+};
+
+type RelayClaim = { txHash: Hex; digest: Hex; rejected: boolean; seq: bigint };
 
 export type ReceiptHead = Pick<
   SignedReceipt,
@@ -78,6 +91,7 @@ export type AdmissionHistory = {
 export interface IntakeTransaction {
   history(sender: Address, confirmedNonce: bigint): Promise<AdmissionHistory>;
   hasReceipt(hash: Hex): Promise<boolean>;
+  relayClaims(operations: readonly RelayOperation[]): Promise<RelayClaim[]>;
   append(record: AdmissionRecord): Promise<void>;
 }
 
@@ -112,11 +126,7 @@ export async function decodeTransaction(
   let sender: Address;
   try {
     decoded = parseTransaction(raw);
-    if (
-      !decoded.s ||
-      BigInt(decoded.s) === 0n ||
-      BigInt(decoded.s) > MAX_LOW_S
-    ) {
+    if (!decoded.s || !isCanonicalS(decoded.s)) {
       throw new Error("Invalid transaction signature");
     }
     sender = getAddress(
@@ -190,6 +200,7 @@ type RelayAdmission = {
   sender: Address;
   vaspId: number;
   operations: readonly RelayOperation[];
+  isReverted(hash: Hex): Promise<boolean>;
   sign(nonce: bigint): Promise<Hex>;
 };
 
@@ -222,6 +233,28 @@ export function createAdmission(
             "transaction already accepted",
           );
         }
+        if (request.source === "relay") {
+          const claims = await ledger.relayClaims(request.relay.operations);
+          const digests = new Set(
+            request.relay.operations.map((operation) => operation.digest),
+          );
+          for (const claim of claims) {
+            if (
+              digests.has(claim.digest) ||
+              (!claim.rejected &&
+                !(await request.relay.isReverted(claim.txHash)))
+            ) {
+              throw new AdmissionError(
+                "DUPLICATE_TX",
+                "relay request or nonce already accepted",
+                {
+                  txHash: claim.txHash,
+                  seq: claim.seq.toString(),
+                },
+              );
+            }
+          }
+        }
         const state = await chain.senderState(sender);
         const history = await ledger.history(sender, state.confirmedNonce);
         if (history.queued >= policy.queueLimit) {
@@ -230,13 +263,6 @@ export function createAdmission(
             "forwarding queue is full",
           );
         }
-        if (!state.eligible) {
-          throw new AdmissionError(
-            "SENDER_NOT_ALLOWED",
-            `sender not allowed: ${sender}`,
-          );
-        }
-
         const accepted = new Set(
           history.outstanding.map((entry) => entry.nonce),
         );
@@ -264,6 +290,13 @@ export function createAdmission(
         if (tx.maxFeePerGas < 2n * state.baseFee + policy.fixedPriorityFee) {
           throw new AdmissionError("MAX_FEE_TOO_LOW", "maximum fee is too low");
         }
+        if (!state.eligible) {
+          throw new AdmissionError(
+            "SENDER_NOT_ALLOWED",
+            `sender not allowed: ${sender}`,
+          );
+        }
+
         if (tx.nonce !== expected) {
           throw new AdmissionError(
             tx.nonce < expected ? "NONCE_TOO_LOW" : "NONCE_GAP",

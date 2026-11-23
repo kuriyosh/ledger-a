@@ -95,14 +95,45 @@ test.skipIf(!databaseUrl)(
       expect(replacement.seq).toBe(4n);
       expect(replacement.prevHash).toBe(independent.entryHash);
 
-      const relay = await admission.acceptRelay({
+      const relayRequest = {
         sender: bob.address,
         vaspId: 2,
         operations: [
-          { from: alice.address, to: bob.address, selector: "0x095ea7b3" },
+          {
+            from: alice.address,
+            to: bob.address,
+            selector: "0x095ea7b3",
+            nonce: 4n,
+            digest:
+              "0x1111111111111111111111111111111111111111111111111111111111111111",
+          },
         ],
-        sign: (nonce) => bob.signTransaction({ ...tx, nonce: Number(nonce) }),
+        sign: (nonce: bigint) =>
+          bob.signTransaction({ ...tx, nonce: Number(nonce) }),
+        isReverted: async () => false,
+      } as const;
+      const [settledRelay, retry] = await Promise.allSettled([
+        admission.acceptRelay(relayRequest),
+        admission.acceptRelay(relayRequest),
+      ]);
+      expect(retry).toMatchObject({
+        status: "rejected",
+        reason: { code: "DUPLICATE_TX" },
       });
+      if (settledRelay.status !== "fulfilled") throw settledRelay.reason;
+      await expect(
+        admission.acceptRelay({
+          ...relayRequest,
+          operations: [
+            {
+              ...relayRequest.operations[0],
+              digest:
+                "0x2222222222222222222222222222222222222222222222222222222222222222",
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({ code: "DUPLICATE_TX" });
+      const relay = settledRelay.value;
       expect(relay.seq).toBe(5n);
       expect(relay.prevHash).toBe(replacement.entryHash);
       const [operation] = await database.db

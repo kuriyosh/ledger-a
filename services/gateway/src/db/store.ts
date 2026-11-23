@@ -9,6 +9,7 @@ import {
   gte,
   inArray,
   ne,
+  or,
   sql,
 } from "drizzle-orm";
 import { bytesToHex, getAddress, type Hex, parseTransaction } from "viem";
@@ -133,6 +134,34 @@ export class GatewayStore implements AdmissionStore {
             .limit(1);
           return duplicate !== undefined;
         },
+        async relayClaims(operations) {
+          if (!operations.length) return [];
+          const rows = await tx
+            .select({
+              txHash: logEntries.txHash,
+              digest: relayRequests.digest,
+              seq: logEntries.seq,
+              status: logEntries.forwardStatus,
+            })
+            .from(relayRequests)
+            .innerJoin(logEntries, eq(relayRequests.seq, logEntries.seq))
+            .where(
+              or(
+                ...operations.map((operation) =>
+                  and(
+                    eq(relayRequests.requestFrom, toBuffer(operation.from)),
+                    eq(relayRequests.nonce, operation.nonce),
+                  ),
+                ),
+              ),
+            );
+          return rows.map((row) => ({
+            txHash: bytesToHex(row.txHash),
+            digest: bytesToHex(row.digest),
+            seq: row.seq,
+            rejected: row.status === "rejected",
+          }));
+        },
         async append({ operations, ...record }: AdmissionRecord) {
           await tx.insert(logEntries).values({
             ...record,
@@ -152,6 +181,8 @@ export class GatewayStore implements AdmissionStore {
                 requestFrom: toBuffer(operation.from),
                 requestTo: toBuffer(operation.to),
                 selector: toBuffer(operation.selector),
+                nonce: operation.nonce,
+                digest: toBuffer(operation.digest),
               })),
             );
           }

@@ -22,6 +22,18 @@ const relayers = new Map(
     privateKeyToAccount(key),
   ]),
 );
+const signer = privateKeyToAccount(env.GATEWAY_PRIVATE_KEY);
+const relayerAddresses = new Set(
+  Array.from(relayers.values(), (relayer) => relayer.address),
+);
+if (
+  relayerAddresses.size !== relayers.size ||
+  relayerAddresses.has(signer.address)
+) {
+  throw new Error(
+    "Each relayer must have its own key separate from the Gateway signer",
+  );
+}
 const vaspKeys = Object.values(env.VASP_API_KEYS);
 if (
   new Set(vaspKeys).size !== vaspKeys.length ||
@@ -34,7 +46,6 @@ if ((await client.getChainId()) !== deployment.chainId) {
   throw new Error("Sequencer chain ID does not match the deployment");
 }
 
-const signer = privateKeyToAccount(env.GATEWAY_PRIVATE_KEY);
 const configuredSigner = await client.readContract({
   address: deployment.contracts.receiptLog,
   abi: receiptLogAbi,
@@ -100,6 +111,7 @@ app.route(
       maxFee: env.MAX_FEE_PER_GAS_WEI,
       fixedPriorityFee: env.FIXED_PRIORITY_FEE_WEI,
       fallbackGas: env.RELAY_FALLBACK_GAS,
+      gasLimit: env.GAS_LIMIT_CAP,
     },
   }),
 );

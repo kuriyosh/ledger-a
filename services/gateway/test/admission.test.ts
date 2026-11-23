@@ -55,6 +55,9 @@ function fixture(initial?: {
             queued: entries.length,
           };
         },
+        async relayClaims() {
+          return [];
+        },
         async hasReceipt(hash: Hex) {
           return entries.some((entry) => entry.txHash === hash);
         },

@@ -179,11 +179,13 @@ JSON-RPC。
 | 401 | `UNAUTHORIZED` | API キーが不正 |
 | 403 | `TARGET_NOT_ALLOWED` | 呼び出し先か関数が許可外 |
 | 403 | `SIGNER_NOT_OF_VASP` | 署名者がその VASP のアカウントでない |
+| 409 | `DUPLICATE_TX` | 同じ署名済み操作、または未確定の Forwarder nonce を受付済み。既存の通番と取引ハッシュを返す |
 | 422 | `INVALID_REQUEST` | 署名、期限、nonce が不正 |
+| 422 | `GAS_LIMIT_TOO_HIGH` | リクエストのガス合計か、送信する取引のガスが上限を超える |
 | 422 | `SIMULATION_REVERTED` | 実行すると失敗する。`details` に `revertData` と復号結果を入れる |
 | 429 | `RATE_LIMITED` | 回数上限を超えた |
 | 502 | `FORWARD_REJECTED` | Sequencer が拒否した。`details` に Receipt を入れる |
-| 503 | `SEQUENCER_UNAVAILABLE` | 転送先がなく、キューが上限に達した（7.3） |
+| 503 | `SEQUENCER_UNAVAILABLE`、`INSUFFICIENT_FUNDS`、`MAX_FEE_TOO_LOW` | Sequencer の応答待ち、キュー満杯、代理送信用アカウントの費用不足 |
 
 ### 6.2 検査
 
@@ -195,8 +197,10 @@ JSON-RPC。
 | `value` | 0 |
 | `deadline` | 現在から 10 分以内 |
 | 署名者 | `vaspOf(from)` が API キーの VASP と一致する。状態は Gateway では検査しない。停止や遮断は `LedgerForwarder` が `SignerNotAllowed` で止め（03 章 5.3）、シミュレーションの失敗として現れる |
-| 回数 | VASP ごとに 1 分あたり `RELAY_RATE_LIMIT_PER_MIN` 件 |
+| 回数 | VASP ごとに 1 分あたり `RELAY_RATE_LIMIT_PER_MIN` 回の HTTP リクエスト |
 | 署名 | 各リクエストの EIP-712 署名を Gateway 自身が検証する。nonce は `LedgerForwarder.nonces(from)` に、同じ呼び出しの中で先行する同じ署名者のリクエスト数を足した値を使う |
+
+同じ署名済み操作と、未確定の Forwarder nonce の重複は、DB への追記と同じ直列区間で検査する。
 
 `LedgerForwarder.verify` は使わない。2 件目以降は 1 件目の実行後の nonce で署名されているため、実行前の `verify` が false を返す。
 
@@ -364,6 +368,8 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 | `request_from` | bytea | 署名者 |
 | `request_to` | bytea | 呼び出し先 |
 | `selector` | bytea | 関数セレクタ |
+| `forwarder_nonce` | numeric(78,0) | 署名に使った Forwarder nonce |
+| `request_hash` | bytea、一意 | EIP-712 digest |
 | `created_at` | timestamptz | |
 
 ## 11. 設定
