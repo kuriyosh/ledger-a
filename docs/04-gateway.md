@@ -45,12 +45,12 @@ flowchart TD
 ```
 
 - 直列区間は非同期ミューテックスで守る。採番と DB への追記は 1 つの DB トランザクションで行う。
-- 受付時刻は直列区間に入った時点の時計の値。通番の順と受付時刻の順は一致する。
-- 応答は転送の結果が出てから返す。転送が拒否された場合も Receipt は発行済みなので、エラーの `details` に Receipt を入れる。
+- 受付時刻は直列区間に入った時点の時計の値。時計が戻った場合は前の受付時刻を使う。
+- 応答は転送の結果を最大 15 秒待つ。転送済みなら正常応答を返す。拒否または待ち時間超過の場合、エラーに発行済みの Receipt を入れる。待ち時間を超えた取引は引き続き転送する。
 
 ## 4. 受付の規則
 
-### 4.1 形式検査（直列区間の前）
+### 4.1 形式検査
 
 | 検査 | 拒否コード |
 |---|---|
@@ -62,6 +62,8 @@ flowchart TD
 | `gas <= GAS_LIMIT_CAP` | `GAS_LIMIT_TOO_HIGH` |
 | 同じ取引ハッシュが未受付 | `DUPLICATE_TX` |
 
+最大手数料と重複は直列区間で確認する。最大手数料には最新の base fee を使う。
+
 ### 4.2 事前検査（直列区間の中）
 
 | 検査 | 拒否コード |
@@ -70,7 +72,8 @@ flowchart TD
 | nonce が期待値と一致 | `NONCE_TOO_LOW`、`NONCE_GAP` |
 | 残高が `gas × maxFeePerGas + value` 以上 | `INSUFFICIENT_FUNDS` |
 
-- nonce の期待値は `max(Sequencer の pending nonce, 受付済みの最大 nonce + 1)`。「受付済み」に、転送で `rejected` になったエントリは数えない。
+- 期待する nonce は Sequencer の pending nonce を起点に、受付済みの取引が連続する範囲の次の値。転送で拒否された取引は数えない。
+- 最新ブロックの残高を使う。まだ取り込まれていない受付済み取引の最大費用を残高から差し引く。
 - nonce の飛びを受け付けない理由。飛んだ取引はプールで保留になり、後から実行可能になった時点の順で並ぶ。通番とずれる。
 - 同じ nonce の差し替えは受け付けない。
 - 規則が無効な間（初期化中）は登録状態を検査しない。
@@ -220,9 +223,10 @@ JSON-RPC。
 | Sequencer の応答 | 扱い |
 |---|---|
 | 成功、または「既知の取引」 | `forwarded` |
-| nonce が古い、残高不足、`ledgera: sender not allowed` | `rejected`。理由を `forward_error` に残す |
-| 接続エラー、タイムアウト | 間隔を空けて再試行する。成功するまで後続を送らない |
+| nonce が古い、残高不足、`ledgera: sender not allowed` などの確定した拒否 | `rejected`。理由を `forward_error` に残す |
+| 接続エラー、タイムアウト、一時的な RPC 障害 | 間隔を空けて再試行する。結果が確定するまで後続を送らない |
 
+- 転送で拒否されたときは、同じ送信者で後続の nonce を持つキュー内の取引も拒否にする。
 - `rejected` と `forward_error` は Gateway の申告で、Receipt の署名対象ではない。監査ツールは、Receipt のある全エントリを取り込みの期限で監視する。未取り込みの理由は L2 の状態で確かめ直す（07 章 3.2）。
 - `rejected` にしたエントリも、`queued` のまま転送できなかったエントリも、監査では「Receipt 発行後の不採用」として扱われる。
 
@@ -312,6 +316,7 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 | `seq` | bigint、主キー | 通番 |
 | `tx_hash` | bytea、一意 | |
 | `sender` | bytea | |
+| `tx_nonce` | bigint | 送信者ごとの受付済み nonce の検索に使う |
 | `raw_tx` | bytea | 署名済み取引 |
 | `received_at_ms` | bigint | |
 | `prev_hash` | bytea | |

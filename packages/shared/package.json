@@ -6,7 +6,10 @@
     "./travel-rule": "./src/travel-rule.ts",
     "./forward-request": "./src/forward-request.ts",
     "./quote": "./src/quote.ts",
-    "./receipt": "./src/receipt.ts"
+    "./receipt": "./src/receipt.ts",
+    "./db": "./src/db.ts",
+    "./errors": "./src/errors.ts",
+    "./server": "./src/server.ts"
   },
   "scripts": {
     "generate:attestation": "node test/generate-attestation-vector.ts",
@@ -14,6 +17,14 @@
     "generate:swap-receipt-vectors": "node test/generate-swap-receipt-vectors.ts"
   },
   "dependencies": {
-    "viem": "2.58.4"
+    "viem": "2.58.4",
+    "@hono/node-server": "2.1.11",
+    "drizzle-orm": "0.45.4",
+    "hono": "4.13.21",
+    "pg": "8.23.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
   }
 }
