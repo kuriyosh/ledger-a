@@ -9,6 +9,7 @@ import { VaspStore } from "./db/store.ts";
 import { SwapStore } from "./db/swaps.ts";
 import { TransferStore } from "./db/transfers.ts";
 import { TravelRuleStore } from "./db/travel-rules.ts";
+import { disclosureRoutes, disclosureStore } from "./disclosures.ts";
 import { vaspEnv } from "./env.ts";
 import { vaspApp } from "./http.ts";
 import { quoteService } from "./quotes.ts";
@@ -102,24 +103,22 @@ const polling = Promise.all([
   customers.poll(shutdown.signal),
   transfers.poll(shutdown.signal),
 ]);
-startService(
-  vaspApp(
-    store,
-    customers,
-    chain,
-    env.ADMIN_TOKEN,
-    transfers,
-    travelRule,
-    quotes,
-    swaps,
-    env.DEMO_MODE,
-  ),
-  env,
-  {
-    onShutdown: () => shutdown.abort(),
-    onClose: async () => {
-      await polling;
-      await database.close();
-    },
-  },
+const app = vaspApp(
+  store,
+  customers,
+  chain,
+  env.ADMIN_TOKEN,
+  transfers,
+  travelRule,
+  quotes,
+  swaps,
+  env.DEMO_MODE,
 );
+disclosureRoutes(app, disclosureStore(database.db), env.AUDITOR_API_KEY);
+startService(app, env, {
+  onShutdown: () => shutdown.abort(),
+  onClose: async () => {
+    await polling;
+    await database.close();
+  },
+});

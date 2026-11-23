@@ -195,7 +195,7 @@ flowchart LR
 - [x] `services/vasp`: トラベルルール（送付側、受取側）
 - [x] `services/vasp`: 交換（taker、maker）
 - [ ] `services/vasp`: AML 規則、アラート、凍結申請、取り下げの依頼
-- [ ] `services/vasp`: 開示請求
+- [x] `services/vasp`: 開示請求
 - [x] `services/consortium`: 申請、承認、実行
 - [x] `services/consortium`: 取り下げ（取消取引）、L2 との照合
 - [ ] `services/demo-tools`: 発行体の `POST /v1/issuer/mint`、デモ回の `POST /v1/demo/runs`

@@ -502,6 +502,8 @@ VASP 間 API（署名付きリクエスト）。
 { "address": "0x…", "reason": "AML アラートの調査", "requestedBy": "auditor" }
 ```
 
+請求時は、アドレスの登録有無にかかわらず `pending` を返す。承認時に自社の顧客であることを照合し、氏名と顧客 ID を保存する。承認前と却下後の応答は、ID と状態だけを返す。
+
 承認後の `GET` の応答。
 
 ```json
@@ -634,6 +636,7 @@ VASP 間 API（署名付きリクエスト）。
 | `requested_by` | text |
 | `reason` | text |
 | `status` | text（`pending`、`approved`、`rejected`） |
+| `disclosure` | jsonb、承認以外は null |
 | `created_at`、`decided_at` | timestamptz |
 
 `sessions`（`token`、`customer_id`、`expires_at`）、`processed_blocks`（`block_number`、`block_hash`）も持つ。
