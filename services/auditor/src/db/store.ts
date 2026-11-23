@@ -83,14 +83,14 @@ export class AuditStore {
           .from(fifoEntries)
           .orderBy(asc(fifoEntries.seq));
         const storedDecisions = await tx.select().from(inclusionDecisions);
-        const [state] = await tx
+        const states = await tx
           .select()
           .from(auditState)
           .where(eq(auditState.id, stateId));
         return {
           blocks: storedBlocks.map(({ info }) => blockSchema.parse(info)),
           receipts: entries.map(({ receipt }) => receiptSchema.parse(receipt)),
-          decisions: new Map(
+          decisions: new Map<bigint, InclusionDecision>(
             storedDecisions.map(({ exclusion, ...row }) => [
               row.seq,
               {
@@ -102,7 +102,7 @@ export class AuditStore {
               },
             ]),
           ),
-          state,
+          state: states.at(0),
         };
       },
       { isolationLevel: "repeatable read", accessMode: "read only" },
@@ -126,7 +126,7 @@ export class AuditStore {
     reset: boolean;
     priorState: Awaited<ReturnType<AuditStore["inputs"]>>["state"] | undefined;
   }) {
-    await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(6157980750)`);
       const [active] = await tx
         .select()
@@ -296,6 +296,7 @@ export class AuditStore {
         .insert(auditState)
         .values({ id: stateId, ...updated })
         .onConflictDoUpdate({ target: auditState.id, set: updated });
+      return { id: stateId, ...updated };
     });
   }
 

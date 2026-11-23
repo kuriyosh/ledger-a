@@ -420,3 +420,8 @@ pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 | 結合（anvil） | Gateway の転送先だけを遮断して受け付けた取引が、期限後に `NOT_INCLUDED` になる。転送先を試験用のプロキシにして遮断し、`INCLUSION_DEADLINE_SEC` を短くする |
 | 結合（anvil） | Gateway を通さずに送った取引が C6 で検出される |
 | 結合（anvil） | 開示請求から開示内容の取得まで |
+
+Anvil の結合テストには専用のチェーンと空の PostgreSQL DB を使う。
+`TEST_AUDITOR_E2E_L2_RPC` は `127.0.0.1` の直接 RPC、`TEST_AUDITOR_E2E_DEPLOYMENT` は Anvil のデプロイ結果を指定する。
+`TEST_AUDITOR_E2E_ROLES` に Anvil 用の `.env.generated`、`TEST_AUDITOR_E2E_DATABASE_URL` に接続 URL を指定して `make test-integration` を実行する。
+テスト中の Gateway と Auditor は Vitest が起動する。

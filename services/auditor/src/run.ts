@@ -28,6 +28,7 @@ function observation(
   seq: bigint,
   detail: string,
   evidence: Violation["evidence"],
+  identity = evidence,
 ): Violation {
   return {
     check: "C2",
@@ -35,7 +36,7 @@ function observation(
     seqA: seq,
     detail,
     evidence,
-    observationId: keccak256(stringToHex(JSON.stringify(auditJson(evidence)))),
+    observationId: keccak256(stringToHex(JSON.stringify(auditJson(identity)))),
   };
 }
 
@@ -105,17 +106,23 @@ export async function scanReceipts(
 
   if (full) {
     const missing = saved.filter(
-      ({ seq }) => seq <= head.seq && !published.has(seq),
+      ({ seq }) => seq < next && seq <= head.seq && !published.has(seq),
     );
     if (missing.length) {
       const repeated = await gateway.head(signal);
-      if (repeated.seq === head.seq && repeated.entryHash === head.entryHash) {
+      if (repeated.seq >= head.seq) {
         for (const receipt of missing) {
           problems.push(
-            observation(receipt.seq, "Gateway omitted an archived Receipt", {
-              archived: receiptEvidence(receipt),
-              advertised: head,
-            }),
+            observation(
+              receipt.seq,
+              "Gateway omitted an archived Receipt",
+              { archived: receiptEvidence(receipt), advertised: head },
+              {
+                seq: receipt.seq,
+                entryHash: receipt.entryHash,
+                signature: receipt.signature,
+              },
+            ),
           );
         }
       }
@@ -179,6 +186,7 @@ export function createAuditRunner({
     verified.set(receipt.seq, { identity, state });
     return state;
   };
+  let loaded: Awaited<ReturnType<AuditStore["inputs"]>> | undefined;
   let running: Promise<void> | undefined;
   let runningReset = false;
 
@@ -201,7 +209,9 @@ export function createAuditRunner({
       verified.clear();
       historical.clear();
     }
-    const saved = await store.inputs();
+    const saved = reset
+      ? await store.inputs()
+      : (loaded ?? (await store.inputs()));
     let retained = saved.blocks;
     const tip = await source.tip();
     if (await isLagging(source, retained, tip)) {
@@ -299,7 +309,7 @@ export function createAuditRunner({
       throw new Error("L2 changed before the audit checkpoint");
     }
     signal.throwIfAborted();
-    await store.persist({
+    const checkpoint = await store.persist({
       ancestor,
       blocks: added,
       snapshot,
@@ -308,6 +318,14 @@ export function createAuditRunner({
       reset,
       priorState: saved.state,
     });
+    loaded = {
+      blocks,
+      receipts,
+      decisions: new Map(
+        snapshot.decisions.map((decision) => [decision.seq, decision]),
+      ),
+      state: checkpoint,
+    };
   }
 
   function run(reset = false): Promise<void> {
@@ -316,10 +334,15 @@ export function createAuditRunner({
         ? running.catch(() => {}).then(() => run(true))
         : running;
     runningReset = reset;
-    running = inspect(reset).finally(() => {
-      running = undefined;
-      runningReset = false;
-    });
+    running = inspect(reset)
+      .catch((error) => {
+        loaded = undefined;
+        throw error;
+      })
+      .finally(() => {
+        running = undefined;
+        runningReset = false;
+      });
     return running;
   }
 
