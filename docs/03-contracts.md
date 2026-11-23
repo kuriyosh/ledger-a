@@ -103,6 +103,7 @@ struct Layout {
 
 - 先頭 3 フィールドの順序と型は変えない。実行層が同じ位置を読む。
 - `accounts` と `vasps` の値はコンパイラの構造体のパッキングに頼らず、`uint256` に手で詰める。
+- VASP ID の最大値（`2^32 - 1`）の管理者は `vasps[id]` の管理者アドレスから逆引きする。
 
 `accounts[a]` のワード。
 
@@ -198,7 +199,8 @@ interface IKycRegistry {
 | `renewAccount` | VASP 管理者 | 自社のアカウント。状態が `ACTIVE` | `validUntil` を更新 |
 
 - VASP 管理者は `BLOCKED` のアカウントを変更できない。
-- 状態が変わる操作のたびに `version` を 1 増やす。
+- 初期化時の `version` は 1。状態が変わる操作のたびに 1 増やす。
+- 管理者を登録または差し替えるとき、他社の管理者と、他社の失効前のアカウントは指定できない。
 - `reason` は申請 ID などの乱数 32 バイト。個人情報やそのハッシュを入れない。
 - `REVOKED` のアドレスは別の VASP が登録し直せる。所属変更はこの手順で行う。
 
@@ -232,12 +234,14 @@ event EnforcementEnabled(uint64 version, address indexed actor);
 event ConsortiumTransferred(address indexed previous, address indexed current);
 
 error AlreadyInitialized();
+error EnforcementAlreadyEnabled();
 error NotConsortium(address caller);
 error NotVaspAdmin(address caller);
 error VaspAlreadyRegistered(uint32 vaspId);
 error VaspNotFound(uint32 vaspId);
 error VaspNotActive(uint32 vaspId);
 error SystemVaspCannotBeSuspended();
+error InvalidVaspStatus(VaspStatus status);
 error InvalidKind(AccountKind kind);
 error InvalidTransition(address account, AccountStatus from, AccountStatus to);
 error AccountOfOtherVasp(address account, uint32 vaspId);

@@ -76,15 +76,15 @@ flowchart LR
 
 作業。
 
-- [ ] `contracts/` の Foundry プロジェクト。依存は OpenZeppelin Contracts v5、safe-contracts v1.3.0、forge-std
-- [ ] `libraries/RegistryLayout.sol`（スロットとビット配置）
-- [ ] `KycRegistry.sol` とテスト（03 章 2.7）
+- [x] `contracts/` の Foundry プロジェクト。依存は OpenZeppelin Contracts v5、safe-contracts v1.3.0、forge-std
+- [x] `libraries/RegistryLayout.sol`（スロットとビット配置）
+- [x] `KycRegistry.sol` とテスト（03 章 2.7）
 - [ ] `TravelRuleCompliance.sol` とテスト（4.4）
 - [ ] `LedgerToken.sol` とテスト（3.5）
 - [ ] `LedgerForwarder.sol` とテスト（5.4）
 - [ ] `AtomicSwap.sol` とテスト（6.5）
 - [ ] `ReceiptLog.sol` とテスト（7.4）
-- [ ] `DepositProbe.sol` とテスト（9.2）
+- [x] `DepositProbe.sol` とテスト（9.2）
 - [ ] `script/Bootstrap.s.sol`（`BOOTSTRAP_MODE=anvil` と `devnet`。やり直せる作り）
 - [ ] `chain/scripts/bootstrap-l2.sh`（anvil で動くところまで）
 - [ ] `packages/abis`（forge の出力から ABI を生成するスクリプト）
