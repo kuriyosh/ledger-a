@@ -1,0 +1,14 @@
+{
+  "name": "@ledgera/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./travel-rule": "./src/travel-rule.ts"
+  },
+  "scripts": {
+    "generate:attestation": "node test/generate-attestation-vector.ts"
+  },
+  "dependencies": {
+    "viem": "2.58.4"
+  }
+}

@@ -208,6 +208,12 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@types/node@24.19.2)(vite@8.3.8(@types/node@24.19.2))
 
+  packages/shared:
+    dependencies:
+      viem:
+        specifier: 2.58.4
+        version: 2.58.4(typescript@7.0.2)(zod@4.6.7)
+
   services/rpc-proxy:
     dependencies:
       '@hono/node-server':
