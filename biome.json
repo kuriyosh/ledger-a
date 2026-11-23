@@ -1,6 +1,6 @@
 {
   "files": {
-    "includes": ["**", "!**/*.md"]
+    "includes": ["**", "!**/*.md", "!!contracts/lib"]
   },
   "vcs": {
     "enabled": true,
