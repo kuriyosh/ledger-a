@@ -47,6 +47,12 @@ export const gatewayEnv = serverEnv
     RELAY_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(60),
     FIXED_PRIORITY_FEE_WEI: uintString.default(1n),
     GAS_LIMIT_CAP: uintString.refine((value) => value > 0n).default(5_000_000n),
+    COMMIT_INTERVAL_SEC: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(86_400)
+      .default(30),
     QUEUE_LIMIT: z.coerce.number().int().positive().default(1000),
   })
   .refine(
@@ -55,5 +61,16 @@ export const gatewayEnv = serverEnv
     {
       path: ["RELAY_FALLBACK_GAS"],
       message: "Expected gas in the range 1..GAS_LIMIT_CAP",
+    },
+  )
+  .refine(
+    ({ MAX_FEE_PER_GAS_WEI, FIXED_PRIORITY_FEE_WEI }) =>
+      MAX_FEE_PER_GAS_WEI > 0n &&
+      MAX_FEE_PER_GAS_WEI < 1n << 256n &&
+      MAX_FEE_PER_GAS_WEI >= FIXED_PRIORITY_FEE_WEI,
+    {
+      path: ["MAX_FEE_PER_GAS_WEI"],
+      message:
+        "Expected a positive uint256 fee cap at or above FIXED_PRIORITY_FEE_WEI",
     },
   );

@@ -15,6 +15,13 @@
       "when": 1795453434274,
       "tag": "0001_relay-requests",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795453945307,
+      "tag": "0002_track-inclusion-and-commitments",
+      "breakpoints": true
     }
   ]
 }

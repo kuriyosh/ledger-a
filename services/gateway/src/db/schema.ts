@@ -94,3 +94,23 @@ export const relayRequests = gateway.table(
     index("relay_requests_nonce").on(row.requestFrom, row.nonce),
   ],
 );
+
+export const trackedBlocks = gateway.table("tracked_blocks", {
+  number: bigint("block_number", { mode: "bigint" }).primaryKey(),
+  hash: bytea("block_hash").notNull(),
+});
+
+export const commitments = gateway.table("commitments", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  fromSeq: bigint("from_seq", { mode: "bigint" }).notNull(),
+  toSeq: bigint("to_seq", { mode: "bigint" }).notNull(),
+  headHash: bytea("head_hash").notNull(),
+  txHash: bytea("tx_hash").notNull().unique(),
+  blockNumber: bigint("block_number", { mode: "bigint" }),
+  status: text("status", { enum: ["pending", "confirmed", "failed"] })
+    .notNull()
+    .default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});

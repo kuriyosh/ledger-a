@@ -47,6 +47,13 @@ type Options = {
   accept: ReturnType<typeof createAdmission>["accept"];
   signal: AbortSignal;
   notifications: ForwardNotifications;
+  status(): Promise<{
+    sequencerUrl: string;
+    leader: null;
+    queueLength: number;
+    lastSeq: string;
+    lastCommittedSeq: string;
+  }>;
 };
 
 export async function waitForForwarding(
@@ -84,6 +91,7 @@ export function gatewayApp({
   accept,
   signal,
   notifications,
+  status,
 }: Options) {
   const app = serviceApp("gateway");
 
@@ -194,6 +202,15 @@ export function gatewayApp({
     return context.json({
       receipts: await store.receipts(parsed.data.txHashes),
     });
+  });
+
+  app.get("/v1/status", async (context) => context.json(await status()));
+
+  app.get("/v1/commitments", async (context) => {
+    const query = logQuery.shape.limit.safeParse(context.req.query("limit"));
+    if (!query.success)
+      throw new ServiceError("INVALID_QUERY", "Invalid limit", 400);
+    return context.json({ commitments: await store.commitments(query.data) });
   });
 
   app.get("/v1/rejections", async (context) => {

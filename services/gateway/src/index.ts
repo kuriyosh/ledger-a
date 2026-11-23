@@ -5,7 +5,9 @@ import { openDatabase } from "@ledgera/shared/db";
 import { receiptGenesisHash } from "@ledgera/shared/receipt";
 import { startService } from "@ledgera/shared/server";
 import { privateKeyToAccount } from "viem/accounts";
+import { createCommitter, readCommittedSeq } from "./chain/commit.ts";
 import { ForwardNotifications, runForwarder } from "./chain/forwarder.ts";
+import { createInclusionTracker } from "./chain/inclusion.ts";
 import { relayChain } from "./chain/relay.ts";
 import { admissionChain, connectSequencer } from "./chain/sequencer.ts";
 import { GatewayStore } from "./db/store.ts";
@@ -81,13 +83,48 @@ const admission = createAdmission(
 );
 const controller = new AbortController();
 const notifications = new ForwardNotifications();
-const forwarder = runForwarder(store, client, notifications, controller.signal);
+const synchronize = createInclusionTracker(
+  client,
+  store,
+  BigInt(deployment.auditStartBlock),
+);
+const commit = createCommitter(client, store, admission, signer, {
+  address: deployment.contracts.receiptLog,
+  chainId: deployment.chainId,
+  intervalMs: env.COMMIT_INTERVAL_SEC * 1000,
+  maxFee: env.MAX_FEE_PER_GAS_WEI,
+  priorityFee: env.FIXED_PRIORITY_FEE_WEI,
+});
+const forwarder = runForwarder(
+  store,
+  client,
+  notifications,
+  controller.signal,
+  async () => {
+    await synchronize();
+    await commit();
+  },
+);
 const app = gatewayApp({
   chainId: deployment.chainId,
   genesisHash,
   notifications,
   store,
   accept: admission.accept,
+  async status() {
+    const [head, queueLength, committed] = await Promise.all([
+      store.head(),
+      store.queueLength(),
+      readCommittedSeq(client, deployment.contracts.receiptLog),
+    ]);
+    return {
+      sequencerUrl: new URL(env.SEQUENCER_RPC_URLS[0]).origin,
+      leader: null,
+      queueLength,
+      lastSeq: (head?.seq ?? 0n).toString(),
+      lastCommittedSeq: committed.toString(),
+    };
+  },
   signal: controller.signal,
 });
 app.route(
