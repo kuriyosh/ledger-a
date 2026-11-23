@@ -302,7 +302,7 @@ interface ILedgerToken /* is IERC20, IERC20Metadata */ {
     function identityRegistry() external view returns (address); // KycRegistry
     function compliance() external view returns (address);       // TravelRuleCompliance
     function onchainID() external view returns (address);        // address(0)
-    function version() external pure returns (string memory);
+    function version() external pure returns (string memory); // "1"
 }
 ```
 
@@ -356,8 +356,8 @@ event TravelRuleTransfer(bytes32 indexed refId, address indexed from, address in
 event AddressFrozen(address indexed account, bool indexed isFrozen, address indexed agent);
 event TokensFrozen(address indexed account, uint256 amount);
 event TokensUnfrozen(address indexed account, uint256 amount);
-event Paused(address agent);
-event Unpaused(address agent);
+event Paused(address account);
+event Unpaused(address account);
 event AgentAdded(address indexed agent);
 event AgentRemoved(address indexed agent);
 
@@ -365,6 +365,7 @@ error NotAgent(address caller);
 error EnforcedPause();
 error AccountFrozen(address account);
 error InsufficientUnfrozenBalance(address account, uint256 available, uint256 needed);
+error InsufficientFrozenBalance(address account, uint256 frozen, uint256 needed);
 error AccountNotEligible(address account);
 error TravelRuleRequired(address from, address to);
 ```
