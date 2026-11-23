@@ -82,13 +82,13 @@ flowchart LR
 - [x] `TravelRuleCompliance.sol` とテスト（4.4）
 - [x] `LedgerToken.sol` とテスト（3.5）
 - [x] `LedgerForwarder.sol` とテスト（5.4）
-- [ ] `AtomicSwap.sol` とテスト（6.5）
-- [ ] `ReceiptLog.sol` とテスト（7.4）
+- [x] `AtomicSwap.sol` とテスト（6.5）
+- [x] `ReceiptLog.sol` とテスト（7.4）
 - [x] `DepositProbe.sol` とテスト（9.2）
 - [ ] `script/Bootstrap.s.sol`（`BOOTSTRAP_MODE=anvil` と `devnet`。やり直せる作り）
 - [ ] `chain/scripts/bootstrap-l2.sh`（anvil で動くところまで）
 - [ ] `packages/abis`（forge の出力から ABI を生成するスクリプト）
-- [ ] `packages/shared` の EIP-712 型定義、署名関数、テストベクタ（10 章 8.2）
+- [x] `packages/shared` の EIP-712 型定義、署名関数、テストベクタ（10 章 8.2）
 - [ ] `packages/config`（環境変数のスキーマ、チェーン定義、デプロイ結果の読み込み）
 
 受け入れ基準。
