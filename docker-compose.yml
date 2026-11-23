@@ -158,6 +158,40 @@ services:
     ports:
       - 127.0.0.1:8622:8622
 
+  consortium:
+    restart: on-failure
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: consortium
+    user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
+    environment:
+      <<: *app-environment
+      PORT: 8630
+      L2_RPC_URL: http://rpc-proxy:8545
+      GATEWAY_URL: http://gateway:8600
+      CONSORTIUM_MEMBER_KEYS: '["${CONSORTIUM_1_PRIVATE_KEY:?Run make keys}","${CONSORTIUM_2_PRIVATE_KEY:?Run make keys}","${CONSORTIUM_3_PRIVATE_KEY:?Run make keys}"]'
+      ADMIN_TOKEN: ${CONSORTIUM_ADMIN_TOKEN:?Run make keys}
+    volumes:
+      - ./deployments:/deployments:ro
+    ports:
+      - 127.0.0.1:8630:8630
+    networks: [app]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch("http://127.0.0.1:8630/healthz").then(response => {
+            if (!response.ok) process.exitCode = 1
+          })
+
 networks:
   app:
     name: ledgera

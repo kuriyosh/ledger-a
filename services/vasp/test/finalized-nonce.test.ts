@@ -1,6 +1,6 @@
+import { finalizedReplacement } from "@ledgera/shared/finalized-nonce";
 import { type Hex, zeroHash } from "viem";
 import { expect, test, vi } from "vitest";
-import { finalizedReplacement } from "../src/finalized-nonce.ts";
 
 const sender = "0x1111111111111111111111111111111111111111";
 const expected: Hex = `0x${"a".repeat(64)}`;

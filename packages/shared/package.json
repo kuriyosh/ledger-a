@@ -10,7 +10,9 @@
     "./receipt": "./src/receipt.ts",
     "./db": "./src/db.ts",
     "./errors": "./src/errors.ts",
-    "./server": "./src/server.ts"
+    "./server": "./src/server.ts",
+    "./raw-gateway": "./src/raw-gateway.ts",
+    "./finalized-nonce": "./src/finalized-nonce.ts"
   },
   "scripts": {
     "generate:attestation": "node test/generate-attestation-vector.ts",
