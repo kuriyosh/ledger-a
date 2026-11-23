@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   link,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -120,19 +121,53 @@ export async function generateAccounts(mnemonic: string, output: string) {
   return accounts.map(({ name, address }) => ({ name, address }));
 }
 
+export async function generateAuditCredential(output: string) {
+  const parent = dirname(output);
+  await mkdir(parent, { recursive: true });
+  const temporary = await mkdtemp(join(parent, ".env.auditor-"));
+  try {
+    const path = join(temporary, basename(output));
+    const token = randomBytes(32).toString("hex");
+    await writeFile(path, `AUDITOR_ADMIN_TOKEN=${token}\n`, { mode: 0o600 });
+    try {
+      await link(path, output);
+    } catch (error) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      )
+        throw error;
+    }
+    const saved = await lstat(output);
+    if (
+      !saved.isFile() ||
+      (saved.mode & 0o077) !== 0 ||
+      !/^AUDITOR_ADMIN_TOKEN=[0-9a-f]{64}\n$/.test(
+        await readFile(output, "utf8"),
+      )
+    )
+      throw new Error("Invalid auditor credential file");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 if (import.meta.main === undefined) {
   throw new Error("Account generation requires Node.js 24.2 or later");
 }
 if (import.meta.main) {
   try {
-    console.table(
-      await generateAccounts(
+    if (process.argv.includes("--auditor-token")) {
+      await generateAuditCredential(".env.auditor.generated");
+    } else {
+      const accounts = await generateAccounts(
         process.env.LEDGERA_MNEMONIC ?? "",
         ".env.generated",
-      ),
-    );
-    console.log("Sepolia ETH: admin 3, batcher 0.5, attacker 0.05");
-    console.log("L2 ETH: 1 per operating account that sends L2 transactions");
+      );
+      await generateAuditCredential(".env.auditor.generated");
+      console.table(accounts);
+      console.log("Sepolia ETH: admin 3, batcher 0.5, attacker 0.05");
+      console.log("L2 ETH: 1 per operating account that sends L2 transactions");
+    }
   } catch (error) {
     console.error(
       error instanceof Error ? error.message : "Account generation failed",

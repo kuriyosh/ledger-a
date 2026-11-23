@@ -347,8 +347,10 @@ pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 
 - 追跡は indexer の API を呼んでまとめる。Registry の現在の状態と履歴、トークン残高、移転の履歴を返す。
 - 氏名は返さない。監査ツールは個人情報を持たない。
-- 開示請求は Registry から所属 VASP と `endpoint` を取得し、その VASP の `POST /vasp/v1/disclosure-requests` に送る。
+- 開示請求は Registry から所属 VASP と `endpoint` を取得し、その VASP の `POST /vasp/v1/disclosure-requests` に送る。Registry と設定の接続先が同じオリジンの場合だけ監査用の鍵を付ける。
 - VASP が承認すると、`GET /v1/disclosures/:id` が開示内容を返す。開示内容は DB に保存しない。VASP から都度取得する。
+
+- 開示請求の作成と参照には `AUDITOR_ADMIN_TOKEN` を使う。`make keys` または `make audit-keys` で、DevNet のトークンを `.env.auditor.generated` に作る。自由記述の理由は VASP に送る。監査 DB には理由の分類だけを保存する。
 
 ### 3.5 API
 
@@ -404,11 +406,13 @@ pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 |---|---|---|
 | `PORT` | 8650 | |
 | `DATABASE_URL` | - | |
+| `INDEXER_URL` | `http://127.0.0.1:8640` | アドレス追跡用 |
+| `VASP_A_URL`、`VASP_B_URL` | - | 開示請求を送る接続先 |
+| `VASP_A_AUDITOR_KEY`、`VASP_B_AUDITOR_KEY` | - | 各 VASP の開示請求用の鍵 |
 | `DEPLOYMENTS_FILE` | - | |
 | `AUDIT_RPC_URL` | - | L2 の RPC。rpc-proxy か検証ノードを指す |
 | `GATEWAY_URL` | - | 公開 API だけを使う |
-| `INDEXER_URL` | - | |
-| `VASP_AUDITOR_KEYS` | - | JSON。VASP ID → 開示請求用の API キー |
+| `AUDITOR_ADMIN_TOKEN` | - | 開示請求の作成と参照 |
 | `INCLUSION_DEADLINE_SEC` | 120 | C5 |
 | `TIME_TOLERANCE_SEC` | 5 | C7 |
 | `AUDIT_INTERVAL_SEC` | 10 | |

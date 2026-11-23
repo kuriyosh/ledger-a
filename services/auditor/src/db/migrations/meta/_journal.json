@@ -15,6 +15,13 @@
       "when": 1795456680241,
       "tag": "0001_audit-observations",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795469462035,
+      "tag": "0002_disclosure-requests",
+      "breakpoints": true
     }
   ]
 }

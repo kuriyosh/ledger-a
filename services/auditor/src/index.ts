@@ -7,6 +7,7 @@ import { auditorEnv } from "./env.ts";
 import { auditorApp } from "./http.ts";
 import { createAuditRunner } from "./run.ts";
 import { auditSource, gatewaySource } from "./sources.ts";
+import { traceRoutes } from "./trace.ts";
 
 const env = auditorEnv.parse(process.env);
 const deployment = await readDeployment(env.DEPLOYMENTS_FILE);
@@ -29,7 +30,20 @@ const runner = createAuditRunner({
   signal: controller.signal,
 });
 const polling = runner.poll();
-startService(auditorApp(store, runner.run), env, {
+const peers = new Map<number, { url: string; apiKey: string }>();
+if (env.VASP_A_URL && env.VASP_A_AUDITOR_KEY)
+  peers.set(deployment.vasps.a, {
+    url: env.VASP_A_URL,
+    apiKey: env.VASP_A_AUDITOR_KEY,
+  });
+if (env.VASP_B_URL && env.VASP_B_AUDITOR_KEY)
+  peers.set(deployment.vasps.b, {
+    url: env.VASP_B_URL,
+    apiKey: env.VASP_B_AUDITOR_KEY,
+  });
+const app = auditorApp(store, runner.run);
+traceRoutes(app, database.db, env.INDEXER_URL, peers, env.AUDITOR_ADMIN_TOKEN);
+startService(app, env, {
   onShutdown: () => controller.abort(),
   onClose: async () => {
     await polling;

@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { expect, test } from "vitest";
-import { generateAccounts } from "./derive-accounts.ts";
+import {
+  generateAccounts,
+  generateAuditCredential,
+} from "./derive-accounts.ts";
 
 const testMnemonic =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -55,4 +58,31 @@ test("rejects the public Anvil default mnemonic", async () => {
       "/invalid/.env.generated",
     ),
   ).rejects.toThrow("public Anvil default");
+});
+
+test("creates one independent audit credential without changing existing key files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ledgera-audit-key-"));
+  try {
+    const accounts = join(dir, ".env.generated");
+    const token = join(dir, ".env.auditor.generated");
+    await generateAccounts(testMnemonic, accounts);
+    const original = await readFile(accounts, "utf8");
+    const observed = await Promise.all(
+      Array.from({ length: 12 }, async () => {
+        await generateAuditCredential(token);
+        return parseEnv(await readFile(token, "utf8")).AUDITOR_ADMIN_TOKEN;
+      }),
+    );
+    expect(new Set(observed).size).toBe(1);
+    expect(observed[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect((await stat(token)).mode & 0o777).toBe(0o600);
+    expect(await readFile(accounts, "utf8")).toBe(original);
+    await rm(token);
+    await generateAuditCredential(token);
+    expect(
+      parseEnv(await readFile(token, "utf8")).AUDITOR_ADMIN_TOKEN,
+    ).not.toBe(observed[0]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
