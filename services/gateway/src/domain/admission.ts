@@ -224,6 +224,18 @@ export function createAdmission(
       request.source === "raw"
         ? request.transaction.sender
         : request.relay.sender;
+    const fromSequencer = async <T>(read: () => Promise<T>): Promise<T> => {
+      try {
+        return await read();
+      } catch (error) {
+        if (request.source !== "relay" || error instanceof AdmissionError)
+          throw error;
+        throw new AdmissionError(
+          "SEQUENCER_UNAVAILABLE",
+          "unable to read the sequencer",
+        );
+      }
+    };
     const acceptNext = tail.then(() =>
       store.serialize(async (ledger) => {
         const receivedAt = BigInt(now());
@@ -242,7 +254,9 @@ export function createAdmission(
             if (
               digests.has(claim.digest) ||
               (!claim.rejected &&
-                !(await request.relay.isReverted(claim.txHash)))
+                !(await fromSequencer(() =>
+                  request.relay.isReverted(claim.txHash),
+                )))
             ) {
               throw new AdmissionError(
                 "DUPLICATE_TX",
@@ -250,12 +264,13 @@ export function createAdmission(
                 {
                   txHash: claim.txHash,
                   seq: claim.seq.toString(),
+                  rejected: claim.rejected,
                 },
               );
             }
           }
         }
-        const state = await chain.senderState(sender);
+        const state = await fromSequencer(() => chain.senderState(sender));
         const history = await ledger.history(sender, state.confirmedNonce);
         if (history.queued >= policy.queueLimit) {
           throw new AdmissionError(

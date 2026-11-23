@@ -150,10 +150,11 @@ export async function prepareForwardCall(
     chainId: policy.chainId,
     verifyingContract: policy.forwarder,
   };
-  if (
-    requests.reduce((total, request) => total + request.gas, 0n) >
-    policy.gasLimit
-  ) {
+  const requestedGas = requests.reduce(
+    (total, request) => total + request.gas,
+    0n,
+  );
+  if (requestedGas > policy.gasLimit) {
     throw new AdmissionError(
       "GAS_LIMIT_TOO_HIGH",
       "relay requests exceed gateway gas limit",
@@ -219,5 +220,5 @@ export async function prepareForwardCall(
           functionName: "executeAll",
           args: [requests],
         });
-  return { data, operations };
+  return { data, operations, requestedGas };
 }

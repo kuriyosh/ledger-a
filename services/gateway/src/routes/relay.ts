@@ -24,6 +24,7 @@ const statusByCode: Record<string, ContentfulStatusCode> = {
   GAS_LIMIT_TOO_HIGH: 422,
   INSUFFICIENT_FUNDS: 503,
   MAX_FEE_TOO_LOW: 503,
+  SENDER_NOT_ALLOWED: 503,
   FORWARD_REJECTED: 502,
   SEQUENCER_UNAVAILABLE: 503,
 };
@@ -98,7 +99,7 @@ export function relayRoutes({
           "unable to read the sequencer",
         );
       }
-      const { data, operations } = call;
+      const { data, operations, requestedGas } = call;
       if (evaluation.reverted && !parsed.data.submitOnRevert) {
         throw new AdmissionError(
           "SIMULATION_REVERTED",
@@ -106,8 +107,16 @@ export function relayRoutes({
           evaluation,
         );
       }
+      // EIP-150 reserves part of the caller gas. Forwarder validation and calldata need their own budget.
+      const minimumGas =
+        (64n * requestedGas + 62n) / 63n +
+        21_000n +
+        100_000n * BigInt(operations.length) +
+        40n * BigInt((data.length - 2) / 2);
       const gas = evaluation.reverted
-        ? policy.fallbackGas
+        ? minimumGas > policy.fallbackGas
+          ? minimumGas
+          : policy.fallbackGas
         : (13n * evaluation.estimatedGas + 9n) / 10n;
       if (gas > policy.gasLimit)
         throw new AdmissionError(

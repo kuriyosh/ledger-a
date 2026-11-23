@@ -211,9 +211,11 @@ JSON-RPC。
 - 組み立ての前に `eth_estimateGas` でシミュレーションする。
   - 成功: ガス上限は見積もりの 1.3 倍。
   - 失敗かつ `submitOnRevert` が false: 送らずに 422 を返す。
-  - 失敗かつ `submitOnRevert` が true: ガス上限 `RELAY_FALLBACK_GAS`（1,000,000）で送る。取引は L2 上で失敗する。
+  - 失敗かつ `submitOnRevert` が true: `RELAY_FALLBACK_GAS`（1,000,000）と、署名されたガス量に Forwarder の検証と呼び出しに使うガスを足した値のうち、大きい方を使う。
+  - `RELAY_FALLBACK_GAS` は 1 以上、`GAS_LIMIT_CAP` 以下にする。
 - `maxFeePerGas` は `MAX_FEE_PER_GAS_WEI`、`maxPriorityFeePerGas` は 1 wei。
 - nonce の採番と署名は直列区間の中で行う。
+- 同じ署名内容には 1 回だけ Receipt を発行する。転送の拒否や L2 上の revert の後は、期限などを変えて署名し直す。
 
 `submitOnRevert` は、チェーンが拒否した事実を L2 上の失敗取引として残すために使う。デモ場面 4 と 5 で VASP サービスが指定する。
 
