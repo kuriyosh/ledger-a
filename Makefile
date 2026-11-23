@@ -137,7 +137,7 @@ fund-l1:
 APP_MODE ?= devnet
 APP_COMPOSE = bash chain/scripts/app-compose.sh $(APP_MODE)
 
-.PHONY: app-up app-down app-logs audit demo-seed
+.PHONY: app-up app-down app-logs audit demo-seed e2e
 
 app-up:
 	$(APP_COMPOSE) up -d --build --wait
@@ -151,17 +151,24 @@ app-logs:
 demo-seed:
 	$(APP_COMPOSE) exec -T demo-tools node src/seed.ts
 
+e2e: demo-seed
+	LEDGERA_E2E=1 APP_MODE=$(APP_MODE) pnpm exec vitest run --no-file-parallelism e2e/scenes
+	$(APP_COMPOSE) exec -T postgres psql -v ON_ERROR_STOP=1 -U ledgera -d ledgera < e2e/check-privacy.sql
+
 audit:
 	@pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 
 ANVIL_COMPOSE = docker compose --env-file chain/versions.env -f docker-compose.anvil.yml
 
-.PHONY: anvil-up anvil-down l2-bootstrap
+.PHONY: anvil-up anvil-down l2-bootstrap e2e-anvil-finalize
 
 anvil-up:
 	$(ANVIL_COMPOSE) up -d --build --wait
 	BOOTSTRAP_MODE=anvil bash chain/scripts/bootstrap-l2.sh
 	$(MAKE) app-up APP_MODE=anvil
+
+e2e-anvil-finalize:
+	$(ANVIL_COMPOSE) exec -T anvil cast rpc --rpc-url http://127.0.0.1:8545 anvil_mine 0x80 0x0
 
 anvil-down:
 	$(MAKE) app-down APP_MODE=anvil
