@@ -4,6 +4,7 @@ import { verifyHttpRequest } from "@ledgera/shared/http-signature";
 import { serviceApp } from "@ledgera/shared/server";
 import { getAddress, isAddress } from "viem";
 import { z } from "zod";
+import type { alertService } from "./alerts.ts";
 import type { registryChain } from "./chain.ts";
 import type { customerService } from "./customers.ts";
 import type { VaspStore } from "./db/store.ts";
@@ -84,6 +85,7 @@ export function vaspApp(
   travelRule: ReturnType<typeof travelRuleService>,
   quotes: ReturnType<typeof quoteService>,
   swaps: ReturnType<typeof swapService>,
+  alerts: ReturnType<typeof alertService>,
   demoMode: boolean,
 ) {
   const app = serviceApp("vasp");
@@ -319,5 +321,19 @@ export function vaspApp(
     });
   }
 
+  const alertId = z.string().regex(/^a_[0-9a-f]{32}$/);
+  app.get("/v1/admin/alerts", async (context) => {
+    const limit = parse(
+      z.coerce.number().int().min(1).max(100).default(50),
+      context.req.query("limit"),
+    );
+    return context.json({ alerts: await alerts.list(limit) });
+  });
+  app.post("/v1/admin/alerts/:id/request-freeze", async (context) =>
+    context.json(await alerts.freeze(parse(alertId, context.req.param("id")))),
+  );
+  app.post("/v1/admin/alerts/:id/close", async (context) =>
+    context.json(await alerts.close(parse(alertId, context.req.param("id")))),
+  );
   return app;
 }

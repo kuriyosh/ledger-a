@@ -1,4 +1,8 @@
-import { kycRegistryAbi, ledgerTokenAbi } from "@ledgera/abis";
+import {
+  consortiumSafeAbi,
+  kycRegistryAbi,
+  ledgerTokenAbi,
+} from "@ledgera/abis";
 import { type Deployment, defineLedgerChain } from "@ledgera/config";
 import { ServiceError } from "@ledgera/shared/errors";
 import { finalizedReplacement } from "@ledgera/shared/finalized-nonce";
@@ -62,6 +66,36 @@ export function registryChain(
         functionName: "getAccount",
         args: [address],
       });
+    },
+    async blocked(address: Address) {
+      const account = await client.readContract({
+        address: registry,
+        abi: kycRegistryAbi,
+        functionName: "getAccount",
+        args: [address],
+      });
+      return account.status === 3;
+    },
+    async finalizedSafeNonce() {
+      const block = await client.getBlock({ blockTag: "finalized" });
+      return client.readContract({
+        address: deployment.contracts.consortiumSafe,
+        abi: consortiumSafeAbi,
+        functionName: "nonce",
+        blockHash: block.hash,
+        requireCanonical: true,
+      });
+    },
+    async senderKind(address: Address, blockHash: Hex) {
+      const account = await client.readContract({
+        address: registry,
+        abi: kycRegistryAbi,
+        functionName: "getAccount",
+        args: [address],
+        blockHash,
+        requireCanonical: true,
+      });
+      return account.kind;
     },
     vasp(id: number) {
       return client.readContract({

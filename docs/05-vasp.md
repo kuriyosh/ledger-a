@@ -368,7 +368,7 @@ VASP 間 API（署名付きリクエスト）。
 | 自社で停止 | `KycRegistry.suspendAccount(address, reason)` を VASP 管理者の鍵で送る |
 | 停止の解除 | `KycRegistry.reinstateAccount(address)` |
 | 凍結を申請 | コンソーシアムサービスの `POST /v1/proposals` を署名付きリクエストで呼ぶ。種別は `BLOCK_ACCOUNT` |
-| アラートを閉じる | `alerts.status` を `closed` にする |
+| アラートを閉じる | 凍結申請を準備していない `open` のアラートを `closed` にする |
 
 - `reason` は乱数 32 バイト。アラートの ID と対応づけて DB に持つ。
 - 申請後はコンソーシアムサービスの申請 ID を `alerts.proposal_id` に保存し、状態を `freeze_requested` にする。

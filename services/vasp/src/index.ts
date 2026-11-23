@@ -3,8 +3,10 @@ import { readDeployment } from "@ledgera/config";
 import { openDatabase } from "@ledgera/shared/db";
 import { startService } from "@ledgera/shared/server";
 import { privateKeyToAccount } from "viem/accounts";
+import { alertService } from "./alerts.ts";
 import { registryChain, registryGateway } from "./chain.ts";
 import { customerService } from "./customers.ts";
+import { AlertStore } from "./db/alerts.ts";
 import { VaspStore } from "./db/store.ts";
 import { SwapStore } from "./db/swaps.ts";
 import { TransferStore } from "./db/transfers.ts";
@@ -98,10 +100,32 @@ const transfers = transferService(
   database.exclusive,
   swaps,
 );
+const alerts = alertService(
+  new AlertStore(database.db),
+  chain,
+  {
+    tUSD: deployments.contracts.tUSD,
+    tJPY: deployments.contracts.tJPY,
+  },
+  {
+    ownId: env.VASP_ID,
+    signer,
+    url: env.CONSORTIUM_URL,
+    rules: {
+      thresholds: {
+        tUSD: env.AML_THRESHOLD_TUSD,
+        tJPY: env.AML_THRESHOLD_TJPY,
+      },
+      watchlist: env.AML_WATCHLIST,
+    },
+  },
+  database.exclusive,
+);
 const shutdown = new AbortController();
 const polling = Promise.all([
   customers.poll(shutdown.signal),
   transfers.poll(shutdown.signal),
+  alerts.poll(shutdown.signal),
 ]);
 const app = vaspApp(
   store,
@@ -112,6 +136,7 @@ const app = vaspApp(
   travelRule,
   quotes,
   swaps,
+  alerts,
   env.DEMO_MODE,
 );
 disclosureRoutes(app, disclosureStore(database.db), env.AUDITOR_API_KEY);
