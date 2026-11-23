@@ -802,14 +802,14 @@ contract DepositProbe {
 
 ## 10. デプロイ結果の形式
 
-`deployments/<環境名>.json`。
+`deployments/<環境名>.json`。初期化済みのファイルでは `auditStartBlock` が `enforcementBlock` より大きい。
 
 ```json
 {
   "environment": "devnet",
   "chainId": 202610,
-  "enforcementBlock": 0,
-  "auditStartBlock": 0,
+  "enforcementBlock": 72,
+  "auditStartBlock": 74,
   "l1": {
     "chainId": 11155111,
     "optimismPortal": "0x…",

@@ -1,0 +1,9 @@
+{
+  "name": "@ledgera/abis",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "generate": "node scripts/generate.ts"
+  }
+}
