@@ -55,6 +55,7 @@ test("validates deployment mode, audit boundary, and required contract and L1 fi
   for (const invalid of [
     { environment: "devnet", chainId: 202610, l1 },
     { ...anvil, chainId: 202610 },
+    { ...devnet, enforcementBlock: 0, auditStartBlock: 0 },
     { ...anvil, auditStartBlock: anvil.enforcementBlock },
     { ...anvil, l1 },
     { ...devnet, l1: { ...l1, chainId: 1 } },
@@ -79,6 +80,9 @@ test("parses environment settings and builds the three L2 modes", () => {
       DEMO_MODE: "yes",
     }).success,
   ).toBe(false);
+  expect(environmentSchema.safeParse({ L2_CHAIN_ID: "11155111" }).success).toBe(
+    false,
+  );
   expect(defineLedgerChain("anvil").id).toBe(31337);
   expect(defineLedgerChain("devnet").id).toBe(202610);
   expect(
@@ -88,6 +92,7 @@ test("parses environment settings and builds the three L2 modes", () => {
     }),
   ).toMatchObject({
     id: 40501,
+    name: "ledgerA DevNet HA",
     rpcUrls: { default: { http: ["http://rpc-proxy:8545"] } },
   });
 });

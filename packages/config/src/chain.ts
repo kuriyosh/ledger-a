@@ -7,6 +7,12 @@ import {
 
 export type ChainMode = "anvil" | "devnet" | "devnet-ha";
 
+const chainNames: Record<ChainMode, string> = {
+  anvil: "ledgerA Anvil",
+  devnet: "ledgerA DevNet",
+  "devnet-ha": "ledgerA DevNet HA",
+};
+
 export function defineLedgerChain(
   mode: ChainMode,
   {
@@ -19,7 +25,7 @@ export function defineLedgerChain(
       mode === "anvil"
         ? ANVIL_CHAIN_ID
         : devnetChainIdSchema.parse(devnetChainId),
-    name: mode === "anvil" ? "ledgerA Anvil" : "ledgerA DevNet",
+    name: chainNames[mode],
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: { default: { http: [rpcUrl] } },
     testnet: true,

@@ -39,11 +39,7 @@ export const deploymentSchema = z
     z.object({
       ...deploymentFields,
       environment: z.literal("devnet"),
-      chainId: z
-        .number()
-        .int()
-        .positive()
-        .refine((id) => id !== sepolia.id),
+      chainId: devnetChainIdSchema,
       l1: z.object({
         chainId: z.literal(sepolia.id),
         optimismPortal: address,

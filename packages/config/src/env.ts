@@ -23,8 +23,7 @@ export const environmentSchema = z.object({
   ),
   L2_CHAIN_ID: z.coerce
     .number()
-    .int()
-    .positive()
+    .pipe(devnetChainIdSchema)
     .default(DEFAULT_DEVNET_CHAIN_ID),
   BATCHER_MAX_CHANNEL_DURATION: z.coerce.number().int().positive().default(25),
   DEMO_MODE: z.stringbool({ truthy: ["true"], falsy: ["false"] }).default(true),
