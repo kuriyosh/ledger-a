@@ -79,6 +79,26 @@ const syncStatus = z.object({
   safe_l2: blockRef,
   finalized_l2: blockRef,
 });
+export type TraceFrame = {
+  to?: Address;
+  error?: string;
+  output?: Hex;
+  calls?: TraceFrame[];
+};
+const traceFrame: z.ZodType<TraceFrame> = z.lazy(() =>
+  z.object({
+    to: address.nullish().transform((value) => value ?? undefined),
+    error: z.string().optional(),
+    output: data.optional(),
+    calls: z.array(traceFrame).optional(),
+  }),
+);
+const unsupportedTrace = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: z.literal(1),
+  error: z.object({ code: z.literal(-32601) }),
+});
+
 const rpcReply = z.object({
   jsonrpc: z.literal("2.0"),
   id: z.literal(1),
@@ -110,6 +130,7 @@ export function indexerRpc(l2: string, rollup: string, requestHttp = fetch) {
     method: string,
     input: unknown[],
     schema: z.ZodType<T>,
+    unavailableValue?: T,
   ) {
     const response = await requestHttp(url, {
       method: "POST",
@@ -118,7 +139,13 @@ export function indexerRpc(l2: string, rollup: string, requestHttp = fetch) {
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) throw unavailable();
-    const parsed = rpcReply.safeParse(await response.json());
+    const payload = await response.json();
+    if (
+      unavailableValue !== undefined &&
+      unsupportedTrace.safeParse(payload).success
+    )
+      return unavailableValue;
+    const parsed = rpcReply.safeParse(payload);
     if (!parsed.success) throw unavailable();
     const result = schema.safeParse(parsed.data.result);
     if (!result.success) throw unavailable();
@@ -139,6 +166,14 @@ export function indexerRpc(l2: string, rollup: string, requestHttp = fetch) {
   return {
     chainId: () => request(l2, "eth_chainId", [], integer),
     latest: () => request(l2, "eth_blockNumber", [], bigintColumn),
+    trace: (hash: Hex) =>
+      request(
+        l2,
+        "debug_traceTransaction",
+        [hash, { tracer: "callTracer", timeout: "4s" }],
+        traceFrame.nullable(),
+        null,
+      ),
     header,
     async block(height: bigint): Promise<ChainBlock> {
       const [block, receipts] = await Promise.all([
