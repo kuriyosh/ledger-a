@@ -220,7 +220,7 @@ flowchart LR
 
 作業。
 
-- [ ] `services/indexer`: 取り込み、再編成、確定段階
+- [x] `services/indexer`: 取り込み、再編成、確定段階
 - [ ] `services/indexer`: 復号、残高、Registry の履歴、失敗理由
 - [ ] `services/indexer`: API
 - [ ] `apps/web`: 枠組み（役割タブ、2 分割、Route Handler）

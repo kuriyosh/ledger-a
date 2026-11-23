@@ -322,6 +322,28 @@ importers:
         specifier: 0.31.11
         version: 0.31.11
 
+  services/indexer:
+    dependencies:
+      '@ledgera/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@ledgera/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      drizzle-orm:
+        specifier: 0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(pg@8.23.1)
+      viem:
+        specifier: 2.58.4
+        version: 2.58.4(typescript@7.0.2)(zod@4.6.7)
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      drizzle-kit:
+        specifier: 0.31.11
+        version: 0.31.11
+
   services/rpc-proxy:
     dependencies:
       '@hono/node-server':

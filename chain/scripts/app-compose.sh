@@ -8,11 +8,13 @@ case "$LEDGERA_APP_MODE" in
   anvil)
     account_file=chain/runtime/anvil/.env.generated
     fallback_rpc=http://anvil:8545
+    export LEDGERA_ROLLUP_RPC_URL=
     export SEQUENCER_RPC_URLS="$fallback_rpc" AUDIT_RPC_URL=http://rpc-proxy:8545
     ;;
   devnet)
     account_file=.env.generated
     fallback_rpc=http://op-reth:8545
+    export LEDGERA_ROLLUP_RPC_URL=http://rpc-proxy:8545/rollup
     ;;
   *) echo "Expected anvil or devnet" >&2; exit 1 ;;
 esac

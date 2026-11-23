@@ -1,0 +1,436 @@
+{
+  "id": "dbe21657-08f8-4566-855b-e2c6c665de0d",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "indexer.blocks": {
+      "name": "blocks",
+      "schema": "indexer",
+      "columns": {
+        "number": {
+          "name": "number",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "hash": {
+          "name": "hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_hash": {
+          "name": "parent_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timestamp": {
+          "name": "timestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_count": {
+          "name": "tx_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.chain_status": {
+      "name": "chain_status",
+      "schema": "indexer",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "smallint",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "start_block": {
+          "name": "start_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "indexed_block": {
+          "name": "indexed_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unsafe_block": {
+          "name": "unsafe_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "safe_block": {
+          "name": "safe_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finalized_block": {
+          "name": "finalized_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "enforcement_enabled": {
+          "name": "enforcement_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "registry_version": {
+          "name": "registry_version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chain_status_singleton": {
+          "name": "chain_status_singleton",
+          "value": "\"indexer\".\"chain_status\".\"id\" = 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "indexer.logs": {
+      "name": "logs",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address": {
+          "name": "address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "topic0": {
+          "name": "topic0",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topic1": {
+          "name": "topic1",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topic2": {
+          "name": "topic2",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topic3": {
+          "name": "topic3",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "data": {
+          "name": "data",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "logs_transaction": {
+          "name": "logs_transaction",
+          "columns": [
+            {
+              "expression": "tx_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "logs_block_number_blocks_number_fk": {
+          "name": "logs_block_number_blocks_number_fk",
+          "tableFrom": "logs",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "logs_tx_hash_transactions_hash_fk": {
+          "name": "logs_tx_hash_transactions_hash_fk",
+          "tableFrom": "logs",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "logs_block_number_log_index_pk": {
+          "name": "logs_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.transactions": {
+      "name": "transactions",
+      "schema": "indexer",
+      "columns": {
+        "hash": {
+          "name": "hash",
+          "type": "bytea",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_index": {
+          "name": "tx_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_address": {
+          "name": "from_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_address": {
+          "name": "to_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value": {
+          "name": "value",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nonce": {
+          "name": "nonce",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gas_limit": {
+          "name": "gas_limit",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gas_used": {
+          "name": "gas_used",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input": {
+          "name": "input",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decoded_call": {
+          "name": "decoded_call",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_detail": {
+          "name": "failure_detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mint": {
+          "name": "mint",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "transactions_position": {
+          "name": "transactions_position",
+          "columns": [
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tx_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_sender": {
+          "name": "transactions_sender",
+          "columns": [
+            {
+              "expression": "from_address",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_recipient": {
+          "name": "transactions_recipient",
+          "columns": [
+            {
+              "expression": "to_address",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "transactions_block_number_blocks_number_fk": {
+          "name": "transactions_block_number_blocks_number_fk",
+          "tableFrom": "transactions",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
