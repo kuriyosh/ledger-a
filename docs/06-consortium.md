@@ -67,6 +67,7 @@ stateDiagram-v2
 - 終了状態は `executed` と `cancelled` の 2 つ。どちらも、その申請の承認が L2 で使えなくなった状態を指す。
 - `failed` は終了状態にしない。承認が L2 に残り、後から実行できるため。再実行するか、取り下げる。
 - 未完了（`open`、`executable`、`failed`、`cancelling`）の申請は同時に 1 件まで。2 件目は 409 `PROPOSAL_IN_PROGRESS` で拒否する。Safe の nonce が申請ごとに 1 つ進むため、並行させると後続のハッシュが無効になる。
+- 実行済みの取引が finalized に達するまでは、次の申請を 409 `PROPOSAL_IN_PROGRESS` で拒否する。再編成で元の申請が実行前の状態に戻る場合がある。
 
 ## 4. 処理
 

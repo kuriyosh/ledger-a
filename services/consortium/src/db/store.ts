@@ -22,6 +22,16 @@ export type PendingAction = {
 export type RequestedBy = { vaspId: number } | { memberId: MemberId };
 
 const active = ["open", "executable", "failed", "cancelling"] as const;
+function reservesSlot() {
+  return or(
+    inArray(proposals.status, active),
+    and(
+      eq(proposals.status, "executed"),
+      eq(proposals.executionFinalized, false),
+    ),
+  );
+}
+
 const bytes = (value: Hex) => Buffer.from(value.slice(2), "hex");
 const hex = (value: Buffer): Hex => `0x${value.toString("hex")}`;
 
@@ -96,10 +106,12 @@ export class ConsortiumRows {
         .from(proposals)
         .where(
           or(
-            inArray(proposals.status, active),
-            and(
-              eq(proposals.status, "executed"),
-              eq(proposals.executionFinalized, false),
+            reservesSlot(),
+            inArray(
+              proposals.id,
+              this.db
+                .select({ id: pendingActions.proposalId })
+                .from(pendingActions),
             ),
           ),
         )
@@ -121,7 +133,7 @@ export class ConsortiumRows {
     const [open] = await this.db
       .select({ id: proposals.id })
       .from(proposals)
-      .where(inArray(proposals.status, active))
+      .where(reservesSlot())
       .limit(1);
     if (open)
       throw new ServiceError(
@@ -251,6 +263,13 @@ export class ConsortiumStore extends ConsortiumRows {
   constructor(database: Database) {
     super(database);
     this.database = database;
+  }
+
+  read<T>(operation: (rows: ConsortiumRows) => Promise<T>) {
+    return this.database.transaction(
+      (transaction) => operation(new ConsortiumRows(transaction)),
+      { isolationLevel: "repeatable read", accessMode: "read only" },
+    );
   }
 
   lock<T>(operation: (rows: ConsortiumRows) => Promise<T>) {

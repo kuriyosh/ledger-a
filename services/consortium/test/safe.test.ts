@@ -70,5 +70,5 @@ test("sorts prevalidated owner signatures by address and uses v=1", () => {
   const expected = [first, second]
     .map((address) => `${padHex(address).slice(2)}${zeroHash.slice(2)}01`)
     .join("");
-  expect(safeSignatures([second, first])).toBe(`0x${expected}`);
+  expect(safeSignatures([second, first])).toBe(`0x${expected.toLowerCase()}`);
 });

@@ -15,6 +15,7 @@ import {
   keccak256,
   type LocalAccount,
   padHex,
+  parseEventLogs,
   parseTransaction,
   TransactionReceiptNotFoundError,
   type TransactionSerialized,
@@ -42,9 +43,9 @@ export type Approval = {
 };
 
 export function safeSignatures(approved: readonly Address[]) {
-  const sorted = [...approved].sort((a, b) =>
-    a.toLowerCase().localeCompare(b.toLowerCase()),
-  );
+  const sorted = approved
+    .map((address) => address.toLowerCase() as Address)
+    .sort();
   return concatHex(
     sorted.map((owner) => concatHex([padHex(owner), zeroHash, "0x01"])),
   );
@@ -166,8 +167,6 @@ export function consortiumChain(
       return overview;
     },
     async executionIsFinal(position: { blockNumber: bigint; blockHash: Hex }) {
-      // Anvil snapshots can be restored after its finalized tag advances.
-      if (deployment.environment === "anvil") return false;
       const finalized = await client.getBlock({ blockTag: "finalized" });
       return (
         position.blockNumber <= finalized.number &&
@@ -195,12 +194,17 @@ export function consortiumChain(
       await verifyAnchor(block);
       return { safeTxHash: hash, safeNonce: nonce, firstBlock: block.number };
     },
-    async observe(safeTxHash: Hex, expectedNonce: bigint, firstBlock: bigint) {
+    async observe(
+      safeTxHash: Hex,
+      expectedNonce: bigint,
+      firstBlock: bigint,
+      hints: { approvals: readonly Approval[]; executedTxHash: Hex | null },
+    ) {
       const { block, nonce, threshold } = await snapshot();
-      const approvalRecords: Approval[] = [];
-      let executed:
-        | { txHash: Hex; blockNumber: bigint; blockHash: Hex }
-        | undefined;
+      const approvalRecords = new Map<MemberId, Approval>();
+      type Position = { txHash: Hex; blockNumber: bigint; blockHash: Hex };
+      let executed: Position | undefined;
+
       const approvalsOnchain = await Promise.all(
         members.map((member) =>
           client.readContract({
@@ -214,50 +218,119 @@ export function consortiumChain(
       const approvedMembers = members.filter(
         (_, index) => approvalsOnchain[index] !== 0n,
       );
-      if (approvedMembers.length > 0 || nonce > expectedNonce) {
-        const found = new Set<MemberId>();
+
+      async function remember(approved: Member, position: Position) {
+        const source = await client.getBlock({
+          blockNumber: position.blockNumber,
+        });
+        if (source.hash !== position.blockHash) throw unavailable();
+        approvalRecords.set(approved.id, {
+          memberId: approved.id,
+          address: approved.account.address,
+          txHash: position.txHash,
+          blockNumber: position.blockNumber,
+          approvedAt: new Date(Number(source.timestamp) * 1_000),
+        });
+      }
+
+      await Promise.all(
+        approvedMembers.map(async (approved) => {
+          const prior = hints.approvals.find(
+            (item) => item.memberId === approved.id,
+          );
+          if (!prior) return;
+          const item = await receipt(prior.txHash);
+          if (!item || item.blockNumber > block.number) return;
+          const log = parseEventLogs({
+            abi: [approveEvent],
+            eventName: "ApproveHash",
+            logs: item.logs.filter(
+              (entry) => entry.address.toLowerCase() === address.toLowerCase(),
+            ),
+            strict: true,
+          }).find(
+            ({ args }) =>
+              args.approvedHash === safeTxHash &&
+              args.owner.toLowerCase() ===
+                approved.account.address.toLowerCase(),
+          );
+          if (log)
+            await remember(approved, {
+              txHash: prior.txHash,
+              blockNumber: item.blockNumber,
+              blockHash: item.blockHash,
+            });
+        }),
+      );
+
+      if (nonce > expectedNonce && hints.executedTxHash) {
+        const item = await receipt(hints.executedTxHash);
+        if (
+          item &&
+          item.blockNumber <= block.number &&
+          parseEventLogs({
+            abi: [executionEvent],
+            eventName: "ExecutionSuccess",
+            logs: item.logs.filter(
+              (entry) => entry.address.toLowerCase() === address.toLowerCase(),
+            ),
+            strict: true,
+          }).some(({ args }) => args.txHash === safeTxHash)
+        )
+          executed = {
+            txHash: item.transactionHash,
+            blockNumber: item.blockNumber,
+            blockHash: item.blockHash,
+          };
+      }
+
+      async function scan(floor: bigint, ceiling: bigint, executions: boolean) {
         for (
-          let fromBlock = BigInt(deployment.auditStartBlock);
-          fromBlock <= block.number;
+          let fromBlock = floor;
+          fromBlock <= ceiling;
           fromBlock += logSpan
         ) {
           const end = fromBlock + logSpan - 1n;
-          const toBlock = end < block.number ? end : block.number;
-          if (approvedMembers.length > found.size) {
+          const toBlock = end < ceiling ? end : ceiling;
+          const missing = approvedMembers.filter(
+            ({ id }) => !approvalRecords.has(id),
+          );
+          if (
+            missing.length === 0 &&
+            (!executions || nonce <= expectedNonce || executed)
+          )
+            break;
+          if (missing.length > 0) {
             const logs = await client.getLogs({
               address,
               event: approveEvent,
-              args: { approvedHash: safeTxHash },
+              args: {
+                approvedHash: safeTxHash,
+                owner: missing.map(({ account }) => account.address),
+              },
               fromBlock,
               toBlock,
               strict: true,
             });
             for (const log of logs) {
-              const member = approvedMembers.find(
+              const owner = missing.find(
                 ({ account }) =>
                   account.address.toLowerCase() ===
                   log.args.owner.toLowerCase(),
               );
-              if (!member || found.has(member.id)) continue;
-              const source = await client.getBlock({
-                blockNumber: log.blockNumber,
-              });
-              if (source.hash !== log.blockHash) throw unavailable();
-              found.add(member.id);
-              approvalRecords.push({
-                memberId: member.id,
-                address: member.account.address,
-                txHash: log.transactionHash,
-                blockNumber: log.blockNumber,
-                approvedAt: new Date(Number(source.timestamp) * 1_000),
-              });
+              if (owner && !approvalRecords.has(owner.id))
+                await remember(owner, {
+                  txHash: log.transactionHash,
+                  blockNumber: log.blockNumber,
+                  blockHash: log.blockHash,
+                });
             }
           }
-          if (nonce > expectedNonce && !executed && toBlock >= firstBlock) {
+          if (executions && nonce > expectedNonce && !executed) {
             const logs = await client.getLogs({
               address,
               event: executionEvent,
-              fromBlock: fromBlock < firstBlock ? firstBlock : fromBlock,
+              fromBlock,
               toBlock,
               strict: true,
             });
@@ -275,16 +348,22 @@ export function consortiumChain(
               };
             }
           }
-          if (
-            approvedMembers.length === found.size &&
-            (nonce <= expectedNonce || executed)
-          )
-            break;
         }
-        if (found.size !== approvedMembers.length) throw unavailable();
+      }
+
+      await scan(firstBlock, block.number, true);
+      if (approvalRecords.size !== approvedMembers.length) {
+        await scan(BigInt(deployment.auditStartBlock), firstBlock - 1n, false);
+        if (approvalRecords.size !== approvedMembers.length)
+          throw unavailable();
       }
       await verifyAnchor(block);
-      return { nonce, threshold, approvals: approvalRecords, executed };
+      return {
+        nonce,
+        threshold,
+        approvals: [...approvalRecords.values()],
+        executed,
+      };
     },
     approve(member: Member, hash: Hex) {
       return sign(

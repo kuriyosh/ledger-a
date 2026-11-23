@@ -52,6 +52,10 @@ export function consortiumService(
       row.safeTxHash,
       row.safeNonce,
       row.firstBlock,
+      {
+        approvals: await rows.approvals(row.id),
+        executedTxHash: row.executedTxHash,
+      },
     );
     let status: ProposalStatus = "open";
     let failedTxHash: Hex | undefined;
@@ -225,7 +229,7 @@ export function consortiumService(
 
   async function get(id: string) {
     const { threshold } = await chain.overview();
-    return store.lock(async (rows) =>
+    return store.read(async (rows) =>
       view(rows, await rows.proposal(id), threshold),
     );
   }
@@ -257,7 +261,7 @@ export function consortiumService(
     },
     async list(status?: ProposalStatus) {
       const { threshold } = await chain.overview();
-      return store.lock(async (rows) =>
+      return store.read(async (rows) =>
         Promise.all(
           (await rows.listing(status)).map((row) => view(rows, row, threshold)),
         ),
