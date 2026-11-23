@@ -199,7 +199,10 @@ export function mintService(
         receipt = await chain.wait(txHash).catch(() => undefined);
       else receipt = await chain.receipt(txHash);
       if (!receipt) {
-        if (decision === "nonce_used" && (await chain.replaced(request))) {
+        if (
+          decision === "rejected" ||
+          (decision === "nonce_used" && (await chain.replaced(request)))
+        ) {
           await database.db
             .update(mintRequests)
             .set({ status: "failed", blockHash: null })
