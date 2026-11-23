@@ -191,6 +191,8 @@ DB の作り直し。
 | `/v1/safe/:safeTxHash` | 承認と実行のイベント |
 | `/v1/receipt-commitments` | 受付ログのコミットの一覧 |
 
+一覧の `limit` は 1〜100。次のページを取得するときは、応答の `nextBefore` を `before` に渡す。取引と移転のカーソルは、ブロック内の位置も含む。
+
 `/v1/txs/:hash` の例。
 
 ```json

@@ -223,7 +223,7 @@ flowchart LR
 - [x] `services/indexer`: 取り込み、再編成、確定段階
 - [x] `services/indexer`: 復号、残高、Registry の履歴
 - [ ] `services/indexer`: 失敗理由
-- [ ] `services/indexer`: API
+- [x] `services/indexer`: API
 - [ ] `apps/web`: 枠組み（役割タブ、2 分割、Route Handler）
 - [ ] `apps/web`: チェーン表示（取引、登録簿、L1、ネットワーク）
 - [ ] `apps/web`: ユーザー画面
