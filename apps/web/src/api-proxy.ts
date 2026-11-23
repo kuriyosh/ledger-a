@@ -121,6 +121,19 @@ function services(env: Environment): Record<string, Service> {
       url: env.DEMO_TOOLS_URL ?? "http://127.0.0.1:8660",
       token: env.GATEWAY_ADMIN_TOKEN,
       rules: [
+        {
+          method: "GET",
+          path: /^\/v1\/attacker\/(?:status|deposits\/(?:latest|0x[0-9a-fA-F]{64}))$/,
+          demo: true,
+          auth: "admin",
+        },
+        {
+          method: "POST",
+          path: /^\/v1\/attacker\/(?:l1-deposit|l2-send)$/,
+          demo: true,
+          auth: "admin",
+        },
+
         { method: "GET", path: /^\/v1\/demo\/runs\/current$/, demo: true },
         {
           method: "GET",

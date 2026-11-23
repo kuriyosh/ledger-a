@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { Auditor } from "../../../src/auditor";
+import { EnforcementDemo } from "../../../src/enforcement-demo";
 import { Consortium, VaspAdmin } from "../../../src/management";
 import { roles } from "../../../src/roles";
 import { Wallet } from "../../../src/wallet";
@@ -13,6 +14,17 @@ export default async function RolePage({
   const path = `/${[role, ...(group ?? [])].join("/")}`;
   const selected = roles.find((item) => item.path === path);
   if (!selected) notFound();
+  if (role === "attacker") {
+    return (
+      <EnforcementDemo
+        enabled={
+          process.env.DEMO_MODE === "true" &&
+          process.env.LEDGERA_APP_MODE !== "anvil"
+        }
+      />
+    );
+  }
+
   if (role === "auditor")
     return <Auditor demo={process.env.DEMO_MODE === "true"} />;
   if (role === "user")

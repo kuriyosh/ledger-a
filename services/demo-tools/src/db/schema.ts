@@ -53,3 +53,12 @@ export const mintRequests = demo.table(
     check("mint_positive_amount", sql`${row.amount} > 0`),
   ],
 );
+
+export const deposits = demo.table("enforcement_deposits", {
+  id: text("id").primaryKey(),
+  action: text("action", { enum: ["probe", "none"] }).notNull(),
+  hash: text("hash").notNull().unique(),
+  rawTx: text("raw_tx").notNull(),
+  probeBefore: text("probe_before").notNull(),
+  createdAt: utc("created_at").notNull().defaultNow(),
+});
