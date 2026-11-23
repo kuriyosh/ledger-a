@@ -1,10 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "@ledgera/shared/db";
 import { receiptGenesisHash } from "@ledgera/shared/receipt";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { privateKeyToAccount } from "viem/accounts";
 import { expect, test } from "vitest";
 import { ForwardNotifications } from "../src/chain/forwarder.ts";
+import { relayRequests } from "../src/db/schema.ts";
 import { GatewayStore } from "../src/db/store.ts";
 import { createAdmission } from "../src/domain/admission.ts";
 import { gatewayApp } from "../src/routes/gateway.ts";
@@ -59,13 +60,13 @@ test.skipIf(!databaseUrl)(
         alice,
         policy,
       );
-      const first = await admission(
+      const first = await admission.accept(
         await alice.signTransaction({ ...tx, nonce: 0 }),
       );
-      const next = await admission(
+      const next = await admission.accept(
         await alice.signTransaction({ ...tx, nonce: 1 }),
       );
-      const independent = await admission(
+      const independent = await admission.accept(
         await bob.signTransaction({ ...tx, nonce: 0 }),
       );
 
@@ -88,11 +89,30 @@ test.skipIf(!databaseUrl)(
       });
       expect((await store.queued())?.seq).toBe(independent.seq);
 
-      const replacement = await admission(
+      const replacement = await admission.accept(
         await alice.signTransaction({ ...tx, nonce: 0, value: 1n }),
       );
       expect(replacement.seq).toBe(4n);
       expect(replacement.prevHash).toBe(independent.entryHash);
+
+      const relay = await admission.acceptRelay({
+        sender: bob.address,
+        vaspId: 2,
+        operations: [
+          { from: alice.address, to: bob.address, selector: "0x095ea7b3" },
+        ],
+        sign: (nonce) => bob.signTransaction({ ...tx, nonce: Number(nonce) }),
+      });
+      expect(relay.seq).toBe(5n);
+      expect(relay.prevHash).toBe(replacement.entryHash);
+      const [operation] = await database.db
+        .select()
+        .from(relayRequests)
+        .where(eq(relayRequests.seq, relay.seq));
+      expect(operation.vaspId).toBe(2);
+      expect(operation.requestFrom.toString("hex")).toBe(
+        alice.address.slice(2).toLowerCase(),
+      );
 
       await expect(
         database.db.execute(
@@ -115,7 +135,7 @@ test.skipIf(!databaseUrl)(
         chainId: policy.chainId,
         genesisHash: receiptGenesisHash(policy),
         store,
-        accept: admission,
+        accept: admission.accept,
         notifications,
         signal: new AbortController().signal,
       });
@@ -124,7 +144,7 @@ test.skipIf(!databaseUrl)(
       const { entries } = await reply.json();
       expect(
         entries.map((entry: { forwardStatus: string }) => entry.forwardStatus),
-      ).toEqual(["rejected", "rejected", "queued", "queued"]);
+      ).toEqual(["rejected", "rejected", "queued", "queued", "queued"]);
     } finally {
       await database.close();
     }

@@ -19,7 +19,7 @@ import type {
   ReceiptHead,
   SignedReceipt,
 } from "../domain/admission.ts";
-import { logEntries, rejections } from "./schema.ts";
+import { logEntries, rejections, relayRequests } from "./schema.ts";
 
 type Database = Awaited<ReturnType<typeof openDatabase>>["db"];
 type Entry = typeof logEntries.$inferSelect;
@@ -80,7 +80,7 @@ export class GatewayStore implements AdmissionStore {
       await tx.execute(receiptLock);
 
       return await action({
-        async history(sender, hash, confirmedNonce) {
+        async history(sender, confirmedNonce) {
           const [lastEntry] = await tx
             .select({
               seq: logEntries.seq,
@@ -89,11 +89,6 @@ export class GatewayStore implements AdmissionStore {
             })
             .from(logEntries)
             .orderBy(desc(logEntries.seq))
-            .limit(1);
-          const [duplicate] = await tx
-            .select({ seq: logEntries.seq })
-            .from(logEntries)
-            .where(eq(logEntries.txHash, toBuffer(hash)))
             .limit(1);
           const pending = await tx
             .select({ nonce: logEntries.nonce, raw: logEntries.rawTx })
@@ -126,12 +121,19 @@ export class GatewayStore implements AdmissionStore {
 
           return {
             head: lastEntry && head(lastEntry),
-            duplicate: duplicate !== undefined,
             outstanding,
             queued: queue.queued,
           };
         },
-        async append(record: AdmissionRecord) {
+        async hasReceipt(hash) {
+          const [duplicate] = await tx
+            .select({ seq: logEntries.seq })
+            .from(logEntries)
+            .where(eq(logEntries.txHash, toBuffer(hash)))
+            .limit(1);
+          return duplicate !== undefined;
+        },
+        async append({ operations, ...record }: AdmissionRecord) {
           await tx.insert(logEntries).values({
             ...record,
             txHash: toBuffer(record.txHash),
@@ -141,6 +143,18 @@ export class GatewayStore implements AdmissionStore {
             entryHash: toBuffer(record.entryHash),
             signature: toBuffer(record.signature),
           });
+          if (operations?.length && record.vaspId !== undefined) {
+            const vaspId = record.vaspId;
+            await tx.insert(relayRequests).values(
+              operations.map((operation) => ({
+                seq: record.seq,
+                vaspId,
+                requestFrom: toBuffer(operation.from),
+                requestTo: toBuffer(operation.to),
+                selector: toBuffer(operation.selector),
+              })),
+            );
+          }
         },
       });
     });

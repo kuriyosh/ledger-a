@@ -66,3 +66,21 @@ export const rejections = gateway.table("rejections", {
   reason: text("reason").notNull(),
   detail: jsonb("detail").$type<Record<string, unknown>>().notNull(),
 });
+
+export const relayRequests = gateway.table(
+  "relay_requests",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    seq: bigint("seq", { mode: "bigint" })
+      .notNull()
+      .references(() => logEntries.seq),
+    vaspId: integer("vasp_id").notNull(),
+    requestFrom: bytea("request_from").notNull(),
+    requestTo: bytea("request_to").notNull(),
+    selector: bytea("selector").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (row) => [index("relay_requests_seq").on(row.seq)],
+);

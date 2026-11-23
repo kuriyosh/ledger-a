@@ -51,7 +51,10 @@ export type AdmissionRecord = SignedReceipt & {
   nonce: bigint;
   source: "raw" | "relay" | "system";
   vaspId?: number;
+  operations?: readonly RelayOperation[];
 };
+
+export type RelayOperation = { from: Address; to: Address; selector: Hex };
 
 export type ReceiptHead = Pick<
   SignedReceipt,
@@ -68,17 +71,13 @@ export type AdmissionPolicy = {
 
 export type AdmissionHistory = {
   head: ReceiptHead | undefined;
-  duplicate: boolean;
   outstanding: readonly { nonce: bigint; cost: bigint }[];
   queued: number;
 };
 
 export interface IntakeTransaction {
-  history(
-    sender: Address,
-    hash: Hex,
-    confirmedNonce: bigint,
-  ): Promise<AdmissionHistory>;
+  history(sender: Address, confirmedNonce: bigint): Promise<AdmissionHistory>;
+  hasReceipt(hash: Hex): Promise<boolean>;
   append(record: AdmissionRecord): Promise<void>;
 }
 
@@ -187,6 +186,17 @@ export async function decodeTransaction(
   };
 }
 
+type RelayAdmission = {
+  sender: Address;
+  vaspId: number;
+  operations: readonly RelayOperation[];
+  sign(nonce: bigint): Promise<Hex>;
+};
+
+type Intake =
+  | { source: "raw"; transaction: SignedTransaction }
+  | { source: "relay"; relay: RelayAdmission };
+
 export function createAdmission(
   store: AdmissionStore,
   chain: AdmissionChain,
@@ -196,110 +206,133 @@ export function createAdmission(
 ) {
   const genesisHash = receiptGenesisHash(policy);
   let tail = Promise.resolve();
-  return async function accept(
-    input: unknown,
-    source: AdmissionRecord["source"] = "raw",
-    vaspId?: number,
-  ): Promise<SignedReceipt> {
-    let tx: SignedTransaction | undefined;
-    try {
-      const decoded = await decodeTransaction(input, policy);
-      tx = decoded;
-      const acceptNext = tail.then(() =>
-        store.serialize(async (ledger) => {
-          const receivedAt = BigInt(now());
-          const state = await chain.senderState(decoded.sender);
-          const history = await ledger.history(
-            decoded.sender,
-            decoded.txHash,
-            state.confirmedNonce,
+
+  async function submit(request: Intake): Promise<SignedReceipt> {
+    let tx = request.source === "raw" ? request.transaction : undefined;
+    const sender =
+      request.source === "raw"
+        ? request.transaction.sender
+        : request.relay.sender;
+    const acceptNext = tail.then(() =>
+      store.serialize(async (ledger) => {
+        const receivedAt = BigInt(now());
+        if (tx && (await ledger.hasReceipt(tx.txHash))) {
+          throw new AdmissionError(
+            "DUPLICATE_TX",
+            "transaction already accepted",
           );
-          if (history.duplicate) {
+        }
+        const state = await chain.senderState(sender);
+        const history = await ledger.history(sender, state.confirmedNonce);
+        if (history.queued >= policy.queueLimit) {
+          throw new AdmissionError(
+            "SEQUENCER_UNAVAILABLE",
+            "forwarding queue is full",
+          );
+        }
+        if (!state.eligible) {
+          throw new AdmissionError(
+            "SENDER_NOT_ALLOWED",
+            `sender not allowed: ${sender}`,
+          );
+        }
+
+        const accepted = new Set(
+          history.outstanding.map((entry) => entry.nonce),
+        );
+        let expected = state.nonce;
+        if (expected < state.confirmedNonce) expected = state.confirmedNonce;
+        while (accepted.has(expected)) expected += 1n;
+
+        if (request.source === "relay") {
+          tx = await decodeTransaction(
+            await request.relay.sign(expected),
+            policy,
+          );
+          if (tx.sender !== sender)
+            throw new Error(
+              "Relay sender does not match the signed transaction",
+            );
+          if (await ledger.hasReceipt(tx.txHash)) {
             throw new AdmissionError(
               "DUPLICATE_TX",
               "transaction already accepted",
             );
           }
-          if (history.queued >= policy.queueLimit) {
-            throw new AdmissionError(
-              "SEQUENCER_UNAVAILABLE",
-              "forwarding queue is full",
-            );
-          }
-
-          if (
-            decoded.maxFeePerGas <
-            2n * state.baseFee + policy.fixedPriorityFee
-          ) {
-            throw new AdmissionError(
-              "MAX_FEE_TOO_LOW",
-              "maximum fee is too low",
-            );
-          }
-          if (!state.eligible) {
-            throw new AdmissionError(
-              "SENDER_NOT_ALLOWED",
-              `sender not allowed: ${decoded.sender}`,
-            );
-          }
-          const accepted = new Set(
-            history.outstanding.map((entry) => entry.nonce),
+        }
+        if (!tx) throw new Error("Missing signed transaction");
+        if (tx.maxFeePerGas < 2n * state.baseFee + policy.fixedPriorityFee) {
+          throw new AdmissionError("MAX_FEE_TOO_LOW", "maximum fee is too low");
+        }
+        if (tx.nonce !== expected) {
+          throw new AdmissionError(
+            tx.nonce < expected ? "NONCE_TOO_LOW" : "NONCE_GAP",
+            `expected nonce ${expected}`,
+            { expectedNonce: expected.toString() },
           );
-          let expected = state.nonce;
-          while (accepted.has(expected)) expected += 1n;
-          if (decoded.nonce !== expected) {
-            throw new AdmissionError(
-              decoded.nonce < expected ? "NONCE_TOO_LOW" : "NONCE_GAP",
-              `expected nonce ${expected}`,
-              { expectedNonce: expected.toString() },
-            );
-          }
-          const reserved = history.outstanding.reduce(
-            (total, entry) => total + entry.cost,
-            0n,
-          );
-          if (
-            state.balance <
-            reserved + decoded.gas * decoded.maxFeePerGas + decoded.value
-          ) {
-            throw new AdmissionError(
-              "INSUFFICIENT_FUNDS",
-              "insufficient funds",
-            );
-          }
+        }
+        const reserved = history.outstanding.reduce(
+          (total, entry) => total + entry.cost,
+          0n,
+        );
+        if (state.balance < reserved + tx.gas * tx.maxFeePerGas + tx.value) {
+          throw new AdmissionError("INSUFFICIENT_FUNDS", "insufficient funds");
+        }
 
-          const lastReceived = history.head?.receivedAtMs ?? 0n;
-          const receipt: Receipt = {
-            seq: (history.head?.seq ?? 0n) + 1n,
-            txHash: decoded.txHash,
-            sender: decoded.sender,
-            receivedAtMs: receivedAt > lastReceived ? receivedAt : lastReceived,
-            prevHash: history.head?.entryHash ?? genesisHash,
-          };
-          const signed = {
-            ...receipt,
-            entryHash: hashReceiptEntry(receipt),
-            signature: await signReceipt(signer, policy, receipt),
-          };
-          await ledger.append({
-            ...signed,
-            rawTx: decoded.rawTx,
-            nonce: decoded.nonce,
-            source,
-            vaspId,
-          });
-          return signed;
-        }),
-      );
-      tail = acceptNext.then(
-        () => {},
-        () => {},
-      );
+        const lastReceived = history.head?.receivedAtMs ?? 0n;
+        const receipt: Receipt = {
+          seq: (history.head?.seq ?? 0n) + 1n,
+          txHash: tx.txHash,
+          sender: tx.sender,
+          receivedAtMs: receivedAt > lastReceived ? receivedAt : lastReceived,
+          prevHash: history.head?.entryHash ?? genesisHash,
+        };
+        const signed = {
+          ...receipt,
+          entryHash: hashReceiptEntry(receipt),
+          signature: await signReceipt(signer, policy, receipt),
+        };
+        await ledger.append({
+          ...signed,
+          rawTx: tx.rawTx,
+          nonce: tx.nonce,
+          source: request.source,
+          ...(request.source === "relay"
+            ? {
+                vaspId: request.relay.vaspId,
+                operations: request.relay.operations,
+              }
+            : {}),
+        });
+        return signed;
+      }),
+    );
+    tail = acceptNext.then(
+      () => {},
+      () => {},
+    );
+    try {
       return await acceptNext;
     } catch (error) {
       if (error instanceof AdmissionError)
-        await store.reject(source, error, tx);
+        await store.reject(request.source, error, tx);
       throw error;
     }
+  }
+
+  return {
+    async accept(input: unknown) {
+      let transaction: SignedTransaction;
+      try {
+        transaction = await decodeTransaction(input, policy);
+      } catch (error) {
+        if (error instanceof AdmissionError) await store.reject("raw", error);
+        throw error;
+      }
+      return submit({ source: "raw", transaction });
+    },
+    acceptRelay(relay: RelayAdmission) {
+      return submit({ source: "relay", relay });
+    },
   };
 }

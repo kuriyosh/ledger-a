@@ -44,17 +44,19 @@ function fixture(initial?: {
   const store: AdmissionStore = {
     async serialize<T>(action: (transaction: IntakeTransaction) => Promise<T>) {
       return await action({
-        async history(sender: Address, hash: Hex) {
+        async history(sender: Address) {
           const sameSender = entries.filter((entry) => entry.sender === sender);
           return {
             head: entries.at(-1),
-            duplicate: entries.some((entry) => entry.txHash === hash),
             outstanding: sameSender.map((entry) => ({
               nonce: entry.nonce,
               cost: 105_010n,
             })),
             queued: entries.length,
           };
+        },
+        async hasReceipt(hash: Hex) {
+          return entries.some((entry) => entry.txHash === hash);
         },
         async append(entry) {
           entries.push(entry);
@@ -66,7 +68,7 @@ function fixture(initial?: {
     },
   };
   let timestamp = 100;
-  const accept = createAdmission(
+  const { accept } = createAdmission(
     store,
     {
       async senderState() {
