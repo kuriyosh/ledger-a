@@ -49,7 +49,10 @@ function fixture(initial?: {
           return {
             head: entries.at(-1),
             duplicate: entries.some((entry) => entry.txHash === hash),
-            lastNonce: sameSender.at(-1)?.nonce,
+            outstanding: sameSender.map((entry) => ({
+              nonce: entry.nonce,
+              cost: 105_010n,
+            })),
             queued: entries.length,
           };
         },
@@ -70,6 +73,7 @@ function fixture(initial?: {
         return {
           baseFee: 2n,
           nonce: 0n,
+          confirmedNonce: 0n,
           eligible: true,
           balance: 10_000_000n,
           ...initial,
@@ -176,5 +180,22 @@ describe("Gateway transaction admission", () => {
         balance: STANDARD.gas * STANDARD.maxFeePerGas + STANDARD.value - 1n,
       }).accept(tx),
     ).rejects.toMatchObject({ code: "INSUFFICIENT_FUNDS" });
+  });
+
+  test("rejects extra bytes after a signed transaction", async () => {
+    const raw = await ALICE.signTransaction(STANDARD);
+    await expect(fixture().accept(`${raw}00`)).rejects.toMatchObject({
+      code: "INVALID_TX",
+    });
+  });
+
+  test("reserves the full transaction cost until a sender's nonce is confirmed", async () => {
+    const cost = STANDARD.gas * STANDARD.maxFeePerGas + STANDARD.value;
+    const { accept, entries } = fixture({ balance: 2n * cost - 1n });
+    await accept(await ALICE.signTransaction(STANDARD));
+    await expect(
+      accept(await ALICE.signTransaction({ ...STANDARD, nonce: 1 })),
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_FUNDS" });
+    expect(entries).toHaveLength(1);
   });
 });

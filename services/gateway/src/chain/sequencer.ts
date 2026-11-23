@@ -22,18 +22,22 @@ export function admissionChain(
 ): AdmissionChain {
   return {
     async senderState(sender) {
-      const [block, nonce, balance] = await Promise.all([
-        client.getBlock({ blockTag: "latest" }),
-        client.getTransactionCount({ address: sender, blockTag: "pending" }),
-        client.getBalance({ address: sender, blockTag: "pending" }),
-      ]);
-      const enforcement = await client.readContract({
-        address: registry,
-        abi: kycRegistryAbi,
-        functionName: "enforcementEnabled",
+      const block = await client.getBlock({ blockTag: "latest" });
+      const canonical = {
         blockHash: block.hash,
         requireCanonical: true,
-      });
+      } as const;
+      const [nonce, confirmedNonce, balance, enforcement] = await Promise.all([
+        client.getTransactionCount({ address: sender, blockTag: "pending" }),
+        client.getTransactionCount({ address: sender, ...canonical }),
+        client.getBalance({ address: sender, ...canonical }),
+        client.readContract({
+          address: registry,
+          abi: kycRegistryAbi,
+          functionName: "enforcementEnabled",
+          ...canonical,
+        }),
+      ]);
       const eligible =
         !enforcement ||
         (await client.readContract({
@@ -41,12 +45,12 @@ export function admissionChain(
           abi: kycRegistryAbi,
           functionName: "isActive",
           args: [sender],
-          blockHash: block.hash,
-          requireCanonical: true,
+          ...canonical,
         }));
       return {
         eligible,
         nonce: BigInt(nonce),
+        confirmedNonce: BigInt(confirmedNonce),
         balance,
         baseFee: block.baseFeePerGas ?? 0n,
       };

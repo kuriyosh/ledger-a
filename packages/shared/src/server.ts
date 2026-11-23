@@ -9,8 +9,20 @@ export const serverEnv = z.object({
   PORT: z.coerce.number().int().min(1).max(65535),
 });
 
+export function logService(
+  service: string,
+  level: "info" | "error",
+  message: string,
+  traceId: string | null,
+  fields: Record<string, unknown> = {},
+) {
+  console.log(
+    JSON.stringify({ ...fields, service, level, msg: message, traceId }),
+  );
+}
+
 export function serviceApp(service: string) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: { traceId: string } }>();
   app.use("*", async (context, next) => {
     const incoming = context.req.header("X-Trace-Id");
     const traceId =
@@ -19,17 +31,19 @@ export function serviceApp(service: string) {
         : randomUUID();
     const started = performance.now();
     context.header("X-Trace-Id", traceId);
+    context.set("traceId", traceId);
     await next();
     const { status } = context.res;
-    console.log(
-      JSON.stringify({
-        service,
-        level: status >= 500 ? "error" : "info",
-        msg: context.req.method,
-        traceId,
+    logService(
+      service,
+      status >= 500 ? "error" : "info",
+      context.req.method,
+      traceId,
+      {
+        path: new URL(context.req.url).pathname,
         status,
         durationMs: Math.round(performance.now() - started),
-      }),
+      },
     );
   });
   app.get("/healthz", (context) => context.json({ status: "ok" }));

@@ -1,8 +1,8 @@
-import { setTimeout } from "node:timers/promises";
 import { ServiceError } from "@ledgera/shared/errors";
-import { serviceApp } from "@ledgera/shared/server";
+import { logService, serviceApp } from "@ledgera/shared/server";
 import { type Hex, numberToHex } from "viem";
 import { z } from "zod";
+import type { ForwardNotifications } from "../chain/forwarder.ts";
 import { type GatewayStore, receiptJson } from "../db/store.ts";
 import {
   AdmissionError,
@@ -46,34 +46,34 @@ type Options = {
   store: GatewayStore;
   accept: ReturnType<typeof createAdmission>;
   signal: AbortSignal;
+  notifications: ForwardNotifications;
 };
 
-async function waitForForwarding(
+export async function waitForForwarding(
   store: GatewayStore,
   receipt: SignedReceipt,
+  notifications: ForwardNotifications,
   signal: AbortSignal,
 ) {
-  while (!signal.aborted) {
-    const next = await store.forwardResult(receipt.seq);
-    if (next?.status === "forwarded") return;
-    if (next?.status === "rejected") {
-      throw new AdmissionError(
-        "FORWARD_REJECTED",
-        next.error?.replace(/^ledgera: /, "") ??
-          "sequencer rejected the transaction",
-        {
-          receipt: receiptJson(receipt),
-        },
-      );
-    }
-    await setTimeout(100, undefined, { signal }).catch(() => {});
+  const next = await notifications.wait(
+    store,
+    receipt.seq,
+    AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+  );
+  if (next?.status === "forwarded") return;
+  const details = { receipt: receiptJson(receipt) };
+  if (next?.status === "rejected") {
+    throw new AdmissionError(
+      "FORWARD_REJECTED",
+      next.error?.replace(/^ledgera: /, "") ??
+        "sequencer rejected the transaction",
+      details,
+    );
   }
   throw new AdmissionError(
     "SEQUENCER_UNAVAILABLE",
-    "gateway request ended before forwarding",
-    {
-      receipt: receiptJson(receipt),
-    },
+    "forwarding is still pending",
+    details,
   );
 }
 
@@ -83,6 +83,7 @@ export function gatewayApp({
   store,
   accept,
   signal,
+  notifications,
 }: Options) {
   const app = serviceApp("gateway");
 
@@ -116,10 +117,16 @@ export function gatewayApp({
     }
 
     try {
+      if (signal.aborted)
+        throw new AdmissionError(
+          "SEQUENCER_UNAVAILABLE",
+          "gateway is stopping",
+        );
       const receipt = await accept(params[0]);
       await waitForForwarding(
         store,
         receipt,
+        notifications,
         AbortSignal.any([signal, context.req.raw.signal]),
       );
       const result =
@@ -136,6 +143,15 @@ export function gatewayApp({
           }),
         );
       }
+      logService(
+        "gateway",
+        "error",
+        "Transaction admission or forwarding failed",
+        context.get("traceId"),
+        {
+          errorName: error instanceof Error ? error.name : "Error",
+        },
+      );
       return context.json(
         rpcError(id, -32603, "ledgera: internal server error"),
       );

@@ -5,13 +5,13 @@ import {
   count,
   desc,
   eq,
+  gt,
   gte,
   inArray,
-  max,
   ne,
   sql,
 } from "drizzle-orm";
-import { bytesToHex, getAddress, type Hex } from "viem";
+import { bytesToHex, getAddress, type Hex, parseTransaction } from "viem";
 import type {
   AdmissionRecord,
   AdmissionStore,
@@ -23,6 +23,7 @@ import { logEntries, rejections } from "./schema.ts";
 
 type Database = Awaited<ReturnType<typeof openDatabase>>["db"];
 type Entry = typeof logEntries.$inferSelect;
+const receiptLock = sql`select pg_advisory_xact_lock(hashtext('ledgerA Gateway receipt log'))`;
 
 const toBuffer = (hex: Hex) => Buffer.from(hex.slice(2), "hex");
 
@@ -76,12 +77,10 @@ export class GatewayStore implements AdmissionStore {
 
   serialize<T>(action: (store: IntakeTransaction) => Promise<T>) {
     return this.db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext('ledgerA Gateway receipt log'))`,
-      );
+      await tx.execute(receiptLock);
 
       return await action({
-        async history(sender, hash) {
+        async history(sender, hash, confirmedNonce) {
           const [lastEntry] = await tx
             .select({
               seq: logEntries.seq,
@@ -96,15 +95,30 @@ export class GatewayStore implements AdmissionStore {
             .from(logEntries)
             .where(eq(logEntries.txHash, toBuffer(hash)))
             .limit(1);
-          const [nonce] = await tx
-            .select({ maximum: max(logEntries.nonce) })
+          const pending = await tx
+            .select({ nonce: logEntries.nonce, raw: logEntries.rawTx })
             .from(logEntries)
             .where(
               and(
                 eq(logEntries.sender, toBuffer(sender)),
                 ne(logEntries.forwardStatus, "rejected"),
+                gte(logEntries.nonce, confirmedNonce),
               ),
             );
+          const outstanding = pending.map((entry) => {
+            const decoded = parseTransaction(bytesToHex(entry.raw));
+            if (
+              decoded.type !== "eip1559" ||
+              decoded.gas === undefined ||
+              decoded.maxFeePerGas === undefined
+            ) {
+              throw new Error("Invalid transaction in the receipt log");
+            }
+            return {
+              nonce: entry.nonce,
+              cost: decoded.gas * decoded.maxFeePerGas + (decoded.value ?? 0n),
+            };
+          });
           const [queue] = await tx
             .select({ queued: count() })
             .from(logEntries)
@@ -113,7 +127,7 @@ export class GatewayStore implements AdmissionStore {
           return {
             head: lastEntry && head(lastEntry),
             duplicate: duplicate !== undefined,
-            lastNonce: nonce.maximum ?? undefined,
+            outstanding,
             queued: queue.queued,
           };
         },
@@ -231,15 +245,59 @@ export class GatewayStore implements AdmissionStore {
     status: "forwarded" | "rejected",
     error: string | null,
   ) {
-    await this.db
-      .update(logEntries)
-      .set({
-        forwardStatus: status,
-        forwardError: error,
-        forwardedAt: new Date(),
-      })
-      .where(
-        and(eq(logEntries.seq, seq), eq(logEntries.forwardStatus, "queued")),
+    return this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      const [entry] = await tx
+        .update(logEntries)
+        .set({
+          forwardStatus: status,
+          forwardError: error,
+          forwardedAt: new Date(),
+        })
+        .where(
+          and(eq(logEntries.seq, seq), eq(logEntries.forwardStatus, "queued")),
+        )
+        .returning({
+          seq: logEntries.seq,
+          sender: logEntries.sender,
+          nonce: logEntries.nonce,
+        });
+      if (!entry) return [];
+      const results = [{ seq, status, error }];
+      if (status === "forwarded") return results;
+
+      const blocked = await tx
+        .update(logEntries)
+        .set({
+          forwardStatus: "rejected",
+          forwardError: "prior nonce rejected",
+          forwardedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(logEntries.sender, entry.sender),
+            inArray(logEntries.forwardStatus, ["queued", "held_demo"]),
+            gt(logEntries.nonce, entry.nonce),
+            gt(logEntries.seq, entry.seq),
+          ),
+        )
+        .returning({ seq: logEntries.seq });
+      return results.concat(
+        blocked.map(({ seq }) => ({
+          seq,
+          status: "rejected",
+          error: "prior nonce rejected",
+        })),
       );
+    });
+  }
+
+  async firstReceipt() {
+    const [row] = await this.db
+      .select()
+      .from(logEntries)
+      .where(eq(logEntries.seq, 1n))
+      .limit(1);
+    return row && receipt(row);
   }
 }

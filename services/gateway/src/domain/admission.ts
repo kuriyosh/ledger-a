@@ -12,6 +12,7 @@ import {
   type LocalAccount,
   parseTransaction,
   recoverTransactionAddress,
+  serializeTransaction,
   type TransactionSerialized,
 } from "viem";
 
@@ -68,12 +69,16 @@ export type AdmissionPolicy = {
 export type AdmissionHistory = {
   head: ReceiptHead | undefined;
   duplicate: boolean;
-  lastNonce: bigint | undefined;
+  outstanding: readonly { nonce: bigint; cost: bigint }[];
   queued: number;
 };
 
 export interface IntakeTransaction {
-  history(sender: Address, hash: Hex): Promise<AdmissionHistory>;
+  history(
+    sender: Address,
+    hash: Hex,
+    confirmedNonce: bigint,
+  ): Promise<AdmissionHistory>;
   append(record: AdmissionRecord): Promise<void>;
 }
 
@@ -90,6 +95,7 @@ export interface AdmissionChain {
   senderState(sender: Address): Promise<{
     eligible: boolean;
     nonce: bigint;
+    confirmedNonce: bigint;
     balance: bigint;
     baseFee: bigint;
   }>;
@@ -127,6 +133,21 @@ export async function decodeTransaction(
       "UNSUPPORTED_TX_TYPE",
       "only EIP-1559 transactions are accepted",
     );
+  }
+  if (!decoded.r || !decoded.s || decoded.yParity === undefined) {
+    throw new AdmissionError("INVALID_TX", "invalid transaction signature");
+  }
+  try {
+    if (
+      serializeTransaction(decoded, {
+        r: decoded.r,
+        s: decoded.s,
+        yParity: decoded.yParity,
+      }).toLowerCase() !== raw.toLowerCase()
+    )
+      throw new Error("Non-canonical encoding");
+  } catch {
+    throw new AdmissionError("INVALID_TX", "invalid transaction encoding");
   }
   if (decoded.chainId !== policy.chainId) {
     throw new AdmissionError("WRONG_CHAIN_ID", "wrong chain ID");
@@ -187,7 +208,12 @@ export function createAdmission(
       const acceptNext = tail.then(() =>
         store.serialize(async (ledger) => {
           const receivedAt = BigInt(now());
-          const history = await ledger.history(decoded.sender, decoded.txHash);
+          const state = await chain.senderState(decoded.sender);
+          const history = await ledger.history(
+            decoded.sender,
+            decoded.txHash,
+            state.confirmedNonce,
+          );
           if (history.duplicate) {
             throw new AdmissionError(
               "DUPLICATE_TX",
@@ -201,7 +227,6 @@ export function createAdmission(
             );
           }
 
-          const state = await chain.senderState(decoded.sender);
           if (
             decoded.maxFeePerGas <
             2n * state.baseFee + policy.fixedPriorityFee
@@ -217,9 +242,11 @@ export function createAdmission(
               `sender not allowed: ${decoded.sender}`,
             );
           }
-          const loggedNonce = (history.lastNonce ?? -1n) + 1n;
-          const expected =
-            state.nonce > loggedNonce ? state.nonce : loggedNonce;
+          const accepted = new Set(
+            history.outstanding.map((entry) => entry.nonce),
+          );
+          let expected = state.nonce;
+          while (accepted.has(expected)) expected += 1n;
           if (decoded.nonce !== expected) {
             throw new AdmissionError(
               decoded.nonce < expected ? "NONCE_TOO_LOW" : "NONCE_GAP",
@@ -227,9 +254,13 @@ export function createAdmission(
               { expectedNonce: expected.toString() },
             );
           }
+          const reserved = history.outstanding.reduce(
+            (total, entry) => total + entry.cost,
+            0n,
+          );
           if (
             state.balance <
-            decoded.gas * decoded.maxFeePerGas + decoded.value
+            reserved + decoded.gas * decoded.maxFeePerGas + decoded.value
           ) {
             throw new AdmissionError(
               "INSUFFICIENT_FUNDS",
