@@ -93,7 +93,7 @@ fund-l1:
 APP_MODE ?= devnet
 APP_COMPOSE = bash chain/scripts/app-compose.sh $(APP_MODE)
 
-.PHONY: app-up app-down app-logs audit
+.PHONY: app-up app-down app-logs audit demo-seed
 
 app-up:
 	$(APP_COMPOSE) up -d --build --wait
@@ -103,6 +103,9 @@ app-down:
 
 app-logs:
 	$(APP_COMPOSE) logs --follow
+
+demo-seed:
+	$(APP_COMPOSE) exec -T demo-tools node src/seed.ts
 
 audit:
 	@pnpm --silent --filter @ledgera/auditor fifo --from 1 --json

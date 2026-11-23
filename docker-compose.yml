@@ -230,6 +230,47 @@ services:
             if (!response.ok) process.exitCode = 1
           })
 
+  demo-tools:
+    profiles: [demo]
+    restart: on-failure
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: demo-tools
+    user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
+    environment:
+      <<: *app-environment
+      PORT: 8660
+      DEMO_MODE: ${DEMO_MODE:-false}
+      L2_RPC_URL: http://rpc-proxy:8545
+      GATEWAY_URL: http://gateway:8600
+      ISSUER_PRIVATE_KEY: ${ISSUER_PRIVATE_KEY:?Run make keys}
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run make keys}
+      VASP_A_URL: http://vasp-a:8621
+      VASP_B_URL: http://vasp-b:8622
+      VASP_A_ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Run make keys}
+      VASP_B_ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Run make keys}
+    volumes:
+      - ./deployments:/deployments:ro
+    ports:
+      - 127.0.0.1:8660:8660
+    networks: [app]
+    depends_on:
+      vasp-a:
+        condition: service_healthy
+      vasp-b:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:8660/healthz').then(r => { if (!r.ok) process.exitCode = 1 })",
+        ]
+
 networks:
   app:
     name: ledgera

@@ -250,6 +250,8 @@
 | POST | `/v1/demo/runs` | 新しいデモ回を作る。`make demo-seed` が呼ぶ |
 | GET | `/v1/demo/runs/current` | 現在のデモ回 |
 
+発行とデモ回の開始には `Authorization: Bearer` で `GATEWAY_ADMIN_TOKEN` を送る。
+
 `POST /v1/issuer/mint`
 
 ```json
@@ -257,7 +259,8 @@
 ```
 
 - 発行体（issuer）の鍵で `LedgerToken.mint(to, amount)` に署名し、Gateway の `/rpc` に送る。
-- 発行体の業務（入金の確認、償却、凍結）はデモの範囲外。発行だけをこの API で代用する。
+- 取り込みが確認できると `txHash` と `status: "confirmed"` を返す。
+- 同じ `Idempotency-Key` と同じ発行内容で再送すると同じ取引を照合する。同じキーで発行内容が変わった場合は 409 を返す。
 
 `POST /v1/attacker/l1-deposit`
 
@@ -343,7 +346,7 @@
 1. 回の番号を 1 増やす。
 2. Gateway の `GET /v1/log/head` と L2 の最新ブロックから、開始通番（最新の通番 + 1）と開始ブロック（最新のブロック + 1）を決める。
 3. 登場人物を作る（[10-dev-ops.md](10-dev-ops.md) の 5 節の表）。各 VASP の API を、申込、KYC の承認、発行の順に呼ぶ。メールアドレスは `<名前>.r<回の番号>@example.com`。
-4. 回の番号、開始時刻、開始通番、開始ブロックを `runs` に保存する。
+4. すべての登場人物が揃うと回を公開する。途中の回が残っている場合は、同じ番号と開始位置で再開する。
 
 - 登場人物の氏名とメールアドレスは保存しない。メールアドレスは回の番号から決まる。個人情報を持つのは VASP だけにする。
 
@@ -367,7 +370,7 @@
 |---|---|
 | `PORT` | 8660 |
 | `DEMO_MODE` | true でなければ起動時に終了する |
-| `DATABASE_URL` | デモ回の保存。スキーマ名は `demo`。表は `runs`（`run`、`started_at`、`start_seq`、`start_block`）だけ |
+| `DATABASE_URL` | スキーマ名は `demo`。回を `runs` に、署名済み発行取引を `mint_requests` に保存する |
 | `DEPLOYMENTS_FILE` | |
 | `L1_RPC_URL`、`L2_RPC_URL`、`GATEWAY_URL` | `L2_RPC_URL` は読み取り用。rpc-proxy を指す |
 | `L2_DIRECT_RPC_URL` | op-reth の URL。外部者の直接送信だけに使う |

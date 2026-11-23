@@ -198,8 +198,8 @@ flowchart LR
 - [ ] `services/vasp`: 開示請求
 - [x] `services/consortium`: 申請、承認、実行
 - [x] `services/consortium`: 取り下げ（取消取引）、L2 との照合
-- [ ] `services/demo-tools`: 発行体の `POST /v1/issuer/mint`、デモ回の `POST /v1/demo/runs`
-- [ ] `make demo-seed`
+- [x] `services/demo-tools`: 発行体の `POST /v1/issuer/mint`、デモ回の `POST /v1/demo/runs`
+- [x] `make demo-seed`
 
 受け入れ基準。
 
