@@ -229,7 +229,7 @@ flowchart LR
 - [x] `apps/web`: ユーザー画面
 - [x] `apps/web`: VASP 管理画面
 - [x] `apps/web`: コンソーシアム画面
-- [ ] `e2e/scenes/` の場面 1、2、3、5 と、場面 4 の手順 6、7
+- [x] `e2e/scenes/` の場面 1、2、3、5 と、場面 4 の手順 6、7
 
 受け入れ基準。
 
