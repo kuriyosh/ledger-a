@@ -12,3 +12,5 @@ coverage/
 /contracts/out/
 /contracts/broadcast/
 /packages/abis/src/generated.ts
+/apps/web/.next/
+/apps/web/next-env.d.ts
