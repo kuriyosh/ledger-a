@@ -13,6 +13,7 @@ import {
   type Abi,
   type AbiParameter,
   type Address,
+  decodeErrorResult,
   decodeEventLog,
   decodeFunctionData,
   getAbiItem,
@@ -275,5 +276,32 @@ export function decoder(contracts: Deployment["contracts"]) {
       }),
     };
     return { call: displayed, events, kind: kind(transaction, call, events) };
+  };
+}
+
+export function errorDecoder(contracts: Deployment["contracts"]) {
+  const byAddress = new Map(
+    (Object.entries(contracts) as [Contract, Address][]).map(
+      ([contract, address]) => [address.toLowerCase(), abis[contract]],
+    ),
+  );
+  const all = Object.values(abis).flat();
+  return (target: Address | undefined, data: Hex) => {
+    try {
+      const abi = (target && byAddress.get(target.toLowerCase())) || all;
+      const result = decodeErrorResult({ abi, data });
+      if (
+        result.abiItem.type !== "error" ||
+        result.errorName === "Error" ||
+        result.errorName === "Panic"
+      )
+        return;
+      return {
+        errorName: result.errorName,
+        args: named(result.abiItem.inputs, result.args ?? []),
+      };
+    } catch {
+      return;
+    }
   };
 }

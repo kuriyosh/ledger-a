@@ -5,6 +5,7 @@ import { serviceApp, startService } from "@ledgera/shared/server";
 import { IndexerStore } from "./db/store.ts";
 import { decoder } from "./decode.ts";
 import { indexerEnv } from "./env.ts";
+import { failureWorker } from "./failures.ts";
 import { indexerRoutes } from "./http.ts";
 import { chainQuery } from "./query.ts";
 import { registryQuery } from "./registry-query.ts";
@@ -54,7 +55,11 @@ const indexer = indexerSync(
   env.POLL_INTERVAL_MS,
 );
 const controller = new AbortController();
-const worker = indexer.run(controller.signal);
+const failures = failureWorker(database.db, deployment, env.L2_RPC_URL, rpc);
+const worker = Promise.all([
+  indexer.run(controller.signal),
+  failures.run(controller.signal),
+]);
 const app = serviceApp("indexer");
 indexerRoutes(
   app,
