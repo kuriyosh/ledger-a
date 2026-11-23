@@ -188,7 +188,7 @@ flowchart LR
 
 作業。
 
-- [ ] `packages/shared` の署名付きリクエスト
+- [x] `packages/shared` の署名付きリクエスト
 - [ ] `services/vasp`: 顧客、KYC の承認、鍵の保管
 - [ ] `services/vasp`: メタトランザクションの作成、送金の状態管理、入金の検知
 - [ ] `services/vasp`: 再編成への対応（入金、送金、アラートの照合し直し）

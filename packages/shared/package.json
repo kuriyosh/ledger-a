@@ -6,6 +6,7 @@
     "./travel-rule": "./src/travel-rule.ts",
     "./forward-request": "./src/forward-request.ts",
     "./quote": "./src/quote.ts",
+    "./http-signature": "./src/http-signature.ts",
     "./receipt": "./src/receipt.ts",
     "./db": "./src/db.ts",
     "./errors": "./src/errors.ts",
