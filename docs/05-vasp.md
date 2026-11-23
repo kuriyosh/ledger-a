@@ -23,7 +23,7 @@ VASP 1 社分のバックエンド。同じコードを VASP A（`vasp-a`）と 
 
 | 相手 | 方式 |
 |---|---|
-| ユーザー画面 | `POST /v1/session` が返すトークンを `Authorization: Bearer` で送る。DevNet ではメールアドレスだけで発行する |
+| ユーザー画面 | `POST /v1/session` が返すトークンを `Authorization: Bearer` で送る。DevNet ではメールアドレスだけで発行する。有効期間は 24 時間 |
 | VASP 管理画面 | 環境変数 `ADMIN_TOKEN` を `Authorization: Bearer` で送る |
 | 相手 VASP | 署名付きリクエスト（下記） |
 | 監査ツール | 環境変数 `AUDITOR_API_KEY` を `Authorization: Bearer` で送る |
@@ -68,10 +68,14 @@ HTTP メソッドは大文字。パスは送信先 URL のエンコード済み 
 ### 3.2 承認の処理
 
 1. 秘密鍵を乱数で生成する。
-2. AES-256-GCM で暗号化して `wallets` に保存する。鍵は `VASP_KEY_ENCRYPTION_KEY`。
+2. AES-256-GCM で暗号化して `wallets` に保存する。鍵は `VASP_KEY_ENCRYPTION_KEY`。顧客 ID とアドレスを認証データに含める。
 3. `KycRegistry.registerAccount(address, CUSTOMER, validUntil)` を組み立てる。`validUntil` は現在 + `KYC_VALIDITY_DAYS` 日。
 4. VASP 管理者の鍵で署名し、Gateway の `/rpc` に送る。
 5. レシートを待つ。成功なら `approved`、失敗なら `error`。
+
+登録の署名済み取引は送信前に保存する。応答を確認できない場合は、同じ取引ハッシュで L2 と Gateway を照合する。
+管理者の nonce が finalized ブロックで進んでいれば、そのブロックから親ハッシュをたどって nonce を使った取引を探す。別の取引が見つかった場合は登録を失敗にする。
+Gateway が受け付けた取引の取り込みを確認できない間は、取引ハッシュと待機時間をログに出す。Sequencer が保持していない取引は Gateway が再送する。
 
 - 審査そのものは人が画面で承認する。書類の確認は行わない。
 - 顧客が自分のアドレスを持ち込む経路はない。アドレスは必ず VASP が発行する。
