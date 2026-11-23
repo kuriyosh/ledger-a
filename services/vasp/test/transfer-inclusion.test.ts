@@ -167,7 +167,7 @@ test("takes the actual transaction from finalized nonce evidence", async () => {
   consumed.execution.mockImplementation(async (hash) =>
     hash === zeroHash
       ? { ...included, status: "reverted", executed: false }
-      : { ...included, transactionHash: alternative },
+      : { ...included, matches: false, transactionHash: alternative },
   );
   consumed.finalizedRequest.mockResolvedValue({
     status: "consumed",

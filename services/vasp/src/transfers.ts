@@ -119,13 +119,20 @@ export function transferService(
           ? receipt
           : await evidence(state.hash);
       if (!actual || actual.blockHash !== state.blockHash) return false;
-      if (actual.matches && actual.executed && actual.status === "success")
+      if (actual.executed && actual.status === "success")
         return confirm(actual);
-      await store.update(row, {
-        status: "failed",
-        errorCode: "FORWARD_NONCE_CONSUMED",
-      });
-      return true;
+      logService(
+        "vasp",
+        "error",
+        "Finalized Forwarder event was not found in its receipt",
+        null,
+        {
+          id: row.id,
+          txHash: state.hash,
+          blockHash: state.blockHash,
+        },
+      );
+      return false;
     }
     if (state?.status === "expired") {
       await store.update(row, {

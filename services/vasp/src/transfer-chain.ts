@@ -78,15 +78,18 @@ export function transferChain(
       to: Address,
       amount: bigint,
     ) {
-      const [nonce, finalized] = await Promise.all([
-        client.readContract({
-          address: contracts.ledgerForwarder,
-          abi: ledgerForwarderAbi,
-          functionName: "nonces",
-          args: [signer.address],
-        }),
+      const [head, finalized] = await Promise.all([
+        client.getBlock({ blockTag: "latest" }),
         client.getBlock({ blockTag: "finalized" }),
       ]);
+      const nonce = await client.readContract({
+        address: contracts.ledgerForwarder,
+        abi: ledgerForwarderAbi,
+        functionName: "nonces",
+        args: [signer.address],
+        blockHash: head.hash,
+        requireCanonical: true,
+      });
       const data = encodeFunctionData({
         abi: ledgerTokenAbi,
         functionName: "transfer",
@@ -194,9 +197,7 @@ export function transferChain(
           transaction.to?.toLowerCase() ===
             contracts.ledgerForwarder.toLowerCase() &&
           matchesForwardCall(transaction.input, request);
-        if (!matches)
-          return { ...receipt, matches, executed: false, logIndex: undefined };
-        const executed = parseEventLogs({
+        const executions = parseEventLogs({
           abi: [forwardEvent],
           eventName: "ExecutedForwardRequest",
           logs: receipt.logs.filter(
@@ -205,11 +206,14 @@ export function transferChain(
               contracts.ledgerForwarder.toLowerCase(),
           ),
           strict: true,
-        }).some(
+        }).sort((a, b) => a.logIndex - b.logIndex);
+        const index = executions.findIndex(
           ({ args }) =>
             args.signer.toLowerCase() === request.from.toLowerCase() &&
             args.nonce === nonce,
         );
+        const proof = executions[index];
+        const prior = index > 0 ? executions[index - 1]?.logIndex : undefined;
         const transfers = parseEventLogs({
           abi: [transferEvent],
           eventName: "Transfer",
@@ -218,13 +222,17 @@ export function transferChain(
           ),
           strict: true,
         });
-        const logIndex = transfers.find(
-          ({ args }) =>
-            args.from.toLowerCase() === request.from.toLowerCase() &&
-            args.to.toLowerCase() === beneficiary.toLowerCase() &&
-            args.value === amount,
-        )?.logIndex;
-        return { ...receipt, matches, executed, logIndex };
+        const logIndex = proof?.args.success
+          ? transfers.find(
+              (log) =>
+                log.logIndex < proof.logIndex &&
+                (prior === undefined || log.logIndex > prior) &&
+                log.args.from.toLowerCase() === request.from.toLowerCase() &&
+                log.args.to.toLowerCase() === beneficiary.toLowerCase() &&
+                log.args.value === amount,
+            )?.logIndex
+          : undefined;
+        return { ...receipt, matches, executed: proof !== undefined, logIndex };
       } catch (error) {
         if (
           !(error instanceof TransactionReceiptNotFoundError) &&
