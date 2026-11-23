@@ -2,21 +2,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-export LEDGERA_APP_MODE=${1:?Set anvil or devnet}
+requested_mode=${1:?Set anvil, devnet, or devnet-ha}
+export LEDGERA_APP_MODE=${requested_mode%-ha}
 shift
-case "$LEDGERA_APP_MODE" in
+case "$requested_mode" in
   anvil)
     account_file=chain/runtime/anvil/.env.generated
     fallback_rpc=http://anvil:8545
     export LEDGERA_ROLLUP_RPC_URL=
     export SEQUENCER_RPC_URLS="$fallback_rpc" AUDIT_RPC_URL=http://rpc-proxy:8545
     ;;
-  devnet)
+  devnet|devnet-ha)
     account_file=.env.generated
     fallback_rpc=http://op-reth:8545
     export LEDGERA_ROLLUP_RPC_URL=http://rpc-proxy:8545/rollup
     ;;
-  *) echo "Expected anvil or devnet" >&2; exit 1 ;;
+  *) echo "Expected anvil, devnet, or devnet-ha" >&2; exit 1 ;;
 esac
 
 read_env() {
@@ -32,6 +33,12 @@ if [[ "$LEDGERA_APP_MODE" == devnet ]]; then
   SEQUENCER_RPC_URLS=$(read_env 'process.env.SEQUENCER_RPC_URLS || ""')
   SEQUENCER_RPC_URLS=${SEQUENCER_RPC_URLS:-$fallback_rpc}
 fi
+if [[ "$requested_mode" == devnet-ha ]]; then
+  export SEQUENCER_READ_RPC_URL=http://rpc-proxy:8545
+  export SEQUENCER_RPC_URLS=http://op-reth-1:8545,http://op-reth-2:8545,http://op-reth-3:8545
+  export CONDUCTOR_RPC_URLS=http://op-conductor-1:8547,http://op-conductor-2:8547,http://op-conductor-3:8547
+fi
+
 export POSTGRES_PASSWORD
 POSTGRES_PASSWORD=$(read_env 'process.env.POSTGRES_PASSWORD || ""')
 if [[ -z "$POSTGRES_PASSWORD" && "$LEDGERA_APP_MODE" == anvil ]]; then

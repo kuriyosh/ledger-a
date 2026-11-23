@@ -39,14 +39,81 @@ function rpcError(id: string | number | null, code: number, message: string) {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-export function createApp(upstreams: { l2: string; rollup?: string }) {
+type Target = { l2: string; rollup?: string };
+
+function selector(targets: Target[]) {
+  if (targets.length < 2) return async () => targets;
+  let ordered: Target[] = [];
+  let validUntil = 0;
+  let refresh: Promise<Target[]> | undefined;
+  async function probe(target: Target) {
+    const response = await fetch(target.l2, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(900),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_blockNumber",
+      }),
+    });
+    if (!response.ok) throw new Error("L2 upstream unavailable");
+    const output = (await response.json()) as { result?: string };
+    if (!output.result || !/^0x[0-9a-f]+$/i.test(output.result))
+      throw new Error("Invalid upstream height");
+    return { target, height: BigInt(output.result) };
+  }
+  return async () => {
+    if (Date.now() < validUntil) return ordered;
+    refresh ??= Promise.allSettled(targets.map(probe))
+      .then((results) => {
+        ordered = results
+          .flatMap((result) =>
+            result.status === "fulfilled" ? [result.value] : [],
+          )
+          .sort((left, right) =>
+            left.height > right.height
+              ? -1
+              : left.height < right.height
+                ? 1
+                : 0,
+          )
+          .map(({ target }) => target);
+        validUntil = Date.now() + 1_000;
+        return ordered;
+      })
+      .finally(() => {
+        refresh = undefined;
+      });
+    return refresh;
+  };
+}
+
+export function createApp(upstreams: {
+  l2: string | string[];
+  rollup?: string | string[];
+}) {
+  const l2 = typeof upstreams.l2 === "string" ? [upstreams.l2] : upstreams.l2;
+  const rollup =
+    typeof upstreams.rollup === "string"
+      ? [upstreams.rollup]
+      : (upstreams.rollup ?? []);
+  const select = selector(
+    l2.map((url, index) => ({ l2: url, rollup: rollup[index] })),
+  );
   const app = new Hono();
   app.use(bodyLimit({ maxSize: 2 * 1024 * 1024 }));
 
-  for (const { path, methods, upstream } of [
-    { path: "/", methods: l2Methods, upstream: upstreams.l2 },
-    { path: "/rollup", methods: rollupMethods, upstream: upstreams.rollup },
-  ]) {
+  for (const { path, methods, key, enabled } of [
+    { path: "/", methods: l2Methods, key: "l2", enabled: l2.length > 0 },
+    {
+      path: "/rollup",
+      methods: rollupMethods,
+      key: "rollup",
+      enabled: rollup.length > 0,
+    },
+  ] as const) {
     app.post(path, async (context) => {
       let body: unknown;
       try {
@@ -64,7 +131,7 @@ export function createApp(upstreams: { l2: string; rollup?: string }) {
         return context.json(rpcError(null, -32600, "Invalid Request"));
 
       if (
-        !upstream ||
+        !enabled ||
         requests.data.some(({ method }) => !methods.has(method))
       ) {
         const errors = requests.data.flatMap(({ id }) =>
@@ -74,26 +141,35 @@ export function createApp(upstreams: { l2: string; rollup?: string }) {
         return context.json(isBatch ? errors : errors[0]);
       }
 
-      let result: Response;
-      try {
-        // Serialize the validated fields so upstream receives exactly the methods checked above.
-        result = await fetch(upstream, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(isBatch ? requests.data : requests.data[0]),
-          redirect: "error",
-          signal: AbortSignal.timeout(15_000),
-        });
-      } catch {
-        return context.json(
-          rpcError(null, -32000, "RPC upstream unavailable"),
-          502,
-        );
+      // Upstream receives exactly the methods checked above.
+      const bodyToSend = JSON.stringify(
+        isBatch ? requests.data : requests.data[0],
+      );
+      for (const target of await select()) {
+        const endpoint = target[key];
+        if (!endpoint) continue;
+        try {
+          const result = await fetch(endpoint, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: bodyToSend,
+            redirect: "error",
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (result.status >= 500 && l2.length > 1) {
+            await result.body?.cancel();
+            continue;
+          }
+          return new Response(result.body, {
+            status: result.status,
+            headers: { "content-type": "application/json" },
+          });
+        } catch {}
       }
-      return new Response(result.body, {
-        status: result.status,
-        headers: { "content-type": "application/json" },
-      });
+      return context.json(
+        rpcError(null, -32000, "RPC upstream unavailable"),
+        502,
+      );
     });
   }
 

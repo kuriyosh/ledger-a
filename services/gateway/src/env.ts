@@ -3,6 +3,10 @@ import { serverEnv } from "@ledgera/shared/server";
 import { z } from "zod";
 
 const httpUrl = z.url({ protocol: /^https?$/ });
+const endpoints = z
+  .string()
+  .transform((value) => value.split(",").map((url) => url.trim()))
+  .pipe(z.array(httpUrl).nonempty());
 const uintString = z.string().regex(/^\d+$/).transform(BigInt);
 
 const privateKey = z.templateLiteral([
@@ -37,10 +41,15 @@ export const gatewayEnv = serverEnv
     DEMO_MODE: z.stringbool().default(false),
     ADMIN_TOKEN: z.string().regex(/^\S+$/).optional(),
     DEPLOYMENTS_FILE: z.string().min(1),
-    SEQUENCER_RPC_URLS: z
-      .string()
-      .transform((value) => value.split(",").map((url) => url.trim()))
-      .pipe(z.array(httpUrl).nonempty()),
+    SEQUENCER_RPC_URLS: endpoints,
+    CONDUCTOR_RPC_URLS: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      endpoints.optional(),
+    ),
+    SEQUENCER_READ_RPC_URL: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      httpUrl.optional(),
+    ),
     GATEWAY_PRIVATE_KEY: privateKey,
     RELAYER_KEYS: vaspMapping(privateKey).default({}),
     VASP_API_KEYS: vaspMapping(z.string().regex(/^\S+$/)).default({}),
@@ -76,6 +85,23 @@ export const gatewayEnv = serverEnv
         "Expected a positive uint256 fee cap at or above FIXED_PRIORITY_FEE_WEI",
     },
   )
+  .refine(
+    ({ SEQUENCER_RPC_URLS, CONDUCTOR_RPC_URLS }) =>
+      !CONDUCTOR_RPC_URLS ||
+      (CONDUCTOR_RPC_URLS.length === 3 &&
+        SEQUENCER_RPC_URLS.length === 3 &&
+        new Set(CONDUCTOR_RPC_URLS).size === 3 &&
+        new Set(SEQUENCER_RPC_URLS).size === 3),
+    {
+      path: ["CONDUCTOR_RPC_URLS"],
+      message:
+        "Expected three distinct Conductor and sequencer URLs in matching order",
+    },
+  )
+  .refine((env) => !env.CONDUCTOR_RPC_URLS || env.SEQUENCER_READ_RPC_URL, {
+    path: ["SEQUENCER_READ_RPC_URL"],
+    message: "The read-only RPC is required during a sequencer election",
+  })
   .refine((env) => !env.DEMO_MODE || env.ADMIN_TOKEN !== undefined, {
     path: ["ADMIN_TOKEN"],
     message: "Expected ADMIN_TOKEN when DEMO_MODE is enabled",

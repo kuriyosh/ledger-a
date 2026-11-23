@@ -1,16 +1,30 @@
 import { kycRegistryAbi } from "@ledgera/abis";
 import { type Deployment, defineLedgerChain } from "@ledgera/config";
-import { type Address, createPublicClient, http } from "viem";
+import { type Address, createPublicClient, custom, http } from "viem";
 import type { AdmissionChain } from "../domain/admission.ts";
 
-export function connectSequencer(deployment: Deployment, rpcUrl: string) {
+export function connectSequencer(
+  deployment: Deployment,
+  rpcUrl: string,
+  select?: (method: string) => Promise<string>,
+) {
   const chain = defineLedgerChain(deployment.environment, {
     rpcUrl,
     devnetChainId: deployment.chainId,
   });
   return createPublicClient({
     chain,
-    transport: http(rpcUrl, { timeout: 5_000, retryCount: 0 }),
+    transport: custom(
+      {
+        async request(input) {
+          const target = select ? await select(input.method) : rpcUrl;
+          return http(target, { timeout: 5_000, retryCount: 0 })({
+            chain,
+          }).request(input);
+        },
+      },
+      { retryCount: 0 },
+    ),
   });
 }
 

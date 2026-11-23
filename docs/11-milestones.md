@@ -281,13 +281,13 @@ flowchart LR
 
 作業。
 
-- [ ] `chain/compose/docker-compose.ha.yml`。op-conductor の必須項目、Raft の待受と通知のアドレス、RPC のポートを 02 章 11.2 のとおりに設定する
-- [ ] op-conductor の初期化手順（`make ha-up` に含める）
-- [ ] rpc-proxy の転送先を 3 組にする
-- [ ] Gateway のリーダー追従と再送（04 章 7.3）
-- [ ] `make ha-kill-leader`、`make ha-restore`
-- [ ] チェーン表示のネットワークのタブに Sequencer の状態を出す
-- [ ] `e2e/scenes/scene7-failover.test.ts`
+- [x] `chain/compose/docker-compose.ha.yml`。op-conductor の必須項目、Raft の待受と通知のアドレス、RPC のポートを 02 章 11.2 のとおりに設定する
+- [x] op-conductor の初期化手順（`make ha-up` に含める）
+- [x] rpc-proxy の転送先を 3 組にする
+- [x] Gateway のリーダー追従と再送（04 章 7.3）
+- [x] `make ha-kill-leader`、`make ha-restore`
+- [x] チェーン表示のネットワークのタブに Sequencer の状態を出す
+- [x] `e2e/scenes/scene7-failover.test.ts`
 - [ ] 余力があれば、到着順の強化（02 章 7.3）
 
 受け入れ基準。

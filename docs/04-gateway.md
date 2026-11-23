@@ -245,7 +245,7 @@ JSON-RPC。
 
 ### 7.3 Sequencer の切替（冗長化構成）
 
-- `CONDUCTOR_RPC_URLS` が設定されていれば、1 秒ごとに各 op-conductor の `conductor_leader` を呼ぶ。
+- `CONDUCTOR_RPC_URLS` がある場合、各 Conductor のリーダー、稼働、ヘルスを確認する。選出中の受付には読み取り RPC を使う。
 - リーダーが変わったら転送を止め、`forwarded` かつ未取り込みのエントリを通番順に新しいリーダーへ送り直す。その後に通常の転送へ戻る。
 - リーダーがいない間は転送を止め、受付は続ける。キューが `QUEUE_LIMIT` を超えたら受付を `SEQUENCER_UNAVAILABLE` で拒否する。
 
@@ -383,7 +383,8 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | デプロイ結果のパス |
 | `SEQUENCER_RPC_URLS` | - | op-reth の URL。rpc-proxy を通さず、`ledgera-chain` ネットワークで直接つなぐ。冗長化構成ではカンマ区切りで 3 つ |
-| `CONDUCTOR_RPC_URLS` | 空 | op-conductor の URL。`SEQUENCER_RPC_URLS` と同じ順 |
+| `CONDUCTOR_RPC_URLS` | 空 | Conductor 3 台の URL。`SEQUENCER_RPC_URLS` と同じ順 |
+| `SEQUENCER_READ_RPC_URL` | 空 | 冗長構成でリーダー選出中の読み取り RPC |
 | `GATEWAY_PRIVATE_KEY` | - | Receipt の署名とコミット |
 | `RELAYER_KEYS` | - | JSON。VASP ID → 秘密鍵 |
 | `VASP_API_KEYS` | - | JSON。VASP ID → API キー |

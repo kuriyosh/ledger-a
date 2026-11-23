@@ -38,6 +38,7 @@ function fixture(initial: ReturnType<typeof blocks>) {
       { seq: 2n, txHash: hash(102n) },
     ]),
     requeueUnobserved: vi.fn(async () => {}),
+    requeueAllUnobserved: vi.fn(async () => {}),
   };
   const tracker = createInclusionTracker(
     {
@@ -107,4 +108,15 @@ test("rejects a parent hash change during scanning", async () => {
   ]);
   await expect(tracker()).rejects.toThrow("L2 changed");
   expect(tracked.size).toBe(2);
+});
+
+test("leader change waits for the new head before requeueing forwarded transactions", async () => {
+  const { tracker, tracked, store } = fixture(blocks(4n, 70n));
+  expect(await tracker(true)).toBe(false);
+  expect(tracked.size).toBe(64);
+  expect(store.requeueAllUnobserved).not.toHaveBeenCalled();
+  expect(await tracker(true)).toBe(true);
+  expect(tracked.size).toBe(67);
+  expect(store.requeueAllUnobserved).toHaveBeenCalledOnce();
+  expect(store.unobservedForwarded).not.toHaveBeenCalled();
 });
