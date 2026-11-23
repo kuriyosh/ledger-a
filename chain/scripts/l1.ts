@@ -38,6 +38,16 @@ export async function sepoliaClient() {
   return client;
 }
 
+export async function requirePlainAccount(
+  client: Awaited<ReturnType<typeof sepoliaClient>>,
+  account: Address,
+  role: string,
+) {
+  const code = await client.getCode({ address: account });
+  if (code && code !== "0x")
+    throw new Error(`${role} must be an EOA without code on Sepolia`);
+}
+
 export function adminWallet() {
   const key = required("ADMIN_PRIVATE_KEY");
   if (!/^0x[0-9a-fA-F]{64}$/.test(key))

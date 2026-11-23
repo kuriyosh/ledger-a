@@ -2,6 +2,7 @@ name: ledgera-chain
 
 services:
   op-reth:
+    restart: unless-stopped
     image: ${OP_RETH_IMAGE:-${OP_RETH_STOCK_IMAGE}}
     command:
       - node
@@ -28,6 +29,7 @@ services:
     networks: [chain]
 
   op-node:
+    restart: unless-stopped
     image: ${OP_NODE_IMAGE}
     command:
       - op-node
@@ -53,6 +55,7 @@ services:
       - op-reth
 
   op-batcher:
+    restart: unless-stopped
     image: ${OP_BATCHER_IMAGE}
     command:
       - op-batcher
@@ -78,6 +81,7 @@ services:
         condition: service_healthy
 
   rpc-proxy:
+    restart: unless-stopped
     build:
       context: ../..
       dockerfile: services/rpc-proxy/Dockerfile

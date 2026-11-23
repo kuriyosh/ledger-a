@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 source chain/versions.env
 
 mkdir -p chain/.deployer
-lock=chain/.deployer/deploy.lock
+lock=chain/.deployer/l1-operation.lock
 if ! mkdir "$lock" 2>/dev/null; then
   echo "Deployment is locked at $lock" >&2
   exit 1
@@ -34,8 +34,8 @@ if [[ ! -x "$deployer" ]]; then
   download_dir=$(mktemp -d chain/.deployer/download.XXXXXX)
   release_url="https://github.com/ethereum-optimism/optimism/releases/download/op-deployer/$OP_DEPLOYER_VERSION"
   curl -fsSL --retry 3 "$release_url/$release.tar.gz" -o "$download_dir/$release.tar.gz"
-  curl -fsSL --retry 3 "$release_url/op-deployer_${version}_checksums.txt" -o "$download_dir/checksums.txt"
-  expected=$(awk -v asset="$release.tar.gz" '$2 == asset {print $1}' "$download_dir/checksums.txt")
+  checksum_var="OP_DEPLOYER_SHA256_$(printf '%s_%s' "$platform" "$arch" | tr '[:lower:]' '[:upper:]')"
+  expected=${!checksum_var}
   actual=$(openssl dgst -sha256 "$download_dir/$release.tar.gz" | awk '{print $NF}')
   if [[ "$actual" != "$expected" ]]; then
     echo "Checksum mismatch for $release.tar.gz" >&2

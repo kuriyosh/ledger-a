@@ -132,9 +132,9 @@ fee scalar を 2 か所で 0 にする理由。
 node
 --chain=/workspace/genesis.json
 --datadir=/workspace/op-reth-data
---http --http.addr=0.0.0.0 --http.port=8545 --http.corsdomain=*
+--http --http.addr=0.0.0.0 --http.port=8545
 --http.api=debug,eth,net,txpool,web3
---ws --ws.addr=0.0.0.0 --ws.port=8546 --ws.origins=*
+--ws --ws.addr=0.0.0.0 --ws.port=8546
 --ws.api=debug,eth,net,txpool,web3
 --authrpc.addr=0.0.0.0 --authrpc.port=8551
 --authrpc.jwtsecret=/workspace/jwt.txt
@@ -192,7 +192,7 @@ op-batcher
 ```
 
 - `BATCHER_MAX_CHANNEL_DURATION` は L1 ブロック数。既定は 25（約 5 分）。デモ中は 5（約 1 分）にする。値が小さいほど Sepolia ETH を多く使う。
-- op-batcher の DA スロットリングは無効にする。標準 op-reth の RPC には `miner_setMaxDASize` がない。
+- op-batcher の DA スロットリングは無効にする。op-reth の RPC で `miner` 名前空間を公開しないため。
 - op-batcher は op-node から取得した rollup 設定の `batch_inbox_address` を使う。
 
 ### 4.4 Sepolia への接続

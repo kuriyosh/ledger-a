@@ -3,13 +3,30 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { parse, stringify } from "smol-toml";
 import { isAddressEqual, parseAbi, zeroAddress } from "viem";
 import { sepolia } from "viem/chains";
-import { address, adminWallet, required, sepoliaClient } from "./l1.ts";
+import {
+  address,
+  adminWallet,
+  required,
+  requirePlainAccount,
+  sepoliaClient,
+} from "./l1.ts";
 
 const workdir = "chain/.deployer";
 const intentFile = `${workdir}/intent.toml`;
 const stateFile = `${workdir}/state.json`;
 
-function run(binary: string, args: string[], env = process.env) {
+const toolEnv = {
+  PATH: process.env.PATH,
+  HOME: process.env.HOME,
+  TMPDIR: process.env.TMPDIR,
+  SSL_CERT_FILE: process.env.SSL_CERT_FILE,
+  SSL_CERT_DIR: process.env.SSL_CERT_DIR,
+  HTTP_PROXY: process.env.HTTP_PROXY,
+  HTTPS_PROXY: process.env.HTTPS_PROXY,
+  NO_PROXY: process.env.NO_PROXY,
+};
+
+function run(binary: string, args: string[], env: NodeJS.ProcessEnv = toolEnv) {
   const result = spawnSync(binary, args, { stdio: "inherit", env });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${binary} failed`);
@@ -51,8 +68,19 @@ async function main(deployer: string) {
     gasPriceOracleBlobBaseFeeScalar: 0,
   };
   const publicClient = await sepoliaClient();
+  await Promise.all([
+    requirePlainAccount(publicClient, admin.address, "Admin"),
+    requirePlainAccount(publicClient, roles.batcher, "Batcher"),
+  ]);
 
-  if (!existsSync(intentFile) && !existsSync(stateFile)) {
+  const hasIntent = existsSync(intentFile);
+  const hasState = existsSync(stateFile);
+  if (hasIntent !== hasState) {
+    throw new Error(
+      "op-deployer intent.toml and state.json must both be present in chain/.deployer",
+    );
+  }
+  if (!hasIntent) {
     run(deployer, [
       "init",
       "--l1-chain-id",
@@ -127,7 +155,8 @@ async function main(deployer: string) {
         "--no-verify",
       ],
       {
-        ...process.env,
+        ...toolEnv,
+        L1_RPC_URL: required("L1_RPC_URL"),
         DEPLOYER_PRIVATE_KEY: required("ADMIN_PRIVATE_KEY"),
       },
     );
@@ -153,11 +182,22 @@ async function main(deployer: string) {
   });
   if (!isAddressEqual(owner, admin.address))
     throw new Error("Admin must own the deployed SystemConfig");
-  const scalars = await Promise.all([
-    publicClient.readContract({ ...config, functionName: "basefeeScalar" }),
-    publicClient.readContract({ ...config, functionName: "blobbasefeeScalar" }),
-  ]);
-  if (scalars.some((scalar) => scalar !== 0)) {
+  const scalarsAreZero = async (blockNumber?: bigint) => {
+    const scalars = await Promise.all([
+      publicClient.readContract({
+        ...config,
+        blockNumber,
+        functionName: "basefeeScalar",
+      }),
+      publicClient.readContract({
+        ...config,
+        blockNumber,
+        functionName: "blobbasefeeScalar",
+      }),
+    ]);
+    return scalars.every((scalar) => scalar === 0);
+  };
+  if (!(await scalarsAreZero())) {
     const { request } = await publicClient.simulateContract({
       ...config,
       account: admin,
@@ -172,6 +212,9 @@ async function main(deployer: string) {
     });
     if (receipt.status !== "success")
       throw new Error("SystemConfig fee update reverted");
+    if (!(await scalarsAreZero(receipt.blockNumber))) {
+      throw new Error("SystemConfig fee scalars must both be zero");
+    }
   }
 
   run("bash", ["chain/scripts/gen-config.sh", deployer, String(chainId)]);
