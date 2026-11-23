@@ -604,6 +604,7 @@ interface IAtomicSwap {
     error QuoteNonceUsed(address maker, uint256 nonce);
     error InvalidMakerSignature();
     error UnsupportedToken(address token);
+    error IdenticalTokens(address token);
 }
 ```
 
@@ -637,6 +638,7 @@ constructor(address trustedForwarder_, address owner_) EIP712("ledgerA AtomicSwa
 
 - 正常な約定で両者の残高が入れ替わる。
 - 期限切れ、nonce の再利用、署名の改ざん、taker 以外の実行が拒否される。
+- TypeScript で署名した Quote で約定できる。
 - maker の残高不足で 2 つ目の移転が失敗すると、1 つ目の移転も巻き戻る。
 - taker が `BLOCKED` のとき全体が revert する。
 - `executeAll` 経由の `approve` ＋ `fill` が 1 取引で成功する。
@@ -694,6 +696,7 @@ interface IReceiptLog {
     error NotGateway(address caller);
     error NonContiguousCommit(uint64 expectedFromSeq, uint64 fromSeq);
     error EmptyCommit();
+    error ZeroAddress();
 }
 ```
 

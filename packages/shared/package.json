@@ -4,11 +4,14 @@
   "type": "module",
   "exports": {
     "./travel-rule": "./src/travel-rule.ts",
-    "./forward-request": "./src/forward-request.ts"
+    "./forward-request": "./src/forward-request.ts",
+    "./quote": "./src/quote.ts",
+    "./receipt": "./src/receipt.ts"
   },
   "scripts": {
     "generate:attestation": "node test/generate-attestation-vector.ts",
-    "generate:forward-request": "node test/generate-forward-request-vector.ts"
+    "generate:forward-request": "node test/generate-forward-request-vector.ts",
+    "generate:swap-receipt-vectors": "node test/generate-swap-receipt-vectors.ts"
   },
   "dependencies": {
     "viem": "2.58.4"
