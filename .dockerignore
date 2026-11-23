@@ -22,3 +22,7 @@
 !services/vasp/src/**/*.ts
 !services/vasp/src/db/migrations/**/*.sql
 !services/vasp/src/db/migrations/meta/_journal.json
+!services/consortium/package.json
+!services/consortium/src/**/*.ts
+!services/consortium/src/db/migrations/**/*.sql
+!services/consortium/src/db/migrations/meta/_journal.json
