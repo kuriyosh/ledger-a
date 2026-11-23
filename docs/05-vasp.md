@@ -124,9 +124,9 @@ flowchart TD
 3. 顧客の秘密鍵を復号し、EIP-712 で署名する。
 4. Gateway の `POST /relay/v1/forward` に送る。API キーは `GATEWAY_API_KEY`。`DEMO_MODE` のときは `submitOnRevert: true` を付ける。
 5. 返ってきた `txHash` と Receipt の `seq` を保存する。
-6. 追跡済みの L2 ブロックでレシートを確認する。署名済みの依頼と一致する取引が成功し、指定した送金の `Transfer` があれば `confirmed` にする。レシートが失敗なら `failed` にする。
+6. 追跡済みの L2 ブロックでレシートを確認する。署名済みの依頼と一致する取引が成功し、指定した送金の `Transfer` があれば `confirmed` にする。失敗したレシートの位置とエラーは、`submitted` のまま記録する。
 
-Gateway Receipt がある場合は、Sequencer への転送が拒否されても L2 を照合する。L2 のレシートが見つからない場合は、finalized ブロックで署名期限を過ぎ、署名者の nonce が消費されていないことを確認してから `failed` にする。
+Gateway Receipt がある場合は、Sequencer への転送が拒否されても L2 を照合する。L2 で成功を確認できない場合は、finalized ブロックまで照合する。署名期限を過ぎ、署名者の nonce が消費されていなければ `failed` にする。nonce が消費されていれば、`ExecutedForwardRequest` の取引を照合する。別の取引ハッシュで同じ依頼が実行されていれば、そのレシートで確定する。
 
 `failed` のときの `error_code`。
 
@@ -135,6 +135,7 @@ Gateway Receipt がある場合は、Sequencer への転送が拒否されても
 | Gateway が 422 `SIMULATION_REVERTED` を返した（取引は送られていない） | `details` の `errorName`。復号できなければ `REVERTED` |
 | Gateway の応答の `simulation.reverted` が true で、L2 でも失敗した | `simulation.errorName`。復号できなければ `REVERTED` |
 | シミュレーションは通ったが L2 で失敗した | `REVERTED` |
+| 別の依頼が finalized ブロックで nonce を消費した | `FORWARD_NONCE_CONSUMED` |
 | 宛先、送信元、金額が一致する `Transfer` が見つからない | `TRANSFER_EFFECT_MISSING` |
 | finalized ブロックで署名が失効した | `FORWARD_REQUEST_EXPIRED`。転送拒否の記録がある場合は `FORWARD_REJECTED` |
 | Gateway がその他の確定したエラーを返した | Gateway のエラーコード |

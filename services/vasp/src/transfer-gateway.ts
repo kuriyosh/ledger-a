@@ -60,7 +60,8 @@ export function matchesForwardCall(data: Hex, request: ForwardPayload) {
     const decoded = decodeFunctionData({ abi: ledgerForwarderAbi, data });
     if (
       decoded.functionName !== "execute" &&
-      decoded.functionName !== "executeAll"
+      decoded.functionName !== "executeAll" &&
+      decoded.functionName !== "executeBatch"
     )
       return false;
     const operations =

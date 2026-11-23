@@ -129,6 +129,8 @@ export const transfers = pgTable(
       scale: 0,
       mode: "bigint",
     }),
+    forwardFirstBlock: bigint("forward_first_block", { mode: "bigint" }),
+    gatewayTxHash: bytes("gateway_tx_hash"),
     firstGatewaySeq: bigint("first_gateway_seq", { mode: "bigint" }),
     submitOnRevert: boolean("submit_on_revert").notNull().default(false),
     skipChecks: boolean("skip_checks").notNull().default(false),

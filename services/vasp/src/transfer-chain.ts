@@ -26,6 +26,12 @@ const travelRuleEvent = getAbiItem({
   name: "TravelRuleTransfer",
 });
 
+const forwardEvent = getAbiItem({
+  abi: ledgerForwarderAbi,
+  name: "ExecutedForwardRequest",
+});
+const recoverySpan = 1_000n;
+
 export function transferChain(
   client: ReturnType<typeof registryChain>["client"],
   deployment: Deployment,
@@ -72,12 +78,15 @@ export function transferChain(
       to: Address,
       amount: bigint,
     ) {
-      const nonce = await client.readContract({
-        address: contracts.ledgerForwarder,
-        abi: ledgerForwarderAbi,
-        functionName: "nonces",
-        args: [signer.address],
-      });
+      const [nonce, finalized] = await Promise.all([
+        client.readContract({
+          address: contracts.ledgerForwarder,
+          abi: ledgerForwarderAbi,
+          functionName: "nonces",
+          args: [signer.address],
+        }),
+        client.getBlock({ blockTag: "finalized" }),
+      ]);
       const data = encodeFunctionData({
         abi: ledgerTokenAbi,
         functionName: "transfer",
@@ -102,6 +111,10 @@ export function transferChain(
       );
       return {
         nonce,
+        firstBlock:
+          deployment.environment === "anvil"
+            ? BigInt(deployment.auditStartBlock)
+            : finalized.number,
         request: {
           from: request.from,
           to: token,
@@ -113,9 +126,12 @@ export function transferChain(
         },
       };
     },
-    async expired(request: ForwardPayload, nonce: bigint) {
+    async finalizedRequest(
+      request: ForwardPayload,
+      nonce: bigint,
+      firstBlock: bigint,
+    ) {
       const finalized = await client.getBlock({ blockTag: "finalized" });
-      if (finalized.timestamp <= BigInt(request.deadline)) return false;
       const current = await client.readContract({
         address: contracts.ledgerForwarder,
         abi: ledgerForwarderAbi,
@@ -124,13 +140,44 @@ export function transferChain(
         blockHash: finalized.hash,
         requireCanonical: true,
       });
-      return current <= nonce;
+      if (current <= nonce)
+        return finalized.timestamp > BigInt(request.deadline)
+          ? { status: "expired" as const }
+          : undefined;
+      for (
+        let fromBlock = firstBlock;
+        fromBlock <= finalized.number;
+        fromBlock += recoverySpan
+      ) {
+        const end = fromBlock + recoverySpan - 1n;
+        const logs = await client.getLogs({
+          address: contracts.ledgerForwarder,
+          event: forwardEvent,
+          args: { signer: request.from },
+          fromBlock,
+          toBlock: end < finalized.number ? end : finalized.number,
+          strict: true,
+        });
+        const consumed = logs.find((log) => log.args.nonce === nonce);
+        if (!consumed) continue;
+        if (
+          (await client.getBlock({ blockNumber: consumed.blockNumber }))
+            .hash !== consumed.blockHash
+        )
+          return;
+        return {
+          status: "consumed" as const,
+          hash: consumed.transactionHash,
+          blockHash: consumed.blockHash,
+        };
+      }
     },
     async execution(
       hash: Hex,
       request: ForwardPayload,
       beneficiary: Address,
       amount: bigint,
+      nonce: bigint,
     ) {
       try {
         const [transaction, receipt] = await Promise.all([
@@ -138,14 +185,31 @@ export function transferChain(
           client.getTransactionReceipt({ hash }),
         ]);
         if (
-          transaction.to?.toLowerCase() !==
-            contracts.ledgerForwarder.toLowerCase() ||
           transaction.hash !== hash ||
           receipt.transactionHash !== hash ||
-          transaction.blockHash !== receipt.blockHash ||
-          !matchesForwardCall(transaction.input, request)
+          transaction.blockHash !== receipt.blockHash
         )
           return;
+        const matches =
+          transaction.to?.toLowerCase() ===
+            contracts.ledgerForwarder.toLowerCase() &&
+          matchesForwardCall(transaction.input, request);
+        if (!matches)
+          return { ...receipt, matches, executed: false, logIndex: undefined };
+        const executed = parseEventLogs({
+          abi: [forwardEvent],
+          eventName: "ExecutedForwardRequest",
+          logs: receipt.logs.filter(
+            (log) =>
+              log.address.toLowerCase() ===
+              contracts.ledgerForwarder.toLowerCase(),
+          ),
+          strict: true,
+        }).some(
+          ({ args }) =>
+            args.signer.toLowerCase() === request.from.toLowerCase() &&
+            args.nonce === nonce,
+        );
         const transfers = parseEventLogs({
           abi: [transferEvent],
           eventName: "Transfer",
@@ -160,7 +224,7 @@ export function transferChain(
             args.to.toLowerCase() === beneficiary.toLowerCase() &&
             args.value === amount,
         )?.logIndex;
-        return { ...receipt, logIndex };
+        return { ...receipt, matches, executed, logIndex };
       } catch (error) {
         if (
           !(error instanceof TransactionReceiptNotFoundError) &&

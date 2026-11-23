@@ -1,5 +1,5 @@
 {
-  "id": "742acaa9-3590-43ea-bfaa-2f60d8a5c236",
+  "id": "ac1bb9e1-d211-4d35-92b6-8a8431ad45f5",
   "prevId": "3502cf5f-ca95-4c32-8163-56f91413ed3f",
   "version": "7",
   "dialect": "postgresql",
@@ -344,6 +344,18 @@
         "forward_nonce": {
           "name": "forward_nonce",
           "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forward_first_block": {
+          "name": "forward_first_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gateway_tx_hash": {
+          "name": "gateway_tx_hash",
+          "type": "bytea",
           "primaryKey": false,
           "notNull": false
         },

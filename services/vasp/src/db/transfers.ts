@@ -44,6 +44,8 @@ type TransferChange = Partial<
     | "gatewaySeq"
     | "forwardRequest"
     | "forwardNonce"
+    | "forwardFirstBlock"
+    | "gatewayTxHash"
     | "firstGatewaySeq"
     | "simulationError"
     | "errorCode"
@@ -79,6 +81,7 @@ export function transferJson(row: Transfer, tokenSymbol: string) {
     blockHash: row.blockHash && bytesToHex(row.blockHash),
     logIndex: row.logIndex,
     gatewaySeq: row.gatewaySeq?.toString() ?? null,
+    gatewayTxHash: row.gatewayTxHash && bytesToHex(row.gatewayTxHash),
     errorCode: row.errorCode,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -325,6 +328,7 @@ export class TransferStore {
           blockNumber: null,
           blockHash: null,
           logIndex: null,
+          txHash: sql`coalesce(${transfers.gatewayTxHash}, ${transfers.txHash})`,
           errorCode: null,
           revision: sql`${transfers.revision} + 1`,
           updatedAt: new Date(),
@@ -332,7 +336,7 @@ export class TransferStore {
         .where(
           and(
             eq(transfers.direction, "out"),
-            inArray(transfers.status, ["confirmed", "failed"]),
+            inArray(transfers.status, ["confirmed", "submitted", "failed"]),
             blockRemoved,
           ),
         );

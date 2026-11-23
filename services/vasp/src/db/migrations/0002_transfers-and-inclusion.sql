@@ -22,6 +22,8 @@ CREATE TABLE "transfers" (
 	"revision" integer DEFAULT 0 NOT NULL,
 	"forward_request" jsonb,
 	"forward_nonce" numeric(78, 0),
+	"forward_first_block" bigint,
+	"gateway_tx_hash" "bytea",
 	"first_gateway_seq" bigint,
 	"submit_on_revert" boolean DEFAULT false NOT NULL,
 	"skip_checks" boolean DEFAULT false NOT NULL,

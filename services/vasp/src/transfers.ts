@@ -44,20 +44,6 @@ export function transferService(
     );
   }
 
-  async function expire(row: Transfer) {
-    if (
-      !row.forwardRequest ||
-      row.forwardNonce === null ||
-      !(await chain.expired(row.forwardRequest, row.forwardNonce))
-    )
-      return false;
-    await store.update(row, {
-      status: "failed",
-      errorCode: row.simulationError ?? "FORWARD_REQUEST_EXPIRED",
-    });
-    return true;
-  }
-
   function view(row: Transfer) {
     const token = bytesToHex(row.token).toLowerCase();
     const symbol = Object.entries(chain.tokens).find(
@@ -67,37 +53,100 @@ export function transferService(
     return transferJson(row, symbol);
   }
 
-  async function submitted(row: Transfer) {
-    if (!row.txHash || !row.forwardRequest)
-      throw new Error("Submitted transfer has no signed request");
-    const result = await chain.execution(
-      bytesToHex(row.txHash),
-      row.forwardRequest,
-      bytesToHex(row.counterpartyAddress),
-      row.amount,
-    );
-    if (!result) {
-      await expire(row);
-      return;
+  async function resolveInclusion(row: Transfer) {
+    const request = row.forwardRequest;
+    if (!request || row.forwardNonce === null || row.forwardFirstBlock === null)
+      throw new Error("Transfer has no stored Forwarder nonce or request");
+
+    const nonce = row.forwardNonce;
+    const evidence = (hash: Hex) =>
+      chain.execution(
+        hash,
+        request,
+        bytesToHex(row.counterpartyAddress),
+        row.amount,
+        nonce,
+      );
+    async function confirm(
+      result: NonNullable<Awaited<ReturnType<typeof evidence>>>,
+    ) {
+      if (!(await tracked(result))) return false;
+      const confirmed =
+        result.status === "success" && result.logIndex !== undefined;
+      await store.update(row, {
+        status: confirmed ? "confirmed" : "failed",
+        txHash: transferBytes(result.transactionHash),
+        blockNumber: result.blockNumber,
+        blockHash: transferBytes(result.blockHash),
+        logIndex: result.logIndex ?? null,
+        errorCode: confirmed ? null : "TRANSFER_EFFECT_MISSING",
+      });
+      return true;
     }
-    if (!(await tracked(result))) return;
-    const confirmed =
-      result.status === "success" && result.logIndex !== undefined;
-    const errorCode =
-      result.status === "success"
-        ? "TRANSFER_EFFECT_MISSING"
-        : (row.simulationError ?? "REVERTED");
-    await store.update(row, {
-      status: confirmed ? "confirmed" : "failed",
-      blockNumber: result.blockNumber,
-      blockHash: transferBytes(result.blockHash),
-      logIndex: result.logIndex ?? null,
-      errorCode: confirmed ? null : errorCode,
-    });
+
+    const receipt = row.txHash
+      ? await evidence(bytesToHex(row.txHash))
+      : undefined;
+    if (receipt?.matches && receipt.executed && receipt.status === "success")
+      return confirm(receipt);
+
+    const reverted =
+      receipt?.matches &&
+      receipt.status === "reverted" &&
+      (await tracked(receipt))
+        ? receipt
+        : undefined;
+    const failedPosition = reverted
+      ? {
+          blockNumber: reverted.blockNumber,
+          blockHash: transferBytes(reverted.blockHash),
+          errorCode: row.simulationError ?? "REVERTED",
+        }
+      : undefined;
+    if (failedPosition && row.blockNumber === null) {
+      await store.update(row, failedPosition);
+      return false;
+    }
+
+    const state = await chain.finalizedRequest(
+      request,
+      nonce,
+      row.forwardFirstBlock,
+    );
+    if (state?.status === "consumed") {
+      const actual =
+        state.hash === receipt?.transactionHash
+          ? receipt
+          : await evidence(state.hash);
+      if (!actual || actual.blockHash !== state.blockHash) return false;
+      if (actual.matches && actual.executed && actual.status === "success")
+        return confirm(actual);
+      await store.update(row, {
+        status: "failed",
+        errorCode: "FORWARD_NONCE_CONSUMED",
+      });
+      return true;
+    }
+    if (state?.status === "expired") {
+      await store.update(row, {
+        status: "failed",
+        errorCode:
+          row.errorCode ??
+          (row.simulationError === "FORWARD_REJECTED"
+            ? row.simulationError
+            : "FORWARD_REQUEST_EXPIRED"),
+        ...failedPosition,
+      });
+      return true;
+    }
+    return false;
   }
 
   async function route(row: Transfer) {
-    if (row.status === "submitted") return submitted(row);
+    if (row.status === "submitted") {
+      await resolveInclusion(row);
+      return;
+    }
     let requested = row.forwardRequest;
     let initial = row.firstGatewaySeq;
     let fresh = false;
@@ -132,6 +181,7 @@ export function transferService(
         forwardRequest: requested,
         firstGatewaySeq: initial,
         forwardNonce: plan.nonce,
+        forwardFirstBlock: plan.firstBlock,
         counterpartyVaspId: vaspId,
       });
       if (!retained) return;
@@ -141,7 +191,7 @@ export function transferService(
     let result: Awaited<ReturnType<Gateway["forward"]>> | undefined = !fresh
       ? await gateway.find(requested, initial)
       : undefined;
-    if (!result && (await expire(row))) return;
+    if (!result && !fresh && (await resolveInclusion(row))) return;
     result ??= await gateway.forward(requested, row.submitOnRevert);
     if (result.status === "rejected" && !result.receipt)
       result = (await gateway.find(requested, initial)) ?? result;
@@ -156,6 +206,7 @@ export function transferService(
     await store.update(row, {
       status: "submitted",
       txHash: transferBytes(recorded.txHash),
+      gatewayTxHash: transferBytes(recorded.txHash),
       gatewaySeq: recorded.seq,
       simulationError:
         result.status === "accepted" ? result.simulationError : result.code,
