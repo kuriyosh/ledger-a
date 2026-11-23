@@ -43,7 +43,8 @@ VASP 1 社分のバックエンド。同じコードを VASP A（`vasp-a`）と 
 受信側の検証。
 
 - 署名から復元したアドレスが `KycRegistry.travelRuleSignerOf(vaspId)` と一致する。
-- タイムスタンプが現在から 300 秒以内。
+- タイムスタンプが現在から前後 300 秒以内。
+- 署名対象のパスにクエリは付けない。ボディは受信したバイト列をそのままハッシュにする。
 - 送信側の VASP が `ACTIVE`。
 
 相手 VASP の URL は `KycRegistry.getVasp(vaspId).endpoint` から得る。設定ファイルには書かない。
