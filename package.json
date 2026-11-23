@@ -1,0 +1,25 @@
+{
+  "name": "ledgera",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.23.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "lint": "biome ci . && tsc --noEmit",
+    "fmt": "biome format --write .",
+    "test": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "vitest run integration.test.ts"
+  },
+  "dependencies": {
+    "@scure/bip39": "1.6.0",
+    "viem": "2.58.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2",
+    "vitest": "5.1.1"
+  }
+}

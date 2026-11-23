@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+coverage/
+*.tsbuildinfo
+/chain/.deployer/
+/chain/runtime/
+/deployments/*.json
+/contracts/cache/
+/contracts/out/
+/contracts/broadcast/
