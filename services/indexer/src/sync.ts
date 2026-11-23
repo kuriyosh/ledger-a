@@ -1,7 +1,7 @@
 import { setTimeout } from "node:timers/promises";
 import { logService } from "@ledgera/shared/server";
 import type { IndexerStore, Position } from "./db/store.ts";
-import type { indexerRpc } from "./rpc.ts";
+import type { BlockRef, indexerRpc } from "./rpc.ts";
 
 type Chain = ReturnType<typeof indexerRpc>;
 type Store = Pick<
@@ -78,8 +78,33 @@ export function indexerSync(
 
     if (Date.now() >= nextFinality) {
       nextFinality = Date.now() + 5_000;
-      const finality = await rpc.finality(latest);
-      await store.updateFinality(finality, indexed);
+      try {
+        const observed = await rpc.finality(latest);
+        async function bound(ref: BlockRef | null) {
+          if (!ref || !indexed || ref.number < start) return null;
+          return ref.number <= indexed.number
+            ? ref
+            : rpc.header(indexed.number);
+        }
+        const [safe, finalized] = await Promise.all([
+          bound(observed.safe),
+          bound(observed.finalized),
+        ]);
+        await store.updateFinality(
+          { unsafe: observed.unsafe, safe, finalized },
+          indexed,
+        );
+      } catch (error) {
+        logService(
+          "indexer",
+          "error",
+          "L2 finality could not be verified",
+          null,
+          {
+            reason: error instanceof Error ? error.message : "Unknown error",
+          },
+        );
+      }
     }
   }
 

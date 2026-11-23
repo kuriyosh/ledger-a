@@ -1,5 +1,5 @@
 import type { openDatabase } from "@ledgera/shared/db";
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { desc, eq, gt, sql } from "drizzle-orm";
 import { bytesToHex, type Hex } from "viem";
 import type { ChainBlock, Finality } from "../rpc.ts";
 import { blocks, chainStatus, logs, transactions } from "./schema.ts";
@@ -69,6 +69,16 @@ export class IndexerStore {
     return this.db.transaction(async (tx) => {
       await tx.execute(chainLock);
       if (!same(await tip(tx), expected)) return false;
+      const [status] = await tx
+        .select({ finalized: chainStatus.finalizedBlock })
+        .from(chainStatus)
+        .where(eq(chainStatus.id, 1));
+      if (
+        status?.finalized !== null &&
+        status?.finalized !== undefined &&
+        ancestor < status.finalized
+      )
+        throw new Error("L2 would roll back an indexed finalized block");
       await tx.delete(blocks).where(gt(blocks.number, ancestor));
       await tx
         .update(chainStatus)
@@ -76,7 +86,6 @@ export class IndexerStore {
           indexedBlock: ancestor,
           unsafeBlock: null,
           safeBlock: null,
-          finalizedBlock: null,
         })
         .where(eq(chainStatus.id, 1));
       return true;
@@ -120,7 +129,7 @@ export class IndexerStore {
               ? "CONTRACT_DEPLOY"
               : "OTHER",
         input: bytes(item.input),
-        mint: item.mint ?? null,
+        mint: item.type === 126 ? (item.mint ?? 0n) : null,
       }));
       const events = block.transactions.flatMap((item) =>
         item.receipt.logs.map((log) => ({
@@ -152,19 +161,42 @@ export class IndexerStore {
     return this.db.transaction(async (tx) => {
       await tx.execute(chainLock);
       if (!same(await tip(tx), expected)) return false;
+      const [status] = await tx
+        .select()
+        .from(chainStatus)
+        .where(eq(chainStatus.id, 1));
+      if (
+        !status ||
+        status.indexedBlock !== (expected?.number ?? this.start - 1n)
+      )
+        return false;
+      for (const ref of [finality.safe, finality.finalized]) {
+        if (ref === null) continue;
+        if (!expected || ref.number > expected.number)
+          throw new Error("Finality exceeds the indexed range");
+        const [block] = await tx
+          .select({ hash: blocks.hash })
+          .from(blocks)
+          .where(eq(blocks.number, ref.number));
+        if (!block || bytesToHex(block.hash) !== ref.hash)
+          throw new Error("L2 finality does not match the indexed block");
+      }
+      if (
+        status.finalizedBlock !== null &&
+        (finality.finalized === null ||
+          finality.finalized.number < status.finalizedBlock)
+      )
+        throw new Error(
+          "Observed finality moved below the indexed finalized block",
+        );
       await tx
         .update(chainStatus)
         .set({
           unsafeBlock: finality.unsafe,
-          safeBlock: finality.safe,
-          finalizedBlock: finality.finalized,
+          safeBlock: finality.safe?.number ?? null,
+          finalizedBlock: finality.finalized?.number ?? null,
         })
-        .where(
-          and(
-            eq(chainStatus.id, 1),
-            eq(chainStatus.indexedBlock, expected?.number ?? this.start - 1n),
-          ),
-        );
+        .where(eq(chainStatus.id, 1));
       return true;
     });
   }

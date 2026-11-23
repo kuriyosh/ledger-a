@@ -92,10 +92,10 @@ test("accepts only rollup finality anchored to the L2 block hashes", async () =>
     reply(genesis),
     reply(block),
   );
-  await expect(valid.finality(1n)).resolves.toEqual({
+  await expect(valid.finality(0n)).resolves.toEqual({
     unsafe: 1n,
-    safe: 0n,
-    finalized: 0n,
+    safe: { number: 0n, hash: zeroHash },
+    finalized: { number: 0n, hash: zeroHash },
   });
   const wrong = clients(
     reply(status),

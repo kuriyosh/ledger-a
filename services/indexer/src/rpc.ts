@@ -91,10 +91,11 @@ export type ChainBlock = Header & {
     z.infer<typeof rpcTransaction> & { receipt: z.infer<typeof rpcReceipt> }
   >;
 };
+export type BlockRef = z.infer<typeof blockRef>;
 export type Finality = {
   unsafe: bigint;
-  safe: bigint | null;
-  finalized: bigint | null;
+  safe: BlockRef | null;
+  finalized: BlockRef | null;
 };
 
 const tag = (height: bigint) => `0x${height.toString(16)}`;
@@ -154,7 +155,7 @@ export function indexerRpc(l2: string, rollup: string, requestHttp = fetch) {
       );
       if (byIndex.size !== receipts.length) throw unavailable();
       const txHashes = new Set<Hex>();
-      const positions: number[] = [];
+      let expectedLog = 0;
       const transactions = block.transactions.map((transaction, index) => {
         const receipt = byIndex.get(index);
         if (
@@ -177,13 +178,10 @@ export function indexerRpc(l2: string, rollup: string, requestHttp = fetch) {
             log.blockNumber !== height
           )
             throw unavailable();
-          positions.push(log.logIndex);
+          if (log.logIndex !== expectedLog++) throw unavailable();
         }
         return { ...transaction, receipt };
       });
-      positions.sort((left, right) => left - right);
-      if (positions.some((index, position) => index !== position))
-        throw unavailable();
       return { ...block, transactions };
     },
     async finality(latest: bigint): Promise<Finality> {
@@ -199,11 +197,7 @@ export function indexerRpc(l2: string, rollup: string, requestHttp = fetch) {
         safe_l2: safe,
         finalized_l2: finalized,
       } = status;
-      if (
-        finalized.number > safe.number ||
-        safe.number > unsafe.number ||
-        unsafe.number > latest
-      )
+      if (finalized.number > safe.number || safe.number > unsafe.number)
         throw unavailable();
       const references = [unsafe, safe, finalized];
       const anchors = await Promise.all(
@@ -218,8 +212,8 @@ export function indexerRpc(l2: string, rollup: string, requestHttp = fetch) {
         throw unavailable();
       return {
         unsafe: unsafe.number,
-        safe: safe.number,
-        finalized: finalized.number,
+        safe,
+        finalized,
       };
     },
   };
