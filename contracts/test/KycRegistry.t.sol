@@ -282,6 +282,47 @@ contract KycRegistryTest is Test {
         assertEq(returned, id);
     }
 
+    function testVaspAdminCannotChangeOperatorOrRelayerStatus() public {
+        registry.registerOperatorAccount(CUSTOMER, 1, AccountKind.RELAYER);
+        vm.startPrank(VASP_A_ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(IKycRegistry.InvalidKind.selector, AccountKind.OPERATOR));
+        registry.renewAccount(VASP_A_ADMIN, 3000);
+        vm.expectRevert(abi.encodeWithSelector(IKycRegistry.InvalidKind.selector, AccountKind.OPERATOR));
+        registry.revokeAccount(VASP_A_ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(IKycRegistry.InvalidKind.selector, AccountKind.RELAYER));
+        registry.revokeAccount(CUSTOMER);
+        vm.stopPrank();
+
+        vm.expectRevert(abi.encodeWithSelector(IKycRegistry.AccountOfOtherVasp.selector, VASP_A_ADMIN, uint32(1)));
+        vm.prank(VASP_B_ADMIN);
+        registry.registerAccount(VASP_A_ADMIN, AccountKind.CUSTOMER, 0);
+    }
+
+    function testAdminRotationRevokesPreviousSendAuthority() public {
+        uint64 version = registry.version() + 1;
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IKycRegistry.AccountUpdated(
+            VASP_A_ADMIN, 1, AccountKind.OPERATOR, AccountStatus.REVOKED, 0, version, address(this), bytes32(0)
+        );
+        registry.setVaspKeys(1, OTHER, OTHER);
+        assertFalse(registry.isActive(VASP_A_ADMIN));
+        assertTrue(registry.isActive(OTHER));
+        assertEq(uint8(registry.getAccount(VASP_A_ADMIN).status), uint8(AccountStatus.REVOKED));
+    }
+
+    function testBlockedAdminCannotRegisterAccountsOnAnvil() public {
+        registry.blockAccount(VASP_A_ADMIN, bytes32(0));
+        vm.expectRevert(abi.encodeWithSelector(IKycRegistry.NotVaspAdmin.selector, VASP_A_ADMIN));
+        vm.prank(VASP_A_ADMIN);
+        registry.registerAccount(CUSTOMER, AccountKind.CUSTOMER, 0);
+    }
+
+    function testImplementationCannotBeInitialized() public {
+        KycRegistry implementation = new KycRegistry();
+        vm.expectRevert(IKycRegistry.AlreadyInitialized.selector);
+        implementation.initialize(address(this));
+    }
+
     function testEnforcementCanOnlyBeEnabledOnce() public {
         uint64 previousVersion = registry.version();
         registry.enableEnforcement();

@@ -17,6 +17,10 @@ contract KycRegistry is IKycRegistry {
         _;
     }
 
+    constructor() {
+        RegistryLayout.get().initialized = true;
+    }
+
     function initialize(address initialConsortium) external {
         RegistryLayout.Layout storage layout = RegistryLayout.get();
         if (layout.initialized) revert AlreadyInitialized();
@@ -67,6 +71,20 @@ contract KycRegistry is IKycRegistry {
         if (admin != previousAdmin) {
             _registerAdmin(layout, vaspId, admin, nextVersion);
             delete layout.adminVaspIdPlus1[previousAdmin];
+
+            AccountView memory previous = getAccount(previousAdmin);
+            if (previous.status == AccountStatus.ACTIVE || previous.status == AccountStatus.SUSPENDED) {
+                _writeAccount(
+                    layout,
+                    previousAdmin,
+                    vaspId,
+                    AccountKind.OPERATOR,
+                    AccountStatus.REVOKED,
+                    0,
+                    nextVersion,
+                    bytes32(0)
+                );
+            }
         }
         layout.vasps[vaspId] = RegistryLayout.packVasp(status, admin, uint64(block.timestamp));
         layout.travelRuleSigner[vaspId] = travelRuleSigner;
@@ -252,7 +270,7 @@ contract KycRegistry is IKycRegistry {
 
     function _adminVaspId() private view returns (uint32 vaspId) {
         (bool found, uint32 id) = vaspIdOfAdmin(msg.sender);
-        if (!found) revert NotVaspAdmin(msg.sender);
+        if (!found || getAccount(msg.sender).status != AccountStatus.ACTIVE) revert NotVaspAdmin(msg.sender);
         return id;
     }
 
@@ -273,8 +291,11 @@ contract KycRegistry is IKycRegistry {
     function _managedAccount(address account) private view returns (AccountView memory entry) {
         uint32 vaspId = _adminVaspId();
         entry = getAccount(account);
-        if (entry.status != AccountStatus.NONE && entry.vaspId != vaspId) {
-            revert AccountOfOtherVasp(account, entry.vaspId);
+        if (entry.status != AccountStatus.NONE) {
+            if (entry.vaspId != vaspId) revert AccountOfOtherVasp(account, entry.vaspId);
+            if (entry.kind != AccountKind.CUSTOMER && entry.kind != AccountKind.VASP_TREASURY) {
+                revert InvalidKind(entry.kind);
+            }
         }
     }
 
@@ -293,7 +314,7 @@ contract KycRegistry is IKycRegistry {
         }
 
         if (vaspId != type(uint32).max) layout.adminVaspIdPlus1[admin] = vaspId + 1;
-        if (current.status != AccountStatus.ACTIVE || current.validUntil != 0) {
+        if (current.status != AccountStatus.ACTIVE) {
             _writeAccount(layout, admin, vaspId, AccountKind.OPERATOR, AccountStatus.ACTIVE, 0, nextVersion, bytes32(0));
         }
     }

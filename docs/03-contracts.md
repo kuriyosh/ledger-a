@@ -185,7 +185,7 @@ interface IKycRegistry {
 |---|---|---|---|
 | `registerVasp` | コンソーシアム | `vaspId` が未登録 | VASP を `ACTIVE` で登録。`admin` を `OPERATOR` / `ACTIVE` で登録 |
 | `setVaspStatus` | コンソーシアム | VASP が登録済み。`vaspId != 0` | 状態を変更 |
-| `setVaspKeys` | コンソーシアム | VASP が登録済み | 管理者と署名検証用アドレスを差し替え。新しい管理者を `OPERATOR` で登録 |
+| `setVaspKeys` | コンソーシアム | VASP が登録済み | 管理者と署名検証用アドレスを差し替える。新しい管理者を `OPERATOR` で登録し、旧管理者が `ACTIVE` または `SUSPENDED` なら `REVOKED` にする |
 | `registerOperatorAccount` | コンソーシアム | `kind` が `RELAYER` か `OPERATOR`。アカウントが `NONE` | `ACTIVE`、無期限で登録 |
 | `blockAccount` | コンソーシアム | 状態が `ACTIVE` か `SUSPENDED` | `BLOCKED` にする |
 | `unblockAccount` | コンソーシアム | 状態が `BLOCKED` | `ACTIVE` にする |
@@ -198,7 +198,9 @@ interface IKycRegistry {
 | `revokeAccount` | VASP 管理者 | 自社のアカウント。状態が `ACTIVE` か `SUSPENDED` | `REVOKED` にする |
 | `renewAccount` | VASP 管理者 | 自社のアカウント。状態が `ACTIVE` | `validUntil` を更新 |
 
+- VASP 管理者は呼び出し時に `ACTIVE` である必要がある。操作対象は自社の `CUSTOMER` と `VASP_TREASURY` に限る。
 - VASP 管理者は `BLOCKED` のアカウントを変更できない。
+- Registry の初期化はプロキシ経由で行う。
 - 初期化時の `version` は 1。状態が変わる操作のたびに 1 増やす。
 - 管理者を登録または差し替えるとき、他社の管理者と、他社の失効前のアカウントは指定できない。
 - `reason` は申請 ID などの乱数 32 バイト。個人情報やそのハッシュを入れない。
