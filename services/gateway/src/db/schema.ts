@@ -45,6 +45,13 @@ export const logEntries = gateway.table(
   (row) => [
     index("log_entries_sender_nonce").on(row.sender, row.nonce),
     index("log_entries_status_seq").on(row.forwardStatus, row.seq),
+    index("log_entries_included_block").on(row.includedBlock),
+    index("log_entries_forwarded_unobserved")
+      .on(row.seq)
+      .where(
+        sql`${row.includedBlock} is null and ${row.forwardStatus} = 'forwarded'`,
+      ),
+
     check(
       "log_entries_binary_sizes",
       sql`

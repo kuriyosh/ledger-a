@@ -1,5 +1,5 @@
 {
-  "id": "2c8e5311-2e2a-4799-b267-708aebc856ec",
+  "id": "ef47093a-d5fe-4bba-97db-7f437e0098de",
   "prevId": "f32cc295-e2ba-4d9a-997c-589bfe64c714",
   "version": "7",
   "dialect": "postgresql",
@@ -214,6 +214,37 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_entries_included_block": {
+          "name": "log_entries_included_block",
+          "columns": [
+            {
+              "expression": "included_block",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_entries_forwarded_unobserved": {
+          "name": "log_entries_forwarded_unobserved",
+          "columns": [
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"gateway\".\"log_entries\".\"included_block\" is null and \"gateway\".\"log_entries\".\"forward_status\" = 'forwarded'",
           "concurrently": false,
           "method": "btree",
           "with": {}

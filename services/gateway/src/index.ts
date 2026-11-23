@@ -3,9 +3,9 @@ import { receiptLogAbi } from "@ledgera/abis";
 import { readDeployment } from "@ledgera/config";
 import { openDatabase } from "@ledgera/shared/db";
 import { receiptGenesisHash } from "@ledgera/shared/receipt";
-import { startService } from "@ledgera/shared/server";
+import { logService, startService } from "@ledgera/shared/server";
 import { privateKeyToAccount } from "viem/accounts";
-import { createCommitter, readCommittedSeq } from "./chain/commit.ts";
+import { createCommitter } from "./chain/commit.ts";
 import { ForwardNotifications, runForwarder } from "./chain/forwarder.ts";
 import { createInclusionTracker } from "./chain/inclusion.ts";
 import { relayChain } from "./chain/relay.ts";
@@ -87,6 +87,7 @@ const synchronize = createInclusionTracker(
   client,
   store,
   BigInt(deployment.auditStartBlock),
+  (seq) => notifications.publish(seq, { status: "forwarded", error: null }),
 );
 const commit = createCommitter(client, store, admission, signer, {
   address: deployment.contracts.receiptLog,
@@ -102,7 +103,19 @@ const forwarder = runForwarder(
   controller.signal,
   async () => {
     await synchronize();
-    await commit();
+    try {
+      await commit();
+    } catch (error) {
+      logService(
+        "gateway",
+        "error",
+        "Receipt commitment did not advance",
+        null,
+        {
+          errorName: error instanceof Error ? error.name : "Error",
+        },
+      );
+    }
   },
 );
 const app = gatewayApp({
@@ -115,7 +128,7 @@ const app = gatewayApp({
     const [head, queueLength, committed] = await Promise.all([
       store.head(),
       store.queueLength(),
-      readCommittedSeq(client, deployment.contracts.receiptLog),
+      store.lastConfirmedSeq(),
     ]);
     return {
       sequencerUrl: new URL(env.SEQUENCER_RPC_URLS[0]).origin,

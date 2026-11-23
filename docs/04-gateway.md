@@ -241,6 +241,7 @@ JSON-RPC。
 - 新しいブロックごとに取引ハッシュを照合し、`included_block` と `included_index` を埋める。
 - 再編成でブロックが消えたら、その位置情報を消す。消したエントリは、通番順に Sequencer へ送り直す。後続のエントリより先に送る。
 - 送り直しで「nonce が古い」と返っても、その取引ハッシュがブロックに入っていれば `forwarded` のままにする。
+- 転送済みで未取り込みの取引を定期的に照合する。Sequencer が取引を保持していなければ、通番順に送り直す。
 
 ### 7.3 Sequencer の切替（冗長化構成）
 
@@ -253,7 +254,7 @@ JSON-RPC。
 - `COMMIT_INTERVAL_SEC`（30 秒）ごとに、未コミットのエントリのうち `source` が `system` でないものが 1 件でもあれば、`ReceiptLog.commit(fromSeq, toSeq, headHash)` を送る。範囲は未コミットの全エントリ。
 - この取引も直列区間を通り、通番を受け取る。`source` は `system`。
 - コミット取引だけが未コミットで残っている間は、コミットしない。取引がないのにコミットが続くことを防ぐ。
-- 取引が成功したら `commitments` を `confirmed` にする。
+- 取引が追跡済みのブロックで成功したら `commitments` を `confirmed` にする。
 - 失敗したら `ReceiptLog.lastSeq()` を読み直して範囲を合わせる。
 
 ## 9. 公開 API

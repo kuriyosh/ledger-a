@@ -8,6 +8,8 @@ import {
   gt,
   gte,
   inArray,
+  isNull,
+  lte,
   ne,
   or,
   sql,
@@ -359,7 +361,7 @@ export class GatewayStore implements AdmissionStore {
     return row && receipt(row);
   }
 
-  async trackedTip() {
+  async trackedTip(): Promise<{ number: bigint; hash: Hex } | undefined> {
     const [row] = await this.db
       .select()
       .from(trackedBlocks)
@@ -368,7 +370,9 @@ export class GatewayStore implements AdmissionStore {
     return row && { number: row.number, hash: bytesToHex(row.hash) };
   }
 
-  async trackedBlock(number: bigint) {
+  async trackedBlock(
+    number: bigint,
+  ): Promise<{ number: bigint; hash: Hex } | undefined> {
     const [row] = await this.db
       .select()
       .from(trackedBlocks)
@@ -378,15 +382,19 @@ export class GatewayStore implements AdmissionStore {
   }
 
   async recordBlock(number: bigint, hash: Hex, transactions: readonly Hex[]) {
-    await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       await tx.execute(receiptLock);
       await tx.insert(trackedBlocks).values({ number, hash: toBuffer(hash) });
-      if (!transactions.length) return;
+      if (!transactions.length) return [];
       const positions = new Map(
         transactions.map((hash, index) => [hash.toLowerCase(), index]),
       );
       const matches = await tx
-        .select({ seq: logEntries.seq, txHash: logEntries.txHash })
+        .select({
+          seq: logEntries.seq,
+          txHash: logEntries.txHash,
+          status: logEntries.forwardStatus,
+        })
         .from(logEntries)
         .where(inArray(logEntries.txHash, transactions.map(toBuffer)));
       for (const match of matches) {
@@ -394,12 +402,18 @@ export class GatewayStore implements AdmissionStore {
           .update(logEntries)
           .set({
             includedBlock: number,
+            forwardStatus: "forwarded",
+            forwardError: null,
+            forwardedAt: sql`coalesce(${logEntries.forwardedAt}, now())`,
             includedIndex: positions.get(
               bytesToHex(match.txHash).toLowerCase(),
             ),
           })
           .where(eq(logEntries.seq, match.seq));
       }
+      return matches
+        .filter((item) => item.status !== "forwarded")
+        .map((item) => item.seq);
     });
   }
 
@@ -415,7 +429,15 @@ export class GatewayStore implements AdmissionStore {
           forwardError: null,
           forwardedAt: null,
         })
-        .where(gt(logEntries.includedBlock, ancestor));
+        .where(
+          or(
+            gt(logEntries.includedBlock, ancestor),
+            and(
+              isNull(logEntries.includedBlock),
+              eq(logEntries.forwardStatus, "forwarded"),
+            ),
+          ),
+        );
       await tx
         .update(commitments)
         .set({ status: "pending", blockNumber: null })
@@ -424,14 +446,58 @@ export class GatewayStore implements AdmissionStore {
     });
   }
 
+  async unobservedForwarded(
+    after: bigint,
+    forwardedBefore: Date,
+    limit: number,
+  ) {
+    const rows = await this.db
+      .select({ seq: logEntries.seq, txHash: logEntries.txHash })
+      .from(logEntries)
+      .where(
+        and(
+          gt(logEntries.seq, after),
+          isNull(logEntries.includedBlock),
+          eq(logEntries.forwardStatus, "forwarded"),
+          lte(logEntries.forwardedAt, forwardedBefore),
+        ),
+      )
+      .orderBy(asc(logEntries.seq))
+      .limit(limit);
+    return rows.map((row) => ({ ...row, txHash: bytesToHex(row.txHash) }));
+  }
+
+  async requeueUnobserved(sequences: bigint[]) {
+    if (!sequences.length) return;
+    await this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      await tx
+        .update(logEntries)
+        .set({ forwardStatus: "queued", forwardedAt: null, forwardError: null })
+        .where(
+          and(
+            inArray(logEntries.seq, sequences),
+            isNull(logEntries.includedBlock),
+            eq(logEntries.forwardStatus, "forwarded"),
+          ),
+        );
+    });
+  }
+
   async pendingCommitment() {
     const [row] = await this.db
       .select({
         txHash: commitments.txHash,
         forwardStatus: logEntries.forwardStatus,
+        includedBlock: logEntries.includedBlock,
+        includedHash: trackedBlocks.hash,
       })
       .from(commitments)
       .innerJoin(logEntries, eq(commitments.txHash, logEntries.txHash))
+      .leftJoin(
+        trackedBlocks,
+        eq(logEntries.includedBlock, trackedBlocks.number),
+      )
       .where(eq(commitments.status, "pending"))
       .orderBy(asc(commitments.id))
       .limit(1);
@@ -439,8 +505,20 @@ export class GatewayStore implements AdmissionStore {
       row && {
         txHash: bytesToHex(row.txHash),
         forwardStatus: row.forwardStatus,
+        includedBlock: row.includedBlock,
+        includedHash: row.includedHash && bytesToHex(row.includedHash),
       }
     );
+  }
+
+  async lastConfirmedSeq() {
+    const [row] = await this.db
+      .select({ toSeq: commitments.toSeq })
+      .from(commitments)
+      .where(eq(commitments.status, "confirmed"))
+      .orderBy(desc(commitments.toSeq))
+      .limit(1);
+    return row?.toSeq ?? 0n;
   }
 
   async finishCommitment(

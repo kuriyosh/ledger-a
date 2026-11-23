@@ -206,6 +206,8 @@ test.skipIf(!databaseUrl)(
       expect(await store.pendingCommitment()).toEqual({
         txHash: system.txHash,
         forwardStatus: "queued",
+        includedBlock: null,
+        includedHash: null,
       });
       for (const receipt of [independent, replacement, relay, system]) {
         await store.setForwardResult(receipt.seq, "forwarded", null);
@@ -235,10 +237,12 @@ test.skipIf(!databaseUrl)(
 
       await store.rewindBlocks(9n);
       expect(await store.trackedTip()).toBeUndefined();
-      expect((await store.queued())?.seq).toBe(replacement.seq);
+      expect((await store.queued())?.seq).toBe(independent.seq);
       expect(await store.pendingCommitment()).toEqual({
         txHash: system.txHash,
         forwardStatus: "queued",
+        includedBlock: null,
+        includedHash: null,
       });
       expect((await store.log(relay.seq, 1))[0]).toMatchObject({
         includedBlock: null,
