@@ -8,6 +8,7 @@ import {
   desc,
   eq,
   exists,
+  gt,
   inArray,
   isNull,
   lt,
@@ -97,19 +98,19 @@ function knownBefore(
 
 export function evaluateDeposit(
   account: Account,
-  vaspStatus: number,
+  vaspStatus: number | undefined,
   timestamp: bigint,
 ) {
   if (
     account.status !== 1 ||
-    vaspStatus !== 1 ||
+    (vaspStatus !== undefined && vaspStatus !== 1) ||
     (account.validUntil !== 0n && timestamp > account.validUntil)
   )
     return {
       accountStatus: account.status,
       kind: account.kind,
       vaspId: account.vaspId,
-      vaspStatus,
+      ...(vaspStatus !== undefined && { vaspStatus }),
       validUntil: account.validUntil.toString(),
     };
 }
@@ -125,6 +126,7 @@ export function failureWorker(
     transport: http(url, { timeout: 5_000, retryCount: 0 }),
   });
   const registry = deployment.contracts.kycRegistry;
+  let cursor: { number: bigint; txIndex: number } | undefined;
 
   async function enabledBefore(tx: IndexerTransaction, position: Location) {
     const [prior] = await tx
@@ -133,6 +135,7 @@ export function failureWorker(
       .where(lt(registryCheckpoints.blockNumber, position.number))
       .orderBy(desc(registryCheckpoints.blockNumber))
       .limit(1);
+    // The deployed Registry enables enforcement once and has no reverse transition.
     if (prior?.enabled) return true;
     const [enabled] = await tx
       .select({ logIndex: logs.logIndex })
@@ -153,7 +156,7 @@ export function failureWorker(
     return false;
   }
 
-  async function depositLocation(position: Location) {
+  async function depositLocation(position: Location, fallback?: Account) {
     return database.transaction(
       async (tx) => {
         const [block] = await tx
@@ -186,12 +189,43 @@ export function failureWorker(
             desc(registryAccountEvents.logIndex),
           )
           .limit(1);
-        return {
-          enforce,
-          account: account
-            ? { ...account, vaspId: Number(account.vaspId) }
-            : undefined,
-        };
+        const entry = account
+          ? { ...account, vaspId: Number(account.vaspId) }
+          : fallback;
+        const [vasp] =
+          entry &&
+          !evaluateDeposit(
+            entry,
+            undefined,
+            BigInt(position.timestamp.getTime() / 1_000),
+          )
+            ? await tx
+                .select({
+                  event: registryVaspEvents.event,
+                  args: registryVaspEvents.args,
+                })
+                .from(registryVaspEvents)
+                .innerJoin(
+                  transactions,
+                  eq(registryVaspEvents.txHash, transactions.hash),
+                )
+                .where(
+                  and(
+                    eq(registryVaspEvents.vaspId, BigInt(entry.vaspId)),
+                    inArray(registryVaspEvents.event, [
+                      "VaspRegistered",
+                      "VaspStatusChanged",
+                    ]),
+                    knownBefore(registryVaspEvents.blockNumber, position),
+                  ),
+                )
+                .orderBy(
+                  desc(registryVaspEvents.blockNumber),
+                  desc(registryVaspEvents.logIndex),
+                )
+                .limit(1)
+            : [];
+        return { enforce, account: entry, vasp };
       },
       { isolationLevel: "repeatable read", accessMode: "read only" },
     );
@@ -200,7 +234,7 @@ export function failureWorker(
   async function detectIneligible(position: Location) {
     const sender: Address = bytesToHex(position.from);
     if (sender === zeroAddress || sender === l1AttributesSender) return;
-    const state = await depositLocation(position);
+    let state = await depositLocation(position);
     if (!state || state.enforce === false) return;
     const options = {
       address: registry,
@@ -215,42 +249,28 @@ export function failureWorker(
         functionName: "enforcementEnabled",
       }));
     if (!enforce) return;
-    const empty = { vaspId: 0, kind: 0, status: 0, validUntil: 0n };
-    const account =
-      state.account ??
-      (position.start === 0n
-        ? empty
-        : await client.readContract({
-            ...options,
-            functionName: "getAccount",
-            args: [sender],
-          }));
-    const [last] = await database
-      .select({
-        event: registryVaspEvents.event,
-        args: registryVaspEvents.args,
-      })
-      .from(registryVaspEvents)
-      .innerJoin(transactions, eq(registryVaspEvents.txHash, transactions.hash))
-      .where(
-        and(
-          eq(registryVaspEvents.vaspId, BigInt(account.vaspId)),
-          inArray(registryVaspEvents.event, [
-            "VaspRegistered",
-            "VaspStatusChanged",
-          ]),
-          knownBefore(registryVaspEvents.blockNumber, position),
-        ),
-      )
-      .orderBy(
-        desc(registryVaspEvents.blockNumber),
-        desc(registryVaspEvents.logIndex),
-      )
-      .limit(1);
-    const vaspStatus = last
-      ? last.event === "VaspRegistered"
+    if (!state.account && position.start > 0n) {
+      const baseline = await client.readContract({
+        ...options,
+        functionName: "getAccount",
+        args: [sender],
+      });
+      state = await depositLocation(position, baseline);
+      if (!state || state.enforce === false) return;
+    }
+    const account = state.account ?? {
+      vaspId: 0,
+      kind: 0,
+      status: 0,
+      validUntil: 0n,
+    };
+    const timestamp = BigInt(position.timestamp.getTime() / 1_000);
+    const denied = evaluateDeposit(account, undefined, timestamp);
+    if (denied) return { sender, ...denied };
+    const vaspStatus = state.vasp
+      ? state.vasp.event === "VaspRegistered"
         ? 1
-        : Number(last.args.status)
+        : Number(state.vasp.args.status)
       : position.start === 0n
         ? 0
         : (
@@ -260,15 +280,11 @@ export function failureWorker(
               args: [account.vaspId],
             })
           ).status;
-    const detail = evaluateDeposit(
-      account,
-      vaspStatus,
-      BigInt(position.timestamp.getTime() / 1_000),
-    );
+    const detail = evaluateDeposit(account, vaspStatus, timestamp);
     return detail && { sender, ...detail };
   }
 
-  async function batch(signal: AbortSignal) {
+  async function scan(signal: AbortSignal) {
     const queue = await database
       .select({
         number: blocks.number,
@@ -290,10 +306,25 @@ export function failureWorker(
           lte(blocks.number, chainStatus.derivedBlock),
         ),
       )
-      .where(and(eq(transactions.status, 0), isNull(transactions.failureKind)))
+      .where(
+        and(
+          eq(transactions.status, 0),
+          isNull(transactions.failureKind),
+          cursor
+            ? or(
+                gt(blocks.number, cursor.number),
+                and(
+                  eq(blocks.number, cursor.number),
+                  gt(transactions.txIndex, cursor.txIndex),
+                ),
+              )
+            : undefined,
+        ),
+      )
       .orderBy(asc(blocks.number), asc(transactions.txIndex))
       .limit(batchSize);
 
+    cursor = queue.length === batchSize ? queue.at(-1) : undefined;
     for (const position of queue) {
       signal.throwIfAborted();
       const hash = bytesToHex(position.txHash);
@@ -308,8 +339,8 @@ export function failureWorker(
             : undefined;
         const trace = denied ? null : await rpc.trace(hash);
         const deepest = trace ? deepestFailure(trace) : undefined;
-        const output = deepest?.output ?? trace?.output ?? "0x";
-        const error = trace && decode(deepest?.to ?? trace.to, output);
+        const output = deepest?.output ?? "0x";
+        const error = deepest && decode(deepest.to, output);
         const reason = denied
           ? { failureKind: "SENDER_NOT_ALLOWED", failureDetail: denied }
           : error
@@ -362,10 +393,11 @@ export function failureWorker(
   }
 
   return {
+    scan,
     async run(signal: AbortSignal) {
       while (!signal.aborted) {
         try {
-          await batch(signal);
+          await scan(signal);
         } catch (error) {
           if (!signal.aborted)
             logService(
