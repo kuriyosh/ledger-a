@@ -43,10 +43,13 @@ test("derives the documented paths and creates one private file across concurren
       .filter((line) => !line.startsWith("AUDITOR_ADMIN_TOKEN="))
       .join("\n");
     await writeFile(file, old);
-    await Promise.all([
-      generateAccounts(testMnemonic, file),
-      generateAccounts(testMnemonic, file),
-    ]);
+    const observed = await Promise.all(
+      Array.from({ length: 12 }, async () => {
+        await generateAccounts(testMnemonic, file);
+        return parseEnv(await readFile(file, "utf8")).AUDITOR_ADMIN_TOKEN;
+      }),
+    );
+    expect(new Set(observed).size).toBe(1);
     const upgraded = parseEnv(await readFile(file, "utf8"));
     expect(upgraded.AUDITOR_ADMIN_TOKEN).toMatch(/^[0-9a-f]{64}$/);
     delete upgraded.AUDITOR_ADMIN_TOKEN;

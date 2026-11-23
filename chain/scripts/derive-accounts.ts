@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   link,
   mkdir,
@@ -48,6 +48,43 @@ const secretNames = [
   "VASP_A_KEY_ENCRYPTION_KEY",
   "VASP_B_KEY_ENCRYPTION_KEY",
 ] as const;
+
+function isFsError(error: unknown, code: string) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+async function upgradeAuditToken(
+  output: string,
+  temporary: string,
+  prior: string,
+) {
+  const proposed = join(temporary, "proposed");
+  const ready = join(temporary, "ready");
+  const pending = `${output}.auditor-upgrade`;
+  const key = randomBytes(32).toString("hex");
+  await writeFile(
+    proposed,
+    `${prior.trimEnd()}\nAUDITOR_ADMIN_TOKEN=${key}\n`,
+    { mode: 0o600 },
+  );
+  try {
+    await link(proposed, pending);
+  } catch (error) {
+    if (!isFsError(error, "EEXIST")) throw error;
+  }
+  try {
+    await link(pending, ready);
+  } catch (error) {
+    if (!isFsError(error, "ENOENT")) throw error;
+  }
+  // Link before rereading so a late contender cannot replace a published token.
+  if (
+    parseEnv(await readFile(output, "utf8")).AUDITOR_ADMIN_TOKEN === undefined
+  ) {
+    await rename(ready, output);
+  }
+  await rm(pending, { force: true });
+}
 
 export async function generateAccounts(mnemonic: string, output: string) {
   mnemonic = mnemonic.trim().split(/\s+/).join(" ");
@@ -99,21 +136,14 @@ export async function generateAccounts(mnemonic: string, output: string) {
       // Publish atomically so concurrent runs keep the same service credentials.
       await link(tempFile, output);
     } catch (error) {
-      if (
-        !(error instanceof Error && "code" in error && error.code === "EEXIST")
-      )
-        throw error;
+      if (!isFsError(error, "EEXIST")) throw error;
       if ((await stat(output)).mode & 0o077) {
         throw new Error(`${output} must be accessible only to its owner`);
       }
       const prior = await readFile(output, "utf8");
       const existing = parseEnv(prior);
       const needsAuditToken = existing.AUDITOR_ADMIN_TOKEN === undefined;
-      const auditKeyA = existing.VASP_A_AUDITOR_KEY;
-      const auditKeyB = existing.VASP_B_AUDITOR_KEY;
       if (
-        !auditKeyA ||
-        !auditKeyB ||
         accountEnv.some(([name, value]) => existing[name] !== value) ||
         secretNames.some(
           (name) =>
@@ -126,19 +156,7 @@ export async function generateAccounts(mnemonic: string, output: string) {
         );
       }
       if (needsAuditToken) {
-        // Concurrent upgrades of an existing file must produce the same added credential.
-        const key = createHmac("sha256", Buffer.from(auditKeyA, "hex"))
-          .update("ledgerA auditor administrator")
-          .update(auditKeyB)
-          .digest("hex");
-        await writeFile(
-          tempFile,
-          `${prior.trimEnd()}
-AUDITOR_ADMIN_TOKEN=${key}
-`,
-          { mode: 0o600 },
-        );
-        await rename(tempFile, output);
+        await upgradeAuditToken(output, tempDir, prior);
       }
     }
   } finally {
