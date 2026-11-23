@@ -104,7 +104,8 @@ stateDiagram-v2
 
 | L2 上の承認の数 | 処理 |
 |---|---|
-| 0 件 | DB の状態を `cancelled` にする。L2 に取引を送らない |
+| 現在と finalized の状態で 0 件。元の承認取引の署名を準備した記録もない | DB の状態を `cancelled` にする |
+| 現在 0 件でも元の承認取引が再送される可能性がある | 取消取引を実行して nonce を消費する |
 | 1 件以上 | 取消取引を実行して nonce を消費する（下の手順） |
 
 承認が 1 件でも取消取引が要る理由。Safe は実行者自身の承認を `approveHash` なしで数える。承認 1 件の申請は、別の構成員 1 人が `execTransaction` を送れば実行できる。
@@ -121,12 +122,14 @@ stateDiagram-v2
 - `cancelling` の間、元の操作の `POST /v1/proposals/:id/execute` は 409 `CANCELLING` で拒否する。
 - `cancelling` の間も、元の操作は L2 では実行できる。このサービスを通さずに実行された場合は、4.5 の照合で `executed` にする。
 - 取消の承認と実行も、`ApproveHash` と `ExecutionSuccess` として L2 に残る。
+- 取消取引が失敗した場合は、`CANCEL_EXECUTION_FAILED` を返し、取引ハッシュを記録する。構成員は同じ取消 API から再実行できる。
 
 申請した VASP からの取り下げ依頼。
 
 - 申請した VASP は `POST /v1/proposals/:id/withdrawal-request` を署名付きリクエストで呼べる。根拠の入金が再編成で消えたときに使う（05 章 4.6）。
 - サービスは依頼の時刻と理由を保存する。取り下げそのものは行わない。構成員が画面で取り下げる。
-- 依頼のある申請は、`execute` を 409 `WITHDRAWAL_REQUESTED` で拒否する。
+- 依頼のある申請は、`execute` を 409 `WITHDRAWAL_REQUESTED` で拒否する。保存済みの実行取引は L2 との照合を続ける。
+- 取り下げ依頼を再送しても、最初の時刻と理由を保持する。
 
 ### 4.5 L2 との照合
 
@@ -209,7 +212,7 @@ stateDiagram-v2
 }
 ```
 
-- `cancellation` は、取り下げ中か取り下げ済みのときに入る。内容は `cancelSafeTxHash`、取消の承認の一覧（`approvals` と同じ形）、`executedTxHash`。
+- `cancellation` は、取り下げ中か取り下げ済みのときに入る。内容は `cancelSafeTxHash`、取消の承認の一覧（`approvals` と同じ形）、`executedTxHash`、`failedTxHash`。
 - `withdrawalRequest` は、VASP から取り下げの依頼があるときに入る。内容は `requestedAt` と `reason`。
 
 ## 6. DB スキーマ

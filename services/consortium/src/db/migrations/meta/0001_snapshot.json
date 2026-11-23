@@ -1,5 +1,5 @@
 {
-  "id": "97ca75ec-c6d8-4b11-91fb-86900693c4fc",
+  "id": "7d3d1066-3169-4065-ae0b-6708e4361f30",
   "prevId": "3b7033aa-8e5a-4dea-954a-224aa1453d16",
   "version": "7",
   "dialect": "postgresql",
@@ -288,6 +288,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "original_approval_prepared": {
+          "name": "original_approval_prepared",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "cancel_failed_tx_hash": {
+          "name": "cancel_failed_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
         },
         "withdrawal_requested_at": {
           "name": "withdrawal_requested_at",

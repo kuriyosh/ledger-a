@@ -134,6 +134,8 @@ export function consortiumService(
       cancelExecutedBlock,
       cancelExecutionPrepared,
       cancelledLocally,
+      originalApprovalPrepared,
+      cancelFailedTxHash,
       withdrawalRequestedAt,
       withdrawalReason,
       ...display
@@ -155,6 +157,7 @@ export function consortiumService(
               cancelSafeTxHash,
               approvals: await approvalList("cancel"),
               executedTxHash: cancelExecutedTxHash,
+              failedTxHash: cancelFailedTxHash,
             }
           : null,
       withdrawalRequest: withdrawalRequestedAt
@@ -208,15 +211,18 @@ export function consortiumService(
         cancel_approve: approved("cancel"),
         cancel_execute: projected.cancellation?.executed !== undefined,
       }[request.action];
-      if (
-        receipt?.status === "success" &&
-        !confirmed &&
-        projected.status !== "executed" &&
-        projected.status !== "cancelled"
-      )
+      const terminal =
+        projected.status === "executed" || projected.status === "cancelled";
+      if (receipt?.status === "success" && !confirmed && !terminal)
         throw pending(request);
+      if (request.action === "cancel_execute" && !confirmed && !terminal)
+        await rows.cancellationFailed(request.proposalId, request.txHash);
       await rows.consume(request);
-      return confirmed || failure !== undefined;
+      return (
+        confirmed ||
+        failure !== undefined ||
+        (terminal && request.action.startsWith("cancel_"))
+      );
     });
   }
 
@@ -241,24 +247,24 @@ export function consortiumService(
       let state = await project(rows, row);
       const cancellation =
         requested === "cancel" || requested === "cancel_execute";
+      const retained = await rows.pending(id);
+      const sameAction =
+        retained?.action === requested ||
+        (requested === "cancel" && retained?.action.startsWith("cancel_"));
+      if (retained && retained.memberId === memberId && sameAction)
+        return retained;
       if (state.status === "executed" || state.status === "cancelled") {
         if (cancellation) return undefined;
         throw notExecutable();
       }
       if (state.nonce !== row.safeNonce) throw notExecutable();
-      const retained = await rows.pending(id);
-      if (retained) {
-        const same =
-          retained.action === requested ||
-          (requested === "cancel" && retained.action.startsWith("cancel_"));
-        if (retained.memberId === memberId && same) return retained;
+      if (retained)
         throw new ServiceError(
           "SAFE_ACTION_IN_PROGRESS",
           "Another Safe action is awaiting inclusion",
           409,
         );
-      }
-      if (!cancellation && state.status === "cancelling")
+      if (requested === "execute" && state.status === "cancelling")
         throw new ServiceError(
           "CANCELLING",
           "Proposal cancellation is in progress",
@@ -278,7 +284,11 @@ export function consortiumService(
       if (cancellation) {
         if (!row.cancelSafeTxHash) {
           if (requested === "cancel_execute") throw notExecutable();
-          if (state.approvals.length === 0) {
+          if (
+            state.approvals.length === 0 &&
+            !row.originalApprovalPrepared &&
+            !(await chain.hasFinalizedApproval(row.safeTxHash))
+          ) {
             await rows.requestCancellation(id);
             return undefined;
           }
@@ -334,13 +344,15 @@ export function consortiumService(
       return next;
     });
 
-    if (request && !(await deliver(request)))
-      throw new ServiceError(
-        "SAFE_ACTION_REJECTED",
-        "Safe action was rejected",
-        422,
-        { txHash: request.txHash },
-      );
+    if (request && !(await deliver(request))) {
+      const code =
+        request.action === "cancel_execute"
+          ? "CANCEL_EXECUTION_FAILED"
+          : "SAFE_ACTION_REJECTED";
+      throw new ServiceError(code, "Safe action failed", 422, {
+        txHash: request.txHash,
+      });
+    }
     return get(id);
   }
 
@@ -357,7 +369,12 @@ export function consortiumService(
 
   async function continueCancellation(id: string) {
     const row = await store.proposal(id);
-    if (row.status !== "cancelling" || row.cancelExecutionPrepared) return;
+    if (
+      row.status !== "cancelling" ||
+      row.cancelExecutionPrepared ||
+      row.cancelFailedTxHash
+    )
+      return;
     const projection = await get(id);
     const recorded = projection.cancellation?.approvals;
     if (!recorded || recorded.length < projection.threshold) return;

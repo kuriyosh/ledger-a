@@ -62,6 +62,10 @@ export const proposals = consortium.table("proposals", {
     .notNull()
     .default(false),
   cancelledLocally: boolean("cancelled_locally").notNull().default(false),
+  originalApprovalPrepared: boolean("original_approval_prepared")
+    .notNull()
+    .default(false),
+  cancelFailedTxHash: bytes("cancel_failed_tx_hash"),
   withdrawalRequestedAt: instant("withdrawal_requested_at"),
   withdrawalReason: text("withdrawal_reason"),
   createdAt: instant("created_at").notNull().defaultNow(),

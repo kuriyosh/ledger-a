@@ -76,6 +76,8 @@ function entry(row: Proposal) {
     cancelExecutedBlock: row.cancelExecutedBlock,
     cancelExecutionPrepared: row.cancelExecutionPrepared,
     cancelledLocally: row.cancelledLocally,
+    originalApprovalPrepared: row.originalApprovalPrepared,
+    cancelFailedTxHash: row.cancelFailedTxHash && hex(row.cancelFailedTxHash),
     withdrawalRequestedAt: row.withdrawalRequestedAt,
     withdrawalReason: row.withdrawalReason,
     createdAt: row.createdAt,
@@ -235,6 +237,12 @@ export class ConsortiumRows {
       txHash: bytes(request.txHash),
       rawTx: bytes(request.rawTx),
     });
+    if (request.action === "approve") {
+      await this.db
+        .update(proposals)
+        .set({ originalApprovalPrepared: true })
+        .where(eq(proposals.id, request.proposalId));
+    }
   }
 
   async consume(request: PendingAction) {
@@ -263,7 +271,18 @@ export class ConsortiumRows {
   async cancellationPrepared(id: string) {
     await this.db
       .update(proposals)
-      .set({ cancelExecutionPrepared: true })
+      .set({ cancelExecutionPrepared: true, cancelFailedTxHash: null })
+      .where(eq(proposals.id, id));
+  }
+
+  async cancellationFailed(id: string, txHash: Hex) {
+    await this.db
+      .update(proposals)
+      .set({
+        cancelExecutionPrepared: false,
+        cancelFailedTxHash: bytes(txHash),
+        updatedAt: new Date(),
+      })
       .where(eq(proposals.id, id));
   }
 
@@ -297,6 +316,11 @@ export class ConsortiumRows {
       .update(proposals)
       .set({
         status: state.status,
+        originalApprovalPrepared: state.approvals.length > 0 ? true : undefined,
+        cancelFailedTxHash:
+          state.status === "executed" || state.status === "cancelled"
+            ? null
+            : undefined,
         executedTxHash: state.executed ? bytes(state.executed.txHash) : null,
         executedBlock: state.executed?.blockNumber ?? null,
         cancelExecutedTxHash: state.cancelled
