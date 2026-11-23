@@ -6,27 +6,27 @@
 
 | No. | 内容 | 確認方法 | MS | 外れた場合 | 結果 |
 |---|---|---|---|---|---|
-| V1 | 固定する tag（`op-reth/v2.9.0`）で、02 章 6.3 と 6.4 のファイルと関数が同じ位置にある | fork でソースを読む | M2 | 同じ役割の関数を探し、そこに変更を入れる | 未確認 |
-| V2 | ハンドラ内の `journal.db_mut().storage()` が、同じブロックの先行取引の書き込みを返す | op-revm と op-reth のテスト | M2 | warm 状態を変えない形でジャーナルから読む | 未確認 |
-| V3 | `from` を省略した `eth_call` が通る。未登録の `from` を指定するとエラーになる | devnet で `cast` | M2 | RPC の実行経路を判別して検査を外す | 未確認 |
-| V4 | プール検査のラッパーを `OpNode::components()` に入れて型が通る | fork でビルド | M2 | `OpTransactionValidator` に直接書く | 未確認 |
+| V1 | 固定する tag（`op-reth/v2.9.0`）で、02 章 6.3 と 6.4 のファイルと関数が同じ位置にある | fork でソースを読む | M2 | 同じ役割の関数を探し、そこに変更を入れる | 固定タグでハンドラとプールビルダーの拡張点を確認 |
+| V2 | ハンドラ内の `journal.db_mut().storage()` が、同じブロックの先行取引の書き込みを返す | op-revm と op-reth のテスト | M2 | warm 状態を変えない形でジャーナルから読む | 同じブロック内の先行取引で登録すると、次の取引が通ることを op-revm のテストで確認 |
+| V3 | `from` を省略した `eth_call` が通る。未登録の `from` を指定するとエラーになる | devnet で `cast` | M2 | RPC の実行経路を判別して検査を外す | ローカル Sepolia フォークで、`from` を省略した呼び出しが成功。未登録の `from` を指定した見積もりは拒否 |
+| V4 | プール検査のラッパーを `OpNode::components()` に入れて型が通る | fork でビルド | M2 | `OpTransactionValidator` に直接書く | ラッパーを標準構成に組み込んだノードをビルドし、RPC からの受付を確認 |
 | V5 | L1 へのデプロイに要る Sepolia ETH の量。上流の README は 2〜3 ETH と書いている | 実測 | M0 | 01 章 5.4 の数字を直す | 未確認 |
 | V6 | priority fee が同じ取引が、devnet の op-reth で到着順に並ぶ | 100 件を送って監査 | M6 | 02 章 7.3 の順序固定を必須にする | 未確認 |
-| V7 | 失敗 Deposit のレシートが `status = 0` で返る。viem で L1 のログから L2 の取引ハッシュを求められる | devnet | M0、M2 | L2 側は送信者と nonce で探す | Sepolia のローカルフォークでは、revert する Deposit のレシートが status 0。viem で L1 ログから L2 ハッシュを算出できた |
+| V7 | 失敗 Deposit のレシートが `status = 0` で返る。viem で L1 のログから L2 の取引ハッシュを求められる | devnet | M0、M2 | L2 側は送信者と nonce で探す | ローカル Sepolia フォークで viem が L1 ログから L2 取引ハッシュを計算。改造版で未登録者のレシートが status 0 |
 | V8 | `LedgerForwarder.execute` の上書きで、呼び出し先の revert データを返せる | forge test | M1 | OZ を継承せず、最小の Forwarder を自作する | Foundry で `execute` と `executeAll` が呼び出し先のカスタムエラーを返すことを確認 |
 | V9 | op-batcher の投稿間隔ごとの費用。`OP_BATCHER_INBOX_ADDRESS` の要否 | 実測 | M0 | `BATCHER_MAX_CHANNEL_DURATION` の既定を直す | v1.18.1 は rollup 設定から投稿先を取得する。費用は要確認 |
 | V10 | 固定するバージョンの genesis に Safe v1.3.0（`SafeL2`）がある | `cast code` | M0 | `Bootstrap.s.sol` でデプロイする | Sepolia のローカルフォーク向け genesis で SafeL2 の VERSION() が 1.3.0 |
 | V11 | op-conductor のヘルスチェックの値と起動後の手順、op-node の静的ピアの設定、op-batcher の複数接続先、切替にかかる時間。必須項目と RPC の既定ポートはソースで確認済み | 公式手順との照合と実測 | M7 | 02 章 11 節を直す | 未確認 |
 | V12 | `ProxyAdmin.upgradeAndCall` で `0x42…0700` に実装を設定し、初期化できる | ダミー実装で試す | M0 | genesis の `alloc` を編集して Registry を入れる | Sepolia のローカルフォークでダミー実装を設定し、predeploy 経由で関数を呼べた |
-| V13 | 免除が足りている。L1 属性取引以外に、ブロックへ自動で入るシステム取引がない | devnet の全ブロックで送信者を集計 | M2 | 免除アドレスを追加する | 未確認 |
+| V13 | 免除が足りている。L1 属性取引以外に、ブロックへ自動で入るシステム取引がない | devnet の全ブロックで送信者を集計 | M2 | 免除アドレスを追加する | ローカル Sepolia フォークの 226 ブロックで、各ブロックの先頭に L1 属性取引を確認。ほかの Deposit は、確認用に送った 2 件 |
 | V14 | 公開の L1 RPC で op-node が安定して動くか | 1 時間の稼働 | M0 | API キー付きのプロバイダを必須にする | 未確認 |
-| V15 | priority fee 1 wei、base fee が数 wei の取引を op-reth のプールが受理する | devnet | M2 | 固定値を上げる | 未確認 |
+| V15 | priority fee 1 wei、base fee が数 wei の取引を op-reth のプールが受理する | devnet | M2 | 固定値を上げる | ローカル Sepolia フォークで base fee 3 wei、priority fee 1 wei の取引を受理 |
 | V16 | L2 chain ID 202610 が既存のチェーンと衝突しない | Chainlist の一覧で検索 | M0 | 別の値にする | 202610 の登録なし |
 | V17 | anvil の `--order fifo` で、結合テストの順序が安定する | 結合テストを繰り返す | M3 | 自動採掘を止め、ブロックを明示的に進める | 未確認 |
 | V18 | Sepolia へのデプロイでも `fundDevAccounts` が L2 の genesis に反映される | `cast balance` | M0 | admin が L1 から Deposit して原資にする | Sepolia のローカルフォーク向け genesis で開発用アカウント 0 に 10,000 ETH |
 | V19 | `deployOverrides` と `setGasConfigEcotone(0, 0)` の後、L2 の L1 データ手数料が 0 になる。`GasPriceOracle` の fee scalar と、レシートの `l1Fee` が 0 | devnet で `cast` | M0 | Gateway の残高検査と、外部者の取引に必要な残高（08 章 10.1）に、L1 データ手数料を加える | Sepolia のローカルフォークで L1 と L2 の fee scalar が 0。L2 のレシートの l1Fee も 0 |
-| V20 | 対照ノード（標準の op-reth）が、未登録アドレスの Deposit を含むブロックを導出する。その Deposit のレシートが成功になる | `make control-compare` | M2 | 標準イメージの Sequencer で別の devnet を立て、同じ `to`、`data`、`gasLimit` の Deposit を送って比べる | 未確認 |
-| V21 | 残高 0.001 ETH、`maxFeePerGas` 3 gwei の外部者の取引が、op-reth の標準の検証を通り、規則のエラーで拒否される | devnet で `cast send` | M2 | `ATTACKER_MAX_FEE_PER_GAS_WEI` を下げるか、Deposit の mint を増やす | 未確認 |
+| V20 | 対照ノード（標準の op-reth）が、未登録アドレスの Deposit を含むブロックを導出する。その Deposit のレシートが成功になる | `make control-compare` | M2 | 標準イメージの Sequencer で別の devnet を立て、同じ `to`、`data`、`gasLimit` の Deposit を送って比べる | ローカル Sepolia フォークで、改造版は status 0 とカウンタ 0。標準の対照ノードは status 1 とカウンタ 1 |
+| V21 | 残高 0.001 ETH、`maxFeePerGas` 3 gwei の外部者の取引が、op-reth の標準の検証を通り、規則のエラーで拒否される | devnet で `cast send` | M2 | `ATTACKER_MAX_FEE_PER_GAS_WEI` を下げるか、Deposit の mint を増やす | ローカル Sepolia フォークで、同じ 0.001 ETH、3 gwei、gas 200,000 の取引を比較。未登録者は規則で拒否し、登録者はブロックに取り込んだ |
 
 ## 2. 既知の制約
 

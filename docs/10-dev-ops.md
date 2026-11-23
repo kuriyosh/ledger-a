@@ -67,7 +67,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | `make setup` | `pnpm install`、`forge install`、ABI の生成 |
 | `make keys` | アカウントを導出して `.env.generated` を作る。アドレスと必要な残高を表示する |
 | `make fund-l1` | admin から batcher と attacker に Sepolia ETH を送る |
-| `make chain-image` | fork を取得して op-reth のイメージを作る |
+| `make chain-image` | `chain/versions.env` で固定した fork のコミットから、op-reth のイメージを作る |
 | `make chain-deploy` | L1 へのデプロイと設定の生成（02 章 3 節） |
 | `make chain-up`、`chain-down`、`chain-logs` | op-reth、op-node、op-batcher、rpc-proxy |
 | `make chain-shell` | `ledgera-chain` ネットワークにつないだ Foundry コンテナのシェルを開く。op-reth に直接 `cast` を使うときに使う |
@@ -76,7 +76,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | `make demo-seed` | 新しいデモ回を作る。登場人物と残高を作り、画面と監査の集計を新しい回に切り替える |
 | `make up`、`make down` | チェーンとアプリをまとめて起動、停止 |
 | `make status` | 各コンポーネントの稼働、ブロック高、safe ブロック、通番、残高を表示する |
-| `make replica-up`、`replica-compare` | 検証ノードの起動、ブロックハッシュの比較 |
+| `make replica-up`、`replica-down`、`replica-compare` | 検証ノードの起動と停止、ブロックハッシュの比較 |
 | `make control-up`、`control-compare`、`control-down` | 対照ノードの起動、Deposit の結果の比較、データごとの削除（02 章 10.2） |
 | `make ha-up`、`ha-kill-leader`、`ha-restore` | 冗長化構成 |
 | `make anvil-up`、`anvil-down` | anvil モード一式（anvil、初期化、アプリ） |

@@ -32,6 +32,32 @@ test-integration:
 CHAIN_COMPOSE = docker compose --env-file chain/versions.env --env-file .env --env-file .env.generated -f chain/compose/docker-compose.chain.yml
 CHAIN_NODE = node --env-file-if-exists=.env --env-file=.env.generated
 
+REPLICA_COMPOSE = docker compose --env-file chain/versions.env --env-file .env -f chain/compose/docker-compose.replica.yml
+CONTROL_COMPOSE = $(REPLICA_COMPOSE) --project-name ledgera-control --profile control
+
+.PHONY: chain-image replica-up replica-down replica-compare control-up control-down control-compare
+
+chain-image:
+	bash chain/scripts/build-op-reth.sh
+
+replica-up:
+	$(REPLICA_COMPOSE) --project-name ledgera-replica up -d --wait op-node-replica
+
+replica-down:
+	$(REPLICA_COMPOSE) --project-name ledgera-replica down
+
+replica-compare:
+	bash chain/scripts/compare-heads.sh
+
+control-up: replica-up
+	$(CONTROL_COMPOSE) up -d --wait op-node-control
+
+control-down:
+	$(CONTROL_COMPOSE) down --volumes
+
+control-compare:
+	bash chain/scripts/compare-deposit.sh "$(DEPOSIT_HASH)"
+
 .PHONY: chain-deploy chain-up chain-down chain-logs chain-shell status fund-l1
 
 chain-deploy:

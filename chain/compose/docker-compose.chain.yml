@@ -3,7 +3,7 @@ name: ledgera-chain
 services:
   op-reth:
     restart: unless-stopped
-    image: ${OP_RETH_IMAGE:-${OP_RETH_STOCK_IMAGE}}
+    image: ${OP_RETH_IMAGE}
     command:
       - node
       - --chain=/workspace/genesis.json

@@ -273,7 +273,9 @@ op-batcher
 | `0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001` | 各ブロック先頭の L1 属性取引の送信者 |
 | `0x0000000000000000000000000000000000000000` | `eth_call` で `from` を省略したときの呼び出し元。署名も Deposit もできないので安全 |
 
-PostExec 種別の取引（ビルダーが合成するシステム取引）も検査しない。
+PostExec 種別の取引は、ビルダーが合成するシステム取引として検査から外す。指定した OP のハードフォークは genesis から有効にする。
+
+`eth_call` と `eth_estimateGas` は実行時の判定を使う。`from` を省略するとゼロアドレスになる。未登録の `from` を指定した場合は `ledgera: sender not allowed` が返る。
 
 拒否したときの結果。
 
@@ -416,7 +418,8 @@ op-reth のプールに入る時点でも同じ判定を行う。合意には関
 - 実装例は fork 内の `rust/op-reth/crates/node/tests/it/custom_pool/validator.rs`。
 - `KycValidator` は内側の検証が `Valid` を返したときだけ判定する。
 - このため、標準の検証（nonce、残高、手数料）で落ちる取引には、規則のエラーが返らない。規則による拒否を確かめる取引は、標準の検証を通る残高と手数料で送る（08 章 10.1）。
-- 判定は最新ブロックの状態で行う。スロット計算と判定は `op_revm::ledgera` を使う。
+- 規則は最新のヘッドの状態と時刻で判定する。スロット計算と判定は `op_revm::ledgera` を使う。
+- 受付後に送信者が停止、遮断、期限切れになった場合も、ブロックを作るときに再検査する。拒否された取引が一時的にプールに残る場合がある。
 - 拒否は `InvalidPoolTransactionError::Other` で返す。メッセージは `ledgera: sender not allowed: <アドレス>`。
 - Gateway と demo-tools は、エラーメッセージに `ledgera: sender not allowed` が含まれるかで判定する。この文字列は変えない。
 
@@ -541,7 +544,7 @@ M7 までに余力があれば行う。必須ではない。
 | op-reth-control | 公式イメージ（`OP_RETH_STOCK_IMAGE`）。別のデータディレクトリ |
 | op-node-control | op-node-replica と同じ設定 |
 
-確認方法。`chain/scripts/compare-deposit.sh <L2 の取引ハッシュ>`（`make control-compare`）が、未登録アドレスの Deposit（9.1）の結果を 3 つのノードから読んで並べる。期待する結果は次のとおり。
+確認方法。`chain/scripts/compare-deposit.sh <L2 の取引ハッシュ>`（`make control-compare DEPOSIT_HASH=<L2 の取引ハッシュ>`）が、未登録アドレスの Deposit（9.1）の結果を 3 つのノードから読んで並べる。期待する結果は次のとおり。
 
 | ノード | 実行層 | レシート | `DepositProbe.count(attacker)` |
 |---|---|---|---:|
