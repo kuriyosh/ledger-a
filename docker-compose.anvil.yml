@@ -1,0 +1,61 @@
+name: ledgera-anvil
+
+services:
+  anvil:
+    image: ${FOUNDRY_IMAGE}
+    user: "0"
+    entrypoint: [anvil]
+    command:
+      - --host
+      - 0.0.0.0
+      - --chain-id
+      - "31337"
+      - --order
+      - fifo
+      - --block-time
+      - "2"
+      - --state
+      - /state/anvil.json
+      - --state-interval
+      - "5"
+    volumes:
+      - anvil-data:/state
+    ports:
+      - 127.0.0.1:9545:8545
+    networks: [app]
+
+  rpc-proxy:
+    build:
+      context: .
+      dockerfile: services/rpc-proxy/Dockerfile
+    environment:
+      UPSTREAM_L2_RPC_URLS: http://anvil:8545
+    ports:
+      - 127.0.0.1:8545:8545
+    networks: [app]
+    depends_on:
+      - anvil
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:8545/', {
+            method: 'POST',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'eth_chainId'}),
+            signal: AbortSignal.timeout(3000)
+          }).then(async response => {
+            if (!response.ok || (await response.json()).result !== '0x7a69') process.exit(1);
+          }).catch(() => process.exit(1));
+      interval: 3s
+      timeout: 4s
+      retries: 15
+
+networks:
+  app:
+    name: ledgera
+
+volumes:
+  anvil-data:

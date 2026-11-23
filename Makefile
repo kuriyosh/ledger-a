@@ -58,3 +58,17 @@ status:
 
 fund-l1:
 	$(CHAIN_NODE) chain/scripts/fund-l1.ts
+
+ANVIL_COMPOSE = docker compose --env-file chain/versions.env -f docker-compose.anvil.yml
+
+.PHONY: anvil-up anvil-down l2-bootstrap
+
+anvil-up:
+	$(ANVIL_COMPOSE) up -d --build --wait
+	BOOTSTRAP_MODE=anvil bash chain/scripts/bootstrap-l2.sh
+
+anvil-down:
+	$(ANVIL_COMPOSE) down
+
+l2-bootstrap:
+	BOOTSTRAP_MODE=devnet bash chain/scripts/bootstrap-l2.sh

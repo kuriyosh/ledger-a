@@ -206,15 +206,16 @@ op-batcher
 
 1. L2 の `GasPriceOracle`（`0x420000000000000000000000000000000000000F`）の `baseFeeScalar()` と `blobBaseFeeScalar()` が 0 を返すまで待つ。
 2. `contracts/script/Bootstrap.s.sol` を op-reth の RPC に対して `--broadcast` で実行する（下の表の手順 1〜13）。
-3. forge の broadcast 記録（`contracts/broadcast/Bootstrap.s.sol/<chain ID>/run-latest.json`）から、アドレスとレシートのブロック番号を読む。
+3. スクリプトが出力したアドレスと、L2 のイベントから有効化と権限移譲のブロック番号を読む。
 4. 手順 2 の取引を 1 つ選び、`eth_getTransactionReceipt` の `l1Fee` が 0 であることを確認する。
-5. 開発用アカウント 1 から `cast send` で送金し、`ledgera: sender not allowed` で拒否されることを確認する。
+5. 開発用アカウント 1 を送信元に、読み取り用の rpc-proxy（`127.0.0.1:8545`）経由で op-reth の `eth_estimateGas` を呼ぶ。`ledgera: sender not allowed` が返ることを確認する。
 6. `deployments/devnet.json` の `contracts`、`enforcementBlock`、`auditStartBlock` を書く。`l1` は `gen-config.sh` が書いた値を残す。
 
 やり直しができるように、`Bootstrap.s.sol` は次の作りにする。
 
 - コントラクトは CREATE2（固定の salt）でデプロイする。アドレスが毎回同じになる。
 - 各手順は先に現在の状態を読む。済んでいれば飛ばす。判定はコードの有無、`getVasp`、`getAccount`、`balanceOf`、`allowance`、`enforcementEnabled`、`consortium`、`owner` で行う。
+- 規則の有効化後は、既存のアドレスだけを使う。Safe の所有者としきい値、権限の移譲先、トークンの設定を確認してから記録する。
 
 | 順 | 送信者 | 操作 |
 |---:|---|---|
@@ -232,7 +233,7 @@ op-batcher
 | 12 | admin | `transferConsortium(ConsortiumSafe)` を呼ぶ |
 | 13 | admin | `ProxyAdmin.transferOwnership(ConsortiumSafe)` を呼ぶ |
 
-`enforcementBlock` は手順 11 のブロック番号。`auditStartBlock` は手順 13 の次のブロック番号。
+`enforcementBlock` は手順 11 のブロック番号。`auditStartBlock` は DevNet では手順 13、Anvil では手順 12 の次のブロック番号。
 
 手順 6 の引数。
 
