@@ -25,6 +25,22 @@ op-node を使う場合は `UPSTREAM_ROLLUP_RPC_URLS` も指定する。
 `make test` で単体テストを実行する。`make test-integration` は Docker で
 anvil を起動し、有効な署名付き取引がプロキシ経由で拒否されることを確認する。
 
+## Sepolia で標準 OP Stack を起動する
+
+`.env` に Sepolia の `L1_RPC_URL` と `L1_BEACON_URL` を設定する。
+`make keys` が表示する admin アドレスに Sepolia ETH を用意する。
+
+```sh
+make fund-l1
+make chain-deploy
+make chain-up
+make status
+```
+
+ホストからは `http://127.0.0.1:8545` の読み取り専用 RPC に接続する。
+L2 に直接送信する場合は `make chain-shell` を開く。
+停止するには `make chain-down` を実行する。
+
 ## デモで見せること
 
 - ルールを守らせるのは VASP のアプリではなくチェーンである

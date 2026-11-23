@@ -35,7 +35,7 @@ FOUNDRY_IMAGE=ghcr.io/foundry-rs/foundry:<固定するバージョン>
 | 項目 | 値 | 設定箇所 |
 |---|---|---|
 | L1 | Sepolia（chain ID 11155111） | - |
-| L2 chain ID | 20261（`.env` の `L2_CHAIN_ID`） | op-deployer の `--l2-chain-ids` |
+| L2 chain ID | 202610（`.env` の `L2_CHAIN_ID`） | op-deployer の `--l2-chain-ids` |
 | L2 ブロック時間 | 2 秒 | intent の `deployOverrides.l2BlockTime` |
 | ガス上限 | op-deployer の既定値 | 変更しない |
 | EIP-1559 パラメータ | op-deployer の既定値 | 変更しない |
@@ -69,19 +69,11 @@ L2 chain ID は chainlist と衝突しないことを M0 で確認する。
 5. 適用する。
 
    ```
-   op-deployer apply \
-     --workdir chain/.deployer \
-     --l1-rpc-url "$L1_RPC_URL" \
-     --private-key "$ADMIN_PRIVATE_KEY"
+   DEPLOYER_PRIVATE_KEY="$ADMIN_PRIVATE_KEY" L1_RPC_URL="$L1_RPC_URL" \
+     op-deployer apply --workdir chain/.deployer
    ```
 
-6. L1 の `SystemConfig` の fee scalar を 0 にする。アドレスは `chain/.deployer/state.json` の `opChainDeployments[0].SystemConfigProxy`。送信者は `systemConfigOwner`（admin）。
-
-   ```
-   cast send "$SYSTEM_CONFIG_PROXY" "setGasConfigEcotone(uint32,uint32)" 0 0 \
-     --rpc-url "$L1_RPC_URL" \
-     --private-key "$ADMIN_PRIVATE_KEY"
-   ```
+6. L1 の `SystemConfig` の fee scalar を確認する。値が残っていれば admin が `setGasConfigEcotone(0, 0)` を実行する。アドレスは `chain/.deployer/state.json` の `opChainDeployments[0].SystemConfigProxy`。
 
 7. 設定を取り出す。
 
@@ -129,7 +121,7 @@ fee scalar を 2 か所で 0 にする理由。
 
 `chain/compose/docker-compose.chain.yml` に op-reth、op-node、op-batcher、rpc-proxy の 4 サービスを書く。公式サンプルの `docker-compose.yml` からの差分は次のとおり。
 
-- op-reth のイメージを `${OP_RETH_IMAGE}` にする。
+- op-reth のイメージを `${OP_RETH_STOCK_IMAGE}` にする。`OP_RETH_IMAGE` を指定した場合はそのイメージを使う。
 - proposer、challenger、dispute-mon を削る。
 - 各コンポーネントに、役割に対応する鍵を渡す（公式サンプルは全部に同じ鍵を渡している）。
 - op-reth と op-node のポートをホストに出さない。ホストに出すのは rpc-proxy だけ（[10-dev-ops.md](10-dev-ops.md) の 7 節）。
@@ -140,9 +132,9 @@ fee scalar を 2 か所で 0 にする理由。
 node
 --chain=/workspace/genesis.json
 --datadir=/workspace/op-reth-data
---http --http.addr=0.0.0.0 --http.port=8545 --http.corsdomain=*
+--http --http.addr=0.0.0.0 --http.port=8545
 --http.api=debug,eth,net,txpool,web3
---ws --ws.addr=0.0.0.0 --ws.port=8546 --ws.origins=*
+--ws --ws.addr=0.0.0.0 --ws.port=8546
 --ws.api=debug,eth,net,txpool,web3
 --authrpc.addr=0.0.0.0 --authrpc.port=8551
 --authrpc.jwtsecret=/workspace/jwt.txt
@@ -195,11 +187,13 @@ op-batcher
 --rpc.addr=0.0.0.0 --rpc.port=8548 --rpc.enable-admin
 --max-channel-duration=${BATCHER_MAX_CHANNEL_DURATION}
 --data-availability-type=calldata
+--throttle.unsafe-da-bytes-lower-threshold=0
 --resubmission-timeout=30s
 ```
 
 - `BATCHER_MAX_CHANNEL_DURATION` は L1 ブロック数。既定は 25（約 5 分）。デモ中は 5（約 1 分）にする。値が小さいほど Sepolia ETH を多く使う。
-- 公式サンプルは `OP_BATCHER_INBOX_ADDRESS` も設定している。要否は M0 で確認する（要確認）。
+- op-batcher の DA スロットリングは無効にする。op-reth の RPC で `miner` 名前空間を公開しないため。
+- op-batcher は op-node から取得した rollup 設定の `batch_inbox_address` を使う。
 
 ### 4.4 Sepolia への接続
 

@@ -39,7 +39,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | `L1_RPC_URL` | - | Sepolia の RPC。API キー付きを推奨 |
 | `L1_BEACON_URL` | `https://ethereum-sepolia-beacon-api.publicnode.com` | Sepolia の Beacon API |
 | `LEDGERA_MNEMONIC` | - | 運営側アカウントの元。12 語か 24 語 |
-| `L2_CHAIN_ID` | `20261` | |
+| `L2_CHAIN_ID` | `202610` | |
 | `BATCHER_MAX_CHANNEL_DURATION` | `25` | L1 ブロック数。デモ中は 5 |
 | `DEMO_MODE` | `true` | |
 | `POSTGRES_PASSWORD` | - | |
