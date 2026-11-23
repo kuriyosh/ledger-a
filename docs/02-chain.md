@@ -208,7 +208,7 @@ op-batcher
 2. `contracts/script/Bootstrap.s.sol` を op-reth の RPC に対して `--broadcast` で実行する（下の表の手順 1〜13）。
 3. スクリプトが出力したアドレスと、L2 のイベントから有効化と権限移譲のブロック番号を読む。
 4. 手順 2 の取引を 1 つ選び、`eth_getTransactionReceipt` の `l1Fee` が 0 であることを確認する。
-5. 開発用アカウント 1 を送信元に `eth_estimateGas` を呼び、`ledgera: sender not allowed` が返ることを確認する。
+5. 開発用アカウント 1 を送信元に、読み取り用の rpc-proxy（`127.0.0.1:8545`）経由で op-reth の `eth_estimateGas` を呼ぶ。`ledgera: sender not allowed` が返ることを確認する。
 6. `deployments/devnet.json` の `contracts`、`enforcementBlock`、`auditStartBlock` を書く。`l1` は `gen-config.sh` が書いた値を残す。
 
 やり直しができるように、`Bootstrap.s.sol` は次の作りにする。
@@ -233,7 +233,7 @@ op-batcher
 | 12 | admin | `transferConsortium(ConsortiumSafe)` を呼ぶ |
 | 13 | admin | `ProxyAdmin.transferOwnership(ConsortiumSafe)` を呼ぶ |
 
-`enforcementBlock` は手順 11 のブロック番号。`auditStartBlock` は手順 13 の次のブロック番号。
+`enforcementBlock` は手順 11 のブロック番号。`auditStartBlock` は DevNet では手順 13、Anvil では手順 12 の次のブロック番号。
 
 手順 6 の引数。
 
