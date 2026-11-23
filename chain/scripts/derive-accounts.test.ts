@@ -1,9 +1,12 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { expect, test } from "vitest";
-import { generateAccounts } from "./derive-accounts.ts";
+import {
+  generateAccounts,
+  generateAuditCredential,
+} from "./derive-accounts.ts";
 
 const testMnemonic =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -28,8 +31,7 @@ test("derives the documented paths and creates one private file across concurren
     });
     const contents = await readFile(file, "utf8");
     const env = parseEnv(contents);
-    expect(Object.keys(env)).toHaveLength(47);
-    expect(env.AUDITOR_ADMIN_TOKEN).toMatch(/^[0-9a-f]{64}$/);
+    expect(Object.keys(env)).toHaveLength(46);
     expect(env.ADMIN_PRIVATE_KEY).toMatch(/^0x[0-9a-f]{64}$/);
     expect(env.VASP_A_KEY_ENCRYPTION_KEY).toMatch(/^[0-9a-f]{64}$/);
     expect(env.VASP_A_KEY_ENCRYPTION_KEY).not.toEqual(
@@ -38,32 +40,6 @@ test("derives the documented paths and creates one private file across concurren
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     await generateAccounts(testMnemonic, file);
     expect(await readFile(file, "utf8")).toBe(contents);
-    const old = contents
-      .split("\n")
-      .filter((line) => !line.startsWith("AUDITOR_ADMIN_TOKEN="))
-      .join("\n");
-    await writeFile(file, old);
-    const pending = file + ".auditor-upgrade";
-    await writeFile(pending, "stale file with previous account data", {
-      mode: 0o600,
-    });
-    await expect(generateAccounts(testMnemonic, file)).rejects.toThrow(
-      "Invalid pending auditor token",
-    );
-    expect(await readFile(file, "utf8")).toBe(old);
-    await rm(pending);
-
-    const observed = await Promise.all(
-      Array.from({ length: 12 }, async () => {
-        await generateAccounts(testMnemonic, file);
-        return parseEnv(await readFile(file, "utf8")).AUDITOR_ADMIN_TOKEN;
-      }),
-    );
-    expect(new Set(observed).size).toBe(1);
-    const upgraded = parseEnv(await readFile(file, "utf8"));
-    expect(upgraded.AUDITOR_ADMIN_TOKEN).toMatch(/^[0-9a-f]{64}$/);
-    delete upgraded.AUDITOR_ADMIN_TOKEN;
-    expect(upgraded).toEqual(parseEnv(old));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -82,4 +58,31 @@ test("rejects the public Anvil default mnemonic", async () => {
       "/invalid/.env.generated",
     ),
   ).rejects.toThrow("public Anvil default");
+});
+
+test("creates one independent audit credential without changing existing key files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ledgera-audit-key-"));
+  try {
+    const accounts = join(dir, ".env.generated");
+    const token = join(dir, ".env.auditor.generated");
+    await generateAccounts(testMnemonic, accounts);
+    const original = await readFile(accounts, "utf8");
+    const observed = await Promise.all(
+      Array.from({ length: 12 }, async () => {
+        await generateAuditCredential(token);
+        return parseEnv(await readFile(token, "utf8")).AUDITOR_ADMIN_TOKEN;
+      }),
+    );
+    expect(new Set(observed).size).toBe(1);
+    expect(observed[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect((await stat(token)).mode & 0o777).toBe(0o600);
+    expect(await readFile(accounts, "utf8")).toBe(original);
+    await rm(token);
+    await generateAuditCredential(token);
+    expect(
+      parseEnv(await readFile(token, "utf8")).AUDITOR_ADMIN_TOKEN,
+    ).not.toBe(observed[0]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

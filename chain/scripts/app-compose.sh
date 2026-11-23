@@ -48,9 +48,12 @@ LEDGERA_UID=$(id -u)
 LEDGERA_GID=$(id -g)
 
 profiles=()
+audit_file="$(dirname "$account_file")/.env.auditor.generated"
 if [[ "$(read_env 'process.env.DEMO_MODE || ""')" == true ]]; then
   profiles+=(--profile demo)
 fi
 files=()
+audit_file="$(dirname "$account_file")/.env.auditor.generated"
 if [[ -f .env ]]; then files+=(--env-file .env); fi
+if [[ -f "$audit_file" ]]; then files+=(--env-file "$audit_file"); fi
 exec docker compose "${profiles[@]}" "${files[@]}" --env-file "$account_file" -f docker-compose.yml "$@"

@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import {
   link,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
-  rename,
   rm,
   stat,
   writeFile,
@@ -40,7 +40,6 @@ const secretNames = [
   "VASP_A_ADMIN_TOKEN",
   "VASP_B_ADMIN_TOKEN",
   "CONSORTIUM_ADMIN_TOKEN",
-  "AUDITOR_ADMIN_TOKEN",
   "VASP_A_GATEWAY_API_KEY",
   "VASP_B_GATEWAY_API_KEY",
   "VASP_A_AUDITOR_KEY",
@@ -48,49 +47,6 @@ const secretNames = [
   "VASP_A_KEY_ENCRYPTION_KEY",
   "VASP_B_KEY_ENCRYPTION_KEY",
 ] as const;
-
-function isFsError(error: unknown, code: string) {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-
-async function upgradeAuditToken(
-  output: string,
-  temporary: string,
-  prior: string,
-) {
-  const proposed = join(temporary, "proposed");
-  const ready = join(temporary, "ready");
-  const pending = `${output}.auditor-upgrade`;
-  await writeFile(proposed, randomBytes(32).toString("hex"), { mode: 0o600 });
-  try {
-    await link(proposed, pending);
-  } catch (error) {
-    if (!isFsError(error, "EEXIST")) throw error;
-  }
-  try {
-    await link(pending, ready);
-  } catch (error) {
-    if (!isFsError(error, "ENOENT")) throw error;
-  }
-  // A leftover proposal contains only a token and cannot restore older service keys.
-  const current = await readFile(output, "utf8");
-  if (parseEnv(current).AUDITOR_ADMIN_TOKEN === undefined) {
-    if (current !== prior)
-      throw new Error("Account file changed during upgrade");
-    const key = await readFile(ready, "utf8");
-    if ((await stat(ready)).mode & 0o077 || !/^[0-9a-f]{64}$/.test(key)) {
-      throw new Error("Invalid pending auditor token");
-    }
-    const replacement = join(temporary, "replacement");
-    await writeFile(
-      replacement,
-      `${current.trimEnd()}\nAUDITOR_ADMIN_TOKEN=${key}\n`,
-      { mode: 0o600 },
-    );
-    await rename(replacement, output);
-  }
-  await rm(pending, { force: true });
-}
 
 export async function generateAccounts(mnemonic: string, output: string) {
   mnemonic = mnemonic.trim().split(/\s+/).join(" ");
@@ -142,27 +98,21 @@ export async function generateAccounts(mnemonic: string, output: string) {
       // Publish atomically so concurrent runs keep the same service credentials.
       await link(tempFile, output);
     } catch (error) {
-      if (!isFsError(error, "EEXIST")) throw error;
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      )
+        throw error;
       if ((await stat(output)).mode & 0o077) {
         throw new Error(`${output} must be accessible only to its owner`);
       }
-      const prior = await readFile(output, "utf8");
-      const existing = parseEnv(prior);
-      const needsAuditToken = existing.AUDITOR_ADMIN_TOKEN === undefined;
+      const existing = parseEnv(await readFile(output, "utf8"));
       if (
         accountEnv.some(([name, value]) => existing[name] !== value) ||
-        secretNames.some(
-          (name) =>
-            (name !== "AUDITOR_ADMIN_TOKEN" || !needsAuditToken) &&
-            !/^[0-9a-f]{64}$/.test(existing[name] ?? ""),
-        )
+        secretNames.some((name) => !/^[0-9a-f]{64}$/.test(existing[name] ?? ""))
       ) {
         throw new Error(
           `${output} does not match the requested accounts or is incomplete`,
         );
-      }
-      if (needsAuditToken) {
-        await upgradeAuditToken(output, tempDir, prior);
       }
     }
   } finally {
@@ -171,17 +121,47 @@ export async function generateAccounts(mnemonic: string, output: string) {
   return accounts.map(({ name, address }) => ({ name, address }));
 }
 
+export async function generateAuditCredential(output: string) {
+  const parent = dirname(output);
+  await mkdir(parent, { recursive: true });
+  const temporary = await mkdtemp(join(parent, ".env.auditor-"));
+  try {
+    const path = join(temporary, basename(output));
+    const token = randomBytes(32).toString("hex");
+    await writeFile(path, `AUDITOR_ADMIN_TOKEN=${token}\n`, { mode: 0o600 });
+    try {
+      await link(path, output);
+    } catch (error) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      )
+        throw error;
+    }
+    const saved = await lstat(output);
+    if (
+      !saved.isFile() ||
+      (saved.mode & 0o077) !== 0 ||
+      !/^AUDITOR_ADMIN_TOKEN=[0-9a-f]{64}\n$/.test(
+        await readFile(output, "utf8"),
+      )
+    )
+      throw new Error("Invalid auditor credential file");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 if (import.meta.main === undefined) {
   throw new Error("Account generation requires Node.js 24.2 or later");
 }
 if (import.meta.main) {
   try {
-    console.table(
-      await generateAccounts(
-        process.env.LEDGERA_MNEMONIC ?? "",
-        ".env.generated",
-      ),
+    const accounts = await generateAccounts(
+      process.env.LEDGERA_MNEMONIC ?? "",
+      ".env.generated",
     );
+    await generateAuditCredential(".env.auditor.generated");
+    console.table(accounts);
     console.log("Sepolia ETH: admin 3, batcher 0.5, attacker 0.05");
     console.log("L2 ETH: 1 per operating account that sends L2 transactions");
   } catch (error) {

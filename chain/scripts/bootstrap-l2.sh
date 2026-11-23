@@ -27,7 +27,7 @@ temp_dir=$(mktemp -d "$runtime/bootstrap.XXXXXX")
 
 if [[ "$mode" == anvil ]]; then
   repo=$PWD
-  if [[ ! -f "$runtime/.env.generated" ]]; then
+  if [[ ! -f "$runtime/.env.generated" || ! -f "$runtime/.env.auditor.generated" ]]; then
     (
       cd "$runtime"
       LEDGERA_MNEMONIC='abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about' \

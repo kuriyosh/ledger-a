@@ -346,7 +346,7 @@ pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 - 開示請求は Registry から所属 VASP と `endpoint` を取得し、その VASP の `POST /vasp/v1/disclosure-requests` に送る。Registry と設定の接続先が同じオリジンの場合だけ監査用の鍵を付ける。
 - VASP が承認すると、`GET /v1/disclosures/:id` が開示内容を返す。開示内容は DB に保存しない。VASP から都度取得する。
 
-- 開示請求の作成と参照には `AUDITOR_ADMIN_TOKEN` を使う。自由記述の理由は VASP に送る。監査 DB には理由の分類だけを保存する。
+- 開示請求の作成と参照には `AUDITOR_ADMIN_TOKEN` を使う。`make keys` は運用環境のトークンを `.env.auditor.generated` に作る。自由記述の理由は VASP に送る。監査 DB には理由の分類だけを保存する。
 
 ### 3.5 API
 
