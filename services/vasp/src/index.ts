@@ -7,11 +7,13 @@ import { registryChain, registryGateway } from "./chain.ts";
 import { customerService } from "./customers.ts";
 import { VaspStore } from "./db/store.ts";
 import { TransferStore } from "./db/transfers.ts";
+import { TravelRuleStore } from "./db/travel-rules.ts";
 import { vaspEnv } from "./env.ts";
 import { vaspApp } from "./http.ts";
 import { transferChain } from "./transfer-chain.ts";
 import { transferGateway } from "./transfer-gateway.ts";
 import { transferService } from "./transfers.ts";
+import { travelRuleService } from "./travel-rules.ts";
 import { createWalletVault } from "./wallet-vault.ts";
 
 const env = vaspEnv.parse(process.env);
@@ -41,15 +43,28 @@ const customers = customerService(
   registryGateway(env.GATEWAY_URL),
   env.KYC_VALIDITY_DAYS,
 );
+const transferReader = transferChain(chain.client, deployments);
+const travelRule = travelRuleService(
+  new TravelRuleStore(database.db),
+  store,
+  chain,
+  transferReader,
+  deployments,
+  env.VASP_ID,
+  signer,
+  env.TRAVEL_RULE_AUTO_APPROVE,
+  env.TRAVEL_RULE_TTL_SEC,
+);
 const transfers = transferService(
   new TransferStore(database.db, vault),
-  transferChain(chain.client, deployments),
+  transferReader,
   transferGateway(
     env.GATEWAY_URL,
     env.GATEWAY_API_KEY,
     deployments.contracts.ledgerForwarder,
   ),
   chain,
+  travelRule,
   database.exclusive,
 );
 const shutdown = new AbortController();
@@ -58,7 +73,15 @@ const polling = Promise.all([
   transfers.poll(shutdown.signal),
 ]);
 startService(
-  vaspApp(store, customers, chain, env.ADMIN_TOKEN, transfers, env.DEMO_MODE),
+  vaspApp(
+    store,
+    customers,
+    chain,
+    env.ADMIN_TOKEN,
+    transfers,
+    travelRule,
+    env.DEMO_MODE,
+  ),
   env,
   {
     onShutdown: () => shutdown.abort(),

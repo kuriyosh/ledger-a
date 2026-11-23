@@ -16,7 +16,13 @@ import {
 import { type Address, bytesToHex, getAddress, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { createWalletVault } from "../wallet-vault.ts";
-import { customers, processedBlocks, transfers, wallets } from "./schema.ts";
+import {
+  customers,
+  processedBlocks,
+  transfers,
+  travelRuleMessages,
+  wallets,
+} from "./schema.ts";
 
 type Database = Awaited<ReturnType<typeof openDatabase>>["db"];
 type Vault = ReturnType<typeof createWalletVault>;
@@ -190,7 +196,12 @@ export class TransferStore {
       .where(
         and(
           eq(transfers.direction, "out"),
-          inArray(transfers.status, ["created", "tr_approved", "submitted"]),
+          inArray(transfers.status, [
+            "created",
+            "tr_pending",
+            "tr_approved",
+            "submitted",
+          ]),
           after === undefined ? undefined : gt(transfers.id, after),
         ),
       )
@@ -270,6 +281,28 @@ export class TransferStore {
       const byAddress = new Map(
         registered.map(({ address, id }) => [bytesToHex(address), id]),
       );
+      const refs = events.flatMap((event) =>
+        event.refId ? [transferBytes(event.refId)] : [],
+      );
+      const messages =
+        refs.length === 0
+          ? []
+          : await tx
+              .select({
+                refId: travelRuleMessages.refId,
+                vaspId: travelRuleMessages.counterpartyVaspId,
+              })
+              .from(travelRuleMessages)
+              .where(
+                and(
+                  eq(travelRuleMessages.direction, "in"),
+                  eq(travelRuleMessages.status, "approved"),
+                  inArray(travelRuleMessages.refId, refs),
+                ),
+              );
+      const peers = new Map(
+        messages.map(({ refId, vaspId }) => [bytesToHex(refId), vaspId]),
+      );
       const rows = events.flatMap((event) => {
         const id = byAddress.get(event.to.toLowerCase() as Address);
         if (!id) return [];
@@ -279,6 +312,9 @@ export class TransferStore {
             customerId: id,
             direction: "in" as const,
             counterpartyAddress: transferBytes(event.from),
+            counterpartyVaspId: event.refId
+              ? peers.get(event.refId)
+              : undefined,
             token: transferBytes(event.token),
             amount: event.amount,
             status: "confirmed" as const,
@@ -305,12 +341,46 @@ export class TransferStore {
             set: { status: "confirmed", updatedAt: new Date() },
             setWhere: eq(transfers.status, "reorged"),
           });
+      for (const row of rows) {
+        if (!row.refId) continue;
+        await tx
+          .update(travelRuleMessages)
+          .set({ txHash: row.txHash })
+          .where(
+            and(
+              eq(travelRuleMessages.refId, row.refId),
+              eq(travelRuleMessages.direction, "in"),
+              eq(travelRuleMessages.status, "approved"),
+            ),
+          );
+      }
     });
   }
 
   async rewind(ancestor: bigint) {
     await this.db.transaction(async (tx) => {
       const blockRemoved = gt(transfers.blockNumber, ancestor);
+      await tx
+        .update(travelRuleMessages)
+        .set({ txHash: null })
+        .where(
+          and(
+            eq(travelRuleMessages.direction, "in"),
+            inArray(
+              travelRuleMessages.refId,
+              tx
+                .select({ refId: transfers.refId })
+                .from(transfers)
+                .where(
+                  and(
+                    eq(transfers.direction, "in"),
+                    eq(transfers.status, "confirmed"),
+                    blockRemoved,
+                  ),
+                ),
+            ),
+          ),
+        );
       await tx
         .update(transfers)
         .set({ status: "reorged", updatedAt: new Date() })

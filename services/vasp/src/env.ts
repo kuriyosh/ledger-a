@@ -34,6 +34,13 @@ export const vaspEnv = serverEnv
       .positive()
       .max(36_500)
       .default(365),
+    TRAVEL_RULE_AUTO_APPROVE: z.stringbool().default(false),
+    TRAVEL_RULE_TTL_SEC: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(86_400)
+      .default(600),
     DEMO_MODE: z.stringbool().default(false),
   })
   .refine((env) => env.CUSTOMER_ID_PREFIX === (env.VASP_ID === 1 ? "A" : "B"), {

@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { ServiceError } from "@ledgera/shared/errors";
+import { verifyHttpRequest } from "@ledgera/shared/http-signature";
 import { serviceApp } from "@ledgera/shared/server";
 import { getAddress, isAddress } from "viem";
 import { z } from "zod";
@@ -7,6 +8,12 @@ import type { registryChain } from "./chain.ts";
 import type { customerService } from "./customers.ts";
 import type { VaspStore } from "./db/store.ts";
 import type { transferService } from "./transfers.ts";
+import {
+  confirmInput,
+  refIdInput,
+  travelMessage,
+} from "./travel-rule-model.ts";
+import type { travelRuleService } from "./travel-rules.ts";
 
 const email = z
   .email()
@@ -43,6 +50,14 @@ const historyLimit = z.coerce.number().int().positive().max(1000).default(100);
 const sessionInput = z.object({ email });
 const authHash = (value: string) => createHash("sha256").update(value).digest();
 
+function signedJson(bytes: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new ServiceError("INVALID_REQUEST", "Invalid JSON body", 400);
+  }
+}
+
 function parse<T>(schema: z.ZodType<T>, input: unknown) {
   const result = schema.safeParse(input);
   if (!result.success)
@@ -58,6 +73,7 @@ export function vaspApp(
   chain: Pick<ReturnType<typeof registryChain>, "balances">,
   adminToken: string,
   transfers: ReturnType<typeof transferService>,
+  travelRule: ReturnType<typeof travelRuleService>,
   demoMode: boolean,
 ) {
   const app = serviceApp("vasp");
@@ -162,5 +178,40 @@ export function vaspApp(
       return context.json({ ...updated.customer, txHash: updated.txHash });
     });
   }
+  const travelRoot = "/vasp/v1/travel-rule/transfers";
+  const verified = (request: Request) =>
+    verifyHttpRequest(request, travelRule.resolveVasp);
+
+  app.post(travelRoot, async (context) => {
+    const identity = await verified(context.req.raw);
+    const input = parse(travelMessage, signedJson(identity.body));
+    return context.json(await travelRule.receive(identity.vaspId, input));
+  });
+  app.get(`${travelRoot}/:refId`, async (context) => {
+    const identity = await verified(context.req.raw);
+    const refId = parse(refIdInput, context.req.param("refId"));
+    return context.json(await travelRule.get(identity.vaspId, refId));
+  });
+  app.post(`${travelRoot}/:refId/confirm`, async (context) => {
+    const identity = await verified(context.req.raw);
+    const refId = parse(refIdInput, context.req.param("refId"));
+    const { txHash } = parse(confirmInput, signedJson(identity.body));
+    await travelRule.confirm(identity.vaspId, refId, txHash);
+    return context.body(null, 204);
+  });
+  app.get("/v1/admin/travel-rule", async (context) => {
+    const direction = parse(
+      z.enum(["in", "out"]).optional(),
+      context.req.query("direction"),
+    );
+    return context.json({ messages: await travelRule.list(direction) });
+  });
+  for (const action of ["approve", "reject"] as const) {
+    app.post(`/v1/admin/travel-rule/:refId/${action}`, async (context) => {
+      const refId = parse(refIdInput, context.req.param("refId"));
+      return context.json(await travelRule.decide(refId, action));
+    });
+  }
+
   return app;
 }

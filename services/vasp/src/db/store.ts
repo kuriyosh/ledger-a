@@ -183,6 +183,13 @@ export class VaspStore {
     ).map(view);
   }
 
+  async customerAt(address: Address) {
+    const [row] = await loadCustomers(this.db).where(
+      eq(wallets.address, toBuffer(address)),
+    );
+    return row && view(row);
+  }
+
   async addresses() {
     const rows = await this.db
       .select({
