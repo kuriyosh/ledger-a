@@ -16,6 +16,7 @@ const status = z.enum([
   "executed",
 ]);
 const proposalId = z.string().max(72).startsWith("p_");
+const withdrawal = z.object({ reason: z.string().trim().min(1).max(500) });
 const hash = (value: string) => createHash("sha256").update(value).digest();
 
 function parse<T>(schema: z.ZodType<T>, input: unknown) {
@@ -91,7 +92,7 @@ export function consortiumApp(
     context.json(await service.get(parse(proposalId, context.req.param("id")))),
   );
 
-  for (const action of ["approve", "execute"] as const) {
+  for (const action of ["approve", "execute", "cancel"] as const) {
     app.post(`/v1/proposals/:id/${action}`, async (context) => {
       if (!isAdmin(context.req.header("Authorization")))
         throw new ServiceError(
@@ -107,6 +108,13 @@ export function consortiumApp(
       return context.json(await service[action](id, memberId));
     });
   }
+
+  app.post("/v1/proposals/:id/withdrawal-request", async (context) => {
+    const caller = await verifyHttpRequest(context.req.raw, chain.vasp);
+    const id = parse(proposalId, context.req.param("id"));
+    const { reason } = parse(withdrawal, decode(caller.body));
+    return context.json(await service.withdraw(id, caller.vaspId, reason));
+  });
 
   app.get("/v1/members", (context) =>
     context.json({

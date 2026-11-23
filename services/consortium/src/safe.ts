@@ -166,6 +166,32 @@ export function consortiumChain(
       await verifyAnchor(block);
       return overview;
     },
+    async hasFinalizedApproval(hash: Hex) {
+      const finalized = await client.getBlock({ blockTag: "finalized" });
+      const at = { blockHash: finalized.hash, requireCanonical: true } as const;
+      const deployed = await client.getCode({ address, ...at });
+      if (!deployed || deployed === "0x") return false;
+      const results = await Promise.all(
+        members.map((member) =>
+          client.readContract({
+            ...safe,
+            ...at,
+            functionName: "approvedHashes",
+            args: [member.account.address, hash],
+          }),
+        ),
+      );
+      return results.some((value) => value !== 0n);
+    },
+    async finalizedNonce() {
+      const finalized = await client.getBlock({ blockTag: "finalized" });
+      return client.readContract({
+        ...safe,
+        functionName: "nonce",
+        blockHash: finalized.hash,
+        requireCanonical: true,
+      });
+    },
     async executionIsFinal(position: { blockNumber: bigint; blockHash: Hex }) {
       const finalized = await client.getBlock({ blockTag: "finalized" });
       return (

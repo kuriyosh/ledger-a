@@ -196,8 +196,8 @@ flowchart LR
 - [ ] `services/vasp`: 交換（taker、maker）
 - [ ] `services/vasp`: AML 規則、アラート、凍結申請、取り下げの依頼
 - [ ] `services/vasp`: 開示請求
-- [ ] `services/consortium`: 申請、承認、実行
-- [ ] `services/consortium`: 取り下げ（取消取引）、L2 との照合
+- [x] `services/consortium`: 申請、承認、実行
+- [x] `services/consortium`: 取り下げ（取消取引）、L2 との照合
 - [ ] `services/demo-tools`: 発行体の `POST /v1/issuer/mint`、デモ回の `POST /v1/demo/runs`
 - [ ] `make demo-seed`
 

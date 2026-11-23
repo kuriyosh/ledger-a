@@ -1,0 +1,363 @@
+{
+  "id": "7d3d1066-3169-4065-ae0b-6708e4361f30",
+  "prevId": "3b7033aa-8e5a-4dea-954a-224aa1453d16",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "consortium.approvals": {
+      "name": "approvals",
+      "schema": "consortium",
+      "columns": {
+        "proposal_id": {
+          "name": "proposal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'execute'"
+        },
+        "member_address": {
+          "name": "member_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "approved_at": {
+          "name": "approved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "approvals_proposal_id_proposals_id_fk": {
+          "name": "approvals_proposal_id_proposals_id_fk",
+          "tableFrom": "approvals",
+          "tableTo": "proposals",
+          "schemaTo": "consortium",
+          "columnsFrom": ["proposal_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "approvals_proposal_id_member_id_kind_pk": {
+          "name": "approvals_proposal_id_member_id_kind_pk",
+          "columns": ["proposal_id", "member_id", "kind"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "consortium.pending_actions": {
+      "name": "pending_actions",
+      "schema": "consortium",
+      "columns": {
+        "proposal_id": {
+          "name": "proposal_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_tx": {
+          "name": "raw_tx",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_block": {
+          "name": "first_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "pending_actions_proposal_id_proposals_id_fk": {
+          "name": "pending_actions_proposal_id_proposals_id_fk",
+          "tableFrom": "pending_actions",
+          "tableTo": "proposals",
+          "schemaTo": "consortium",
+          "columnsFrom": ["proposal_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "pending_actions_tx_hash_unique": {
+          "name": "pending_actions_tx_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": ["tx_hash"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "consortium.proposals": {
+      "name": "proposals",
+      "schema": "consortium",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "params": {
+          "name": "params",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_digest": {
+          "name": "request_digest",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by_vasp_id": {
+          "name": "requested_by_vasp_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by_member_id": {
+          "name": "requested_by_member_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "to_address": {
+          "name": "to_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data": {
+          "name": "data",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "safe_nonce": {
+          "name": "safe_nonce",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "safe_tx_hash": {
+          "name": "safe_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "first_block": {
+          "name": "first_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "executed_tx_hash": {
+          "name": "executed_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "executed_block": {
+          "name": "executed_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "execution_finalized": {
+          "name": "execution_finalized",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "failed_tx_hash": {
+          "name": "failed_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancel_safe_tx_hash": {
+          "name": "cancel_safe_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancel_executed_tx_hash": {
+          "name": "cancel_executed_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancel_executed_block": {
+          "name": "cancel_executed_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancel_execution_prepared": {
+          "name": "cancel_execution_prepared",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "cancelled_locally": {
+          "name": "cancelled_locally",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "original_approval_prepared": {
+          "name": "original_approval_prepared",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "cancel_failed_tx_hash": {
+          "name": "cancel_failed_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "withdrawal_requested_at": {
+          "name": "withdrawal_requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "withdrawal_reason": {
+          "name": "withdrawal_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "proposals_request_digest_unique": {
+          "name": "proposals_request_digest_unique",
+          "nullsNotDistinct": false,
+          "columns": ["request_digest"]
+        },
+        "proposals_safe_tx_hash_unique": {
+          "name": "proposals_safe_tx_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": ["safe_tx_hash"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
