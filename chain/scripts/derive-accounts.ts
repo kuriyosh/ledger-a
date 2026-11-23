@@ -156,14 +156,18 @@ if (import.meta.main === undefined) {
 }
 if (import.meta.main) {
   try {
-    const accounts = await generateAccounts(
-      process.env.LEDGERA_MNEMONIC ?? "",
-      ".env.generated",
-    );
-    await generateAuditCredential(".env.auditor.generated");
-    console.table(accounts);
-    console.log("Sepolia ETH: admin 3, batcher 0.5, attacker 0.05");
-    console.log("L2 ETH: 1 per operating account that sends L2 transactions");
+    if (process.argv.includes("--auditor-token")) {
+      await generateAuditCredential(".env.auditor.generated");
+    } else {
+      const accounts = await generateAccounts(
+        process.env.LEDGERA_MNEMONIC ?? "",
+        ".env.generated",
+      );
+      await generateAuditCredential(".env.auditor.generated");
+      console.table(accounts);
+      console.log("Sepolia ETH: admin 3, batcher 0.5, attacker 0.05");
+      console.log("L2 ETH: 1 per operating account that sends L2 transactions");
+    }
   } catch (error) {
     console.error(
       error instanceof Error ? error.message : "Account generation failed",

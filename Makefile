@@ -1,4 +1,4 @@
-.PHONY: setup generate-abis keys lint fmt test test-contracts test-integration
+.PHONY: setup generate-abis keys audit-keys lint fmt test test-contracts test-integration
 
 setup:
 	pnpm install --frozen-lockfile
@@ -11,6 +11,9 @@ generate-abis:
 
 keys:
 	node --env-file-if-exists=.env chain/scripts/derive-accounts.ts
+
+audit-keys:
+	node chain/scripts/derive-accounts.ts --auditor-token
 
 lint:
 	pnpm lint

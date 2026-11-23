@@ -48,7 +48,6 @@ LEDGERA_UID=$(id -u)
 LEDGERA_GID=$(id -g)
 
 profiles=()
-audit_file="$(dirname "$account_file")/.env.auditor.generated"
 if [[ "$(read_env 'process.env.DEMO_MODE || ""')" == true ]]; then
   profiles+=(--profile demo)
 fi
