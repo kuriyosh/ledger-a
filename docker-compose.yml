@@ -9,6 +9,30 @@ x-app-healthcheck: &app-healthcheck
   timeout: 2s
   retries: 15
 
+x-vasp: &vasp
+  build:
+    context: .
+    dockerfile: services/Dockerfile
+    args:
+      SERVICE: vasp
+  user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
+  volumes:
+    - ./deployments:/deployments:ro
+  networks: [app]
+  depends_on:
+    gateway:
+      condition: service_healthy
+  healthcheck:
+    <<: *app-healthcheck
+    test:
+      - CMD
+      - node
+      - -e
+      - >-
+        fetch("http://127.0.0.1:" + process.env.PORT + "/healthz").then(r => {
+          if (!r.ok) process.exitCode = 1
+        })
+
 services:
   postgres:
     image: postgres:17@sha256:223efeb196329b55b3b9a13db144956411dbc18e727e59f681c3e0aede6475cf
@@ -90,6 +114,48 @@ services:
           -e,
           "fetch('http://127.0.0.1:8650/healthz').then(r => { if (!r.ok) process.exitCode = 1 })",
         ]
+
+  vasp-a:
+    <<: *vasp
+    environment:
+      <<: *app-environment
+      PORT: 8621
+      VASP_ID: 1
+      VASP_NAME: VASP A
+      CUSTOMER_ID_PREFIX: A
+      L2_RPC_URL: http://rpc-proxy:8545
+      GATEWAY_URL: http://gateway:8600
+      GATEWAY_API_KEY: ${VASP_A_GATEWAY_API_KEY:?Run make keys}
+      VASP_ADMIN_PRIVATE_KEY: ${VASP_A_ADMIN_PRIVATE_KEY:?Run make keys}
+      VASP_SIGNER_PRIVATE_KEY: ${VASP_A_SIGNER_PRIVATE_KEY:?Run make keys}
+      VASP_KEY_ENCRYPTION_KEY: ${VASP_A_KEY_ENCRYPTION_KEY:?Run make keys}
+      ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Run make keys}
+      AUDITOR_API_KEY: ${VASP_A_AUDITOR_KEY:?Run make keys}
+      KYC_VALIDITY_DAYS: ${KYC_VALIDITY_DAYS:-365}
+      DEMO_MODE: ${DEMO_MODE:-false}
+    ports:
+      - 127.0.0.1:8621:8621
+
+  vasp-b:
+    <<: *vasp
+    environment:
+      <<: *app-environment
+      PORT: 8622
+      VASP_ID: 2
+      VASP_NAME: VASP B
+      CUSTOMER_ID_PREFIX: B
+      L2_RPC_URL: http://rpc-proxy:8545
+      GATEWAY_URL: http://gateway:8600
+      GATEWAY_API_KEY: ${VASP_B_GATEWAY_API_KEY:?Run make keys}
+      VASP_ADMIN_PRIVATE_KEY: ${VASP_B_ADMIN_PRIVATE_KEY:?Run make keys}
+      VASP_SIGNER_PRIVATE_KEY: ${VASP_B_SIGNER_PRIVATE_KEY:?Run make keys}
+      VASP_KEY_ENCRYPTION_KEY: ${VASP_B_KEY_ENCRYPTION_KEY:?Run make keys}
+      ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Run make keys}
+      AUDITOR_API_KEY: ${VASP_B_AUDITOR_KEY:?Run make keys}
+      KYC_VALIDITY_DAYS: ${KYC_VALIDITY_DAYS:-365}
+      DEMO_MODE: ${DEMO_MODE:-false}
+    ports:
+      - 127.0.0.1:8622:8622
 
 networks:
   app:

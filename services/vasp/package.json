@@ -1,0 +1,20 @@
+{
+  "name": "@ledgera/vasp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.ts",
+    "db:generate": "node scripts/generate-migrations.ts"
+  },
+  "dependencies": {
+    "@ledgera/abis": "workspace:*",
+    "@ledgera/config": "workspace:*",
+    "@ledgera/shared": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "viem": "2.58.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.11"
+  }
+}

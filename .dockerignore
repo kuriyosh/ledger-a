@@ -18,3 +18,7 @@
 !services/gateway/src/**/*.ts
 !services/gateway/src/db/migrations/**/*.sql
 !services/gateway/src/db/migrations/meta/_journal.json
+!services/vasp/package.json
+!services/vasp/src/**/*.ts
+!services/vasp/src/db/migrations/**/*.sql
+!services/vasp/src/db/migrations/meta/_journal.json
