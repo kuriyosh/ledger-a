@@ -1,0 +1,17 @@
+{
+  "domain": {
+    "chainId": 31337,
+    "verifyingContract": "0x0000000000000000000000000000000000001400"
+  },
+  "message": {
+    "from": "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69",
+    "to": "0x0000000000000000000000000000000000001401",
+    "value": "0",
+    "gas": "100000",
+    "nonce": "0",
+    "deadline": 1800000000,
+    "data": "0x266cf109"
+  },
+  "hash": "0x625f91e5e06b1d9d592604238e9ab6e1dcf2ba94fa149c7050038fd399467e05",
+  "signature": "0x655dec964e9b665a1697b34a1409fe77d0ea861ebb89f5e975c90f458fc01eb56c0a1e7c050c8b002feb117c4704a74b7e7776eee4074ecb0db2b0e5ddfcf9701b"
+}

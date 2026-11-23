@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./travel-rule": "./src/travel-rule.ts"
+    "./travel-rule": "./src/travel-rule.ts",
+    "./forward-request": "./src/forward-request.ts"
   },
   "scripts": {
-    "generate:attestation": "node test/generate-attestation-vector.ts"
+    "generate:attestation": "node test/generate-attestation-vector.ts",
+    "generate:forward-request": "node test/generate-forward-request-vector.ts"
   },
   "dependencies": {
     "viem": "2.58.4"
