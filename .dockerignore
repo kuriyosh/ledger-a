@@ -34,3 +34,8 @@
 !services/demo-tools/src/**/*.ts
 !services/demo-tools/src/db/migrations/**/*.sql
 !services/demo-tools/src/db/migrations/meta/_journal.json
+!apps/web/package.json
+!apps/web/next.config.ts
+!apps/web/tsconfig.json
+!apps/web/app/**
+!apps/web/src/**

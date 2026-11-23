@@ -285,6 +285,38 @@ services:
           "fetch('http://127.0.0.1:8660/healthz').then(r => { if (!r.ok) process.exitCode = 1 })",
         ]
 
+  web:
+    restart: on-failure
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      LEDGERA_APP_MODE: ${LEDGERA_APP_MODE:-devnet}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      VASP_A_URL: http://vasp-a:8621
+      VASP_B_URL: http://vasp-b:8622
+      VASP_A_ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Run make keys}
+      VASP_B_ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Run make keys}
+      CONSORTIUM_URL: http://consortium:8630
+      CONSORTIUM_ADMIN_TOKEN: ${CONSORTIUM_ADMIN_TOKEN:?Run make keys}
+      INDEXER_URL: http://indexer:8640
+      AUDITOR_URL: http://auditor:8650
+      GATEWAY_URL: http://gateway:8600
+      DEMO_TOOLS_URL: http://demo-tools:8660
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run make keys}
+    ports:
+      - 127.0.0.1:3000:3000
+    networks: [app]
+    healthcheck:
+      <<: *app-healthcheck
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000').then(r => { if (!r.ok) process.exitCode = 1 })",
+        ]
+
 networks:
   app:
     name: ledgera
