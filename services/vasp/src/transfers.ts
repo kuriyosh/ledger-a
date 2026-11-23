@@ -12,15 +12,22 @@ import {
 import type { transferChain } from "./transfer-chain.ts";
 import type { transferGateway } from "./transfer-gateway.ts";
 
+import type { travelRuleService } from "./travel-rules.ts";
+
 type Chain = ReturnType<typeof transferChain>;
 type Gateway = ReturnType<typeof transferGateway>;
 type Registry = Pick<ReturnType<typeof registryChain>, "receipt">;
+type Travel = Pick<
+  ReturnType<typeof travelRuleService>,
+  "advance" | "approval" | "begin" | "report"
+>;
 
 export function transferService(
   store: TransferStore,
   chain: Chain,
   gateway: Gateway,
   registry: Registry,
+  travelRule: Travel,
   exclusive: Awaited<ReturnType<typeof openDatabase>>["exclusive"],
 ) {
   const batchSize = 50;
@@ -154,6 +161,7 @@ export function transferService(
       await resolveInclusion(row);
       return;
     }
+    if (row.status === "tr_pending") return travelRule.advance(row);
     let requested = row.forwardRequest;
     let initial = row.firstGatewaySeq;
     let fresh = false;
@@ -161,8 +169,8 @@ export function transferService(
       const signer = await store.signer(row.customerId);
       const counterparty = getAddress(bytesToHex(row.counterpartyAddress));
       const token = getAddress(bytesToHex(row.token));
-      let vaspId: number | undefined;
-      if (!row.skipChecks) {
+      let vaspId = row.counterpartyVaspId ?? undefined;
+      if (row.status === "created" && !row.skipChecks) {
         const recipient = await chain.recipient(counterparty);
         if (!recipient.eligible) {
           await store.update(row, {
@@ -173,15 +181,28 @@ export function transferService(
         }
         vaspId = recipient.vaspId;
         if (await chain.needsTravelRule(signer.address, counterparty)) {
-          await store.update(row, {
-            status: "failed",
-            errorCode: "TRAVEL_RULE_REQUIRED",
-            counterpartyVaspId: vaspId,
-          });
+          if (row.beneficiaryName) await travelRule.begin(row, vaspId);
+          else
+            await store.update(row, {
+              status: "failed",
+              errorCode: "BENEFICIARY_NAME_REQUIRED",
+              counterpartyVaspId: vaspId,
+            });
           return;
         }
       }
-      const plan = await chain.plan(signer, token, counterparty, row.amount);
+      const approval =
+        row.status === "tr_approved"
+          ? await travelRule.approval(row)
+          : undefined;
+      if (row.status === "tr_approved" && !approval) return;
+      const plan = await chain.plan(
+        signer,
+        token,
+        counterparty,
+        row.amount,
+        approval,
+      );
       requested = plan.request;
       initial = (await gateway.head()) + 1n;
       const retained = await store.update(row, {
@@ -293,7 +314,10 @@ export function transferService(
   async function poll(signal: AbortSignal) {
     while (!signal.aborted) {
       try {
-        await exclusive("transfer-reconcile", () => sweep(signal));
+        await exclusive("transfer-reconcile", async () => {
+          await sweep(signal);
+          if (!signal.aborted) await travelRule.report();
+        });
       } catch (error) {
         if (!signal.aborted)
           logService("vasp", "error", "Transfer worker did not advance", null, {

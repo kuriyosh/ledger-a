@@ -6,6 +6,7 @@ import {
 } from "@ledgera/abis";
 import type { Deployment } from "@ledgera/config";
 import { signForwardRequest } from "@ledgera/shared/forward-request";
+import type { TravelRuleAttestation } from "@ledgera/shared/travel-rule";
 import {
   type Address,
   encodeFunctionData,
@@ -19,6 +20,7 @@ import {
 import type { registryChain } from "./chain.ts";
 import type { ForwardPayload, IncomingTransfer } from "./db/transfers.ts";
 import { matchesForwardCall } from "./transfer-gateway.ts";
+import type { AttestationWire } from "./travel-rule-model.ts";
 
 const transferEvent = getAbiItem({ abi: ledgerTokenAbi, name: "Transfer" });
 const travelRuleEvent = getAbiItem({
@@ -77,6 +79,7 @@ export function transferChain(
       token: Address,
       to: Address,
       amount: bigint,
+      travel?: { attestation: TravelRuleAttestation; signature: Hex },
     ) {
       const [head, finalized] = await Promise.all([
         client.getBlock({ blockTag: "latest" }),
@@ -90,17 +93,27 @@ export function transferChain(
         blockHash: head.hash,
         requireCanonical: true,
       });
-      const data = encodeFunctionData({
-        abi: ledgerTokenAbi,
-        functionName: "transfer",
-        args: [to, amount],
-      });
+      const data = travel
+        ? encodeFunctionData({
+            abi: ledgerTokenAbi,
+            functionName: "transferWithTravelRule",
+            args: [to, amount, travel.attestation, travel.signature],
+          })
+        : encodeFunctionData({
+            abi: ledgerTokenAbi,
+            functionName: "transfer",
+            args: [to, amount],
+          });
+      const gas = travel ? 300_000n : 200_000n;
+      const deadline = Math.floor(Date.now() / 1000) + 300;
       const request = {
         from: signer.address,
         to: token,
         value: 0n,
-        gas: 200_000n,
-        deadline: Math.floor(Date.now() / 1000) + 300,
+        gas,
+        deadline: travel
+          ? Math.min(deadline, Number(travel.attestation.expiry))
+          : deadline,
         nonce,
         data,
       };
@@ -122,7 +135,7 @@ export function transferChain(
           from: request.from,
           to: token,
           value: "0",
-          gas: "200000",
+          gas: gas.toString(),
           deadline: request.deadline,
           data,
           signature,
@@ -239,6 +252,34 @@ export function transferChain(
           !(error instanceof TransactionNotFoundError)
         )
           throw error;
+      }
+    },
+    async travelEvent(hash: Hex, proof: AttestationWire) {
+      try {
+        const receipt = await client.getTransactionReceipt({ hash });
+        if (receipt.transactionHash !== hash || receipt.status !== "success")
+          return false;
+        const canonical = await client.getBlock({
+          blockNumber: receipt.blockNumber,
+        });
+        if (canonical.hash !== receipt.blockHash) return false;
+        return parseEventLogs({
+          abi: [travelRuleEvent],
+          eventName: "TravelRuleTransfer",
+          logs: receipt.logs.filter(
+            (log) => log.address.toLowerCase() === proof.token.toLowerCase(),
+          ),
+          strict: true,
+        }).some(
+          ({ args }) =>
+            args.refId === proof.refId &&
+            args.from.toLowerCase() === proof.originator.toLowerCase() &&
+            args.to.toLowerCase() === proof.beneficiary.toLowerCase() &&
+            args.amount === BigInt(proof.amount),
+        );
+      } catch (error) {
+        if (error instanceof TransactionReceiptNotFoundError) return false;
+        throw error;
       }
     },
     async events(blockHash: Hex): Promise<IncomingTransfer[]> {

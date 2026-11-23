@@ -105,6 +105,12 @@ function fixture() {
         chain as unknown as ReturnType<typeof transferChain>,
         {} as ReturnType<typeof transferGateway>,
         {} as Pick<ReturnType<typeof registryChain>, "receipt">,
+        {
+          advance: vi.fn(),
+          approval: vi.fn(),
+          begin: vi.fn(),
+          report: vi.fn(),
+        },
         async (_name, run) => {
           try {
             await run();

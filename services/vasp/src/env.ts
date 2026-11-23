@@ -9,6 +9,8 @@ const privateKey = z.templateLiteral([
   z.string().regex(/^[a-fA-F0-9]{64}$/),
 ]);
 
+import { maximumTravelRuleTtlSeconds } from "./travel-rule-model.ts";
+
 export const vaspEnv = serverEnv
   .extend({
     PORT: serverEnv.shape.PORT.optional(),
@@ -34,6 +36,13 @@ export const vaspEnv = serverEnv
       .positive()
       .max(36_500)
       .default(365),
+    TRAVEL_RULE_AUTO_APPROVE: z.stringbool().default(false),
+    TRAVEL_RULE_TTL_SEC: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(maximumTravelRuleTtlSeconds)
+      .default(600),
     DEMO_MODE: z.stringbool().default(false),
   })
   .refine((env) => env.CUSTOMER_ID_PREFIX === (env.VASP_ID === 1 ? "A" : "B"), {

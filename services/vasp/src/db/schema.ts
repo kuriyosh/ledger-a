@@ -15,6 +15,8 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+import type { AttestationWire, TravelMessage } from "../travel-rule-model.ts";
+
 const bytes = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => "bytea",
 });
@@ -153,3 +155,30 @@ export const processedBlocks = pgTable("processed_blocks", {
   number: bigint("block_number", { mode: "bigint" }).primaryKey(),
   hash: bytes("block_hash").notNull(),
 });
+
+export const travelRuleMessages = pgTable(
+  "travel_rule_messages",
+  {
+    refId: bytes("ref_id").primaryKey(),
+    direction: text("direction", { enum: ["out", "in"] }).notNull(),
+    counterpartyVaspId: integer("counterparty_vasp_id").notNull(),
+    payload: jsonb("payload").$type<TravelMessage>().notNull(),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected", "expired"],
+    }).notNull(),
+    nameMatch: boolean("name_match"),
+    attestation: jsonb("attestation").$type<AttestationWire>(),
+    signature: bytes("signature"),
+    txHash: bytes("tx_hash"),
+    deliveredAt: instant("delivered_at"),
+    createdAt: instant("created_at").notNull().defaultNow(),
+    decidedAt: instant("decided_at"),
+  },
+  (row) => [
+    index("travel_rule_direction_status").on(
+      row.direction,
+      row.status,
+      row.createdAt,
+    ),
+  ],
+);
