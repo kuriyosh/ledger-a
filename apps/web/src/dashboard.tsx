@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { ChainPanel } from "./chain-panel";
+import { DemoControl } from "./demo-control";
 import { roles } from "./roles";
 
 export function Dashboard({
@@ -38,6 +39,7 @@ export function Dashboard({
             </span>
             <span>ledgerA</span>
           </Link>
+          {demo && <DemoControl />}
           <span className="environment">
             {mode === "anvil" ? "Anvil" : "DevNet"}
           </span>

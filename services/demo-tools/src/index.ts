@@ -45,6 +45,41 @@ function authorize(header?: string) {
 }
 
 const app = serviceApp("demo-tools");
+async function gatewayControl(
+  path: "state" | "reorder-next",
+  method: "GET" | "POST",
+) {
+  try {
+    const response = await fetch(
+      new URL(`/admin/demo/${path}`, env.GATEWAY_URL),
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${env.GATEWAY_ADMIN_TOKEN}`,
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(5_000),
+        redirect: "error",
+      },
+    );
+    const data = await response.json();
+    return Response.json(data, { status: response.status });
+  } catch {
+    throw new ServiceError(
+      "GATEWAY_UNAVAILABLE",
+      "The demo Gateway is unavailable",
+      503,
+    );
+  }
+}
+app.get("/v1/demo/state", (context) => {
+  authorize(context.req.header("Authorization"));
+  return gatewayControl("state", "GET");
+});
+app.post("/v1/demo/reorder-next", (context) => {
+  authorize(context.req.header("Authorization"));
+  return gatewayControl("reorder-next", "POST");
+});
 app.post("/v1/issuer/mint", async (context) => {
   authorize(context.req.header("Authorization"));
   const input = mintInput.safeParse(

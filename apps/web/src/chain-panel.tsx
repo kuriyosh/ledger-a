@@ -323,14 +323,14 @@ function RegistryList({ demo }: { demo: boolean }) {
   const namesA = useQuery({
     queryKey: ["vasp-a", "registry-names"],
     queryFn: () => api<{ addresses: Named[] }>("vasp-a", "/v1/admin/addresses"),
-    enabled: names,
+    enabled: demo && names,
     refetchInterval: 2_000,
     gcTime: 0,
   });
   const namesB = useQuery({
     queryKey: ["vasp-b", "registry-names"],
     queryFn: () => api<{ addresses: Named[] }>("vasp-b", "/v1/admin/addresses"),
-    enabled: names,
+    enabled: demo && names,
     refetchInterval: 2_000,
     gcTime: 0,
   });
@@ -358,14 +358,16 @@ function RegistryList({ demo }: { demo: boolean }) {
             全期間
           </label>
         )}
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={names}
-            onChange={(event) => setNames(event.target.checked)}
-          />
-          氏名を表示
-        </label>
+        {demo && (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={names}
+              onChange={(event) => setNames(event.target.checked)}
+            />
+            氏名を表示
+          </label>
+        )}
       </div>
       <div className="table-scroll">
         <table>

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { Auditor } from "../../../src/auditor";
 import { Consortium, VaspAdmin } from "../../../src/management";
 import { roles } from "../../../src/roles";
 import { Wallet } from "../../../src/wallet";
@@ -12,6 +13,8 @@ export default async function RolePage({
   const path = `/${[role, ...(group ?? [])].join("/")}`;
   const selected = roles.find((item) => item.path === path);
   if (!selected) notFound();
+  if (role === "auditor")
+    return <Auditor demo={process.env.DEMO_MODE === "true"} />;
   if (role === "user")
     return (
       <Wallet

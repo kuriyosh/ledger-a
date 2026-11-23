@@ -86,12 +86,23 @@ function services(env: Environment): Record<string, Service> {
     },
     auditor: {
       url: env.AUDITOR_URL ?? "http://127.0.0.1:8650",
+      token: env.AUDITOR_ADMIN_TOKEN,
       rules: [
         {
           method: "GET",
           path: /^\/v1\/fifo\/(summary|entries|violations|exclusions)$/,
         },
         { method: "POST", path: /^\/v1\/fifo\/run$/ },
+        {
+          method: "GET",
+          path: /^\/v1\/trace\/0x[0-9a-fA-F]{40}(?:\/balances)?$/,
+        },
+        {
+          method: "GET",
+          path: /^\/v1\/disclosures\/ad_[0-9a-f]{32}$/,
+          auth: "admin",
+        },
+        { method: "POST", path: /^\/v1\/disclosures$/, auth: "admin" },
       ],
     },
     gateway: {
@@ -111,6 +122,18 @@ function services(env: Environment): Record<string, Service> {
       token: env.GATEWAY_ADMIN_TOKEN,
       rules: [
         { method: "GET", path: /^\/v1\/demo\/runs\/current$/, demo: true },
+        {
+          method: "GET",
+          path: /^\/v1\/demo\/state$/,
+          auth: "admin",
+          demo: true,
+        },
+        {
+          method: "POST",
+          path: /^\/v1\/demo\/reorder-next$/,
+          auth: "admin",
+          demo: true,
+        },
         {
           method: "POST",
           path: /^\/v1\/issuer\/mint$/,

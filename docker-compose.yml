@@ -307,6 +307,7 @@ services:
       CONSORTIUM_ADMIN_TOKEN: ${CONSORTIUM_ADMIN_TOKEN:?Run make keys}
       INDEXER_URL: http://indexer:8640
       AUDITOR_URL: http://auditor:8650
+      AUDITOR_ADMIN_TOKEN: ${AUDITOR_ADMIN_TOKEN:-}
       GATEWAY_URL: http://gateway:8600
       DEMO_TOOLS_URL: http://demo-tools:8660
       BATCHER_ADDRESS: ${BATCHER_ADDRESS:-}

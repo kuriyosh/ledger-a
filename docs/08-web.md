@@ -32,7 +32,7 @@
 ## 2. データの取得
 
 - ブラウザは Next.js の Route Handler（`/api/<サービス名>/...`）を経由する。中継はループバックの Host だけを受け付ける。
-- Route Handler が管理者用の API に `ADMIN_TOKEN` を付ける。トークンをブラウザに出さない。
+- Route Handler が管理者用の API にサービスごとのトークンを付ける。開示請求には監査者用のトークンを付ける。トークンは Web サーバー内で使う。
 - ユーザーのセッショントークンは VASP ごとに `sessionStorage` に持つ。
 - 取得は TanStack Query。一覧は 2 秒、進行中の操作は 1 秒ごとに再取得する。
 
