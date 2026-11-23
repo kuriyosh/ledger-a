@@ -31,6 +31,8 @@ export type RegistryRequest = {
   action: RegistryAction;
   txHash: Hex;
   rawTx: Hex;
+  firstBlock: bigint | null;
+  createdAt: Date;
 };
 export type RegistryResult = {
   success: boolean;
@@ -86,6 +88,8 @@ function request(row: typeof registryRequests.$inferSelect): RegistryRequest {
     action: row.action,
     txHash: bytesToHex(row.txHash),
     rawTx: bytesToHex(row.rawTx),
+    firstBlock: row.firstBlock,
+    createdAt: row.createdAt,
   };
 }
 
@@ -98,6 +102,18 @@ export class VaspStore {
     this.db = db;
     this.prefix = prefix;
     this.vault = vault;
+  }
+
+  async verifyWalletKey() {
+    const [stored] = await this.db.select().from(wallets).limit(1);
+    if (stored) {
+      const address = getAddress(bytesToHex(stored.address));
+      this.vault.recover(
+        stored.customerId,
+        address,
+        stored.encryptedPrivateKey,
+      );
+    }
   }
 
   async createCustomer(customer: CustomerInput) {
@@ -223,7 +239,10 @@ export class VaspStore {
     id: string,
     action: RegistryAction,
     expiresInDays: number,
-    sign: (address: Address, validUntil: Date) => Promise<Hex>,
+    sign: (
+      address: Address,
+      validUntil: Date,
+    ) => Promise<{ rawTx: Hex; firstBlock: bigint } | undefined>,
   ): Promise<RegistryRequest | undefined> {
     return this.db.transaction(async (tx) => {
       await tx.execute(registryLock);
@@ -272,7 +291,10 @@ export class VaspStore {
           validUntil,
         });
       }
-      const rawTx = await sign(address, validUntil);
+      const signed = await sign(address, validUntil);
+      if (!signed) return;
+      const { rawTx, firstBlock } = signed;
+      const createdAt = new Date();
       const txHash = keccak256(rawTx);
       if (action === "register") {
         await tx
@@ -283,10 +305,12 @@ export class VaspStore {
       await tx.insert(registryRequests).values({
         customerId: id,
         action,
+        createdAt,
+        firstBlock,
         rawTx: toBuffer(rawTx),
         txHash: toBuffer(txHash),
       });
-      return { customerId: id, action, rawTx, txHash };
+      return { customerId: id, action, rawTx, txHash, createdAt, firstBlock };
     });
   }
 

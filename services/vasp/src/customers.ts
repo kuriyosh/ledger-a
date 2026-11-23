@@ -14,7 +14,10 @@ export function customerService(
     VaspStore,
     "customer" | "prepareRegistry" | "settleRegistry" | "nextRegistryRequest"
   >,
-  chain: Pick<ReturnType<typeof registryChain>, "build" | "receipt" | "wait">,
+  chain: Pick<
+    ReturnType<typeof registryChain>,
+    "build" | "receipt" | "replaced" | "wait"
+  >,
   gateway: ReturnType<typeof registryGateway>,
   validityDays: number,
 ) {
@@ -30,20 +33,41 @@ export function customerService(
   }
 
   async function processRequest(pending: RegistryRequest) {
-    let outcome: RegistryResult | undefined;
-    try {
-      outcome = await chain.receipt(pending.txHash);
-      if (!outcome && (await gateway.submit(pending)) === "accepted") {
-        outcome = await chain.wait(pending.txHash);
-      }
-    } catch (error) {
-      if (error instanceof ServiceError) throw error;
-      throw new ServiceError(
+    const uncertain = () =>
+      new ServiceError(
         "REGISTRY_PENDING",
         "Registry transaction is pending",
         503,
-        { txHash: pending.txHash },
+        {
+          txHash: pending.txHash,
+          pendingSince: pending.createdAt.toISOString(),
+        },
       );
+    let outcome: RegistryResult | undefined;
+    try {
+      outcome = await chain.receipt(pending.txHash);
+      if (!outcome) {
+        const decision = await gateway.submit(pending);
+        if (decision === "accepted") {
+          try {
+            outcome = await chain.wait(pending.txHash);
+          } catch {
+            outcome = await chain.receipt(pending.txHash);
+            if (!outcome && !(await chain.replaced(pending))) throw uncertain();
+          }
+        } else {
+          outcome = await chain.receipt(pending.txHash);
+          if (
+            decision === "nonce_used" &&
+            !outcome &&
+            !(await chain.replaced(pending))
+          )
+            throw uncertain();
+        }
+      }
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
+      throw uncertain();
     }
 
     const customer = await store.settleRegistry(pending, outcome);

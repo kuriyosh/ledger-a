@@ -3,12 +3,16 @@ import { type Deployment, defineLedgerChain } from "@ledgera/config";
 import { ServiceError } from "@ledgera/shared/errors";
 import {
   type Address,
+  BaseError,
   createPublicClient,
+  ExecutionRevertedError,
   encodeFunctionData,
   type Hex,
   http,
   type LocalAccount,
+  parseTransaction,
   TransactionReceiptNotFoundError,
+  type TransactionSerialized,
   zeroHash,
 } from "viem";
 import { z } from "zod";
@@ -48,7 +52,6 @@ const definiteRejection = new Set([
   "PRIORITY_FEE_NOT_FIXED",
   "MAX_FEE_TOO_LOW",
   "GAS_LIMIT_TOO_HIGH",
-  "NONCE_TOO_LOW",
   "NONCE_GAP",
   "INSUFFICIENT_FUNDS",
   "SENDER_NOT_ALLOWED",
@@ -63,10 +66,10 @@ function gatewayUnavailable() {
   );
 }
 
-export function registryGateway(gatewayUrl: string) {
+export function registryGateway(gatewayUrl: string, requestHttp = fetch) {
   async function request(path: string, init?: RequestInit) {
     try {
-      const result = await fetch(new URL(path, gatewayUrl), {
+      const result = await requestHttp(new URL(path, gatewayUrl), {
         ...init,
         signal: AbortSignal.timeout(18_000),
       });
@@ -77,7 +80,9 @@ export function registryGateway(gatewayUrl: string) {
     }
   }
   return {
-    async submit(pending: RegistryRequest): Promise<"accepted" | "rejected"> {
+    async submit(
+      pending: RegistryRequest,
+    ): Promise<"accepted" | "rejected" | "nonce_used"> {
       const response = gatewayReply.safeParse(
         await request("/rpc", {
           method: "POST",
@@ -101,6 +106,7 @@ export function registryGateway(gatewayUrl: string) {
         return "accepted";
       }
       const detail = response.data.error.data;
+      if (detail?.reason === "NONCE_TOO_LOW") return "nonce_used";
       if (detail?.reason && definiteRejection.has(detail.reason))
         return "rejected";
       if (detail?.receipt?.txHash === pending.txHash) return "accepted";
@@ -167,6 +173,15 @@ export function registryChain(
       });
     },
     async build(action: RegistryAction, address: Address, validUntil: Date) {
+      if (action !== "register") {
+        const account = await client.readContract({
+          address: registry,
+          abi: kycRegistryAbi,
+          functionName: "getAccount",
+          args: [address],
+        });
+        if (account.status === (action === "suspend" ? 2 : 1)) return undefined;
+      }
       let data: Hex;
       switch (action) {
         case "register":
@@ -191,27 +206,43 @@ export function registryChain(
           });
           break;
       }
-      const [nonce, gas, block] = await Promise.all([
-        client.getTransactionCount({
-          address: admin.address,
-          blockTag: "pending",
-        }),
-        client.estimateGas({ account: admin.address, to: registry, data }),
-        client.getBlock({ blockTag: "latest" }),
-      ]);
-      const minimumFee =
-        2n * (block.baseFeePerGas ?? 0n) + registrationPriorityFee;
-      return admin.signTransaction({
-        type: "eip1559",
-        chainId: deployment.chainId,
-        to: registry,
-        data,
-        nonce,
-        gas: (13n * gas + 9n) / 10n,
-        maxFeePerGas:
-          minimumFee > registrationFeeCap ? minimumFee : registrationFeeCap,
-        maxPriorityFeePerGas: registrationPriorityFee,
-      });
+      try {
+        const block = await client.getBlock({ blockTag: "latest" });
+        const [nonce, gas] = await Promise.all([
+          client.getTransactionCount({
+            address: admin.address,
+            blockTag: "pending",
+          }),
+          client.estimateGas({ account: admin.address, to: registry, data }),
+        ]);
+        const minimumFee =
+          2n * (block.baseFeePerGas ?? 0n) + registrationPriorityFee;
+        const rawTx = await admin.signTransaction({
+          type: "eip1559",
+          chainId: deployment.chainId,
+          to: registry,
+          data,
+          nonce,
+          gas: (13n * gas + 9n) / 10n,
+          maxFeePerGas:
+            minimumFee > registrationFeeCap ? minimumFee : registrationFeeCap,
+          maxPriorityFeePerGas: registrationPriorityFee,
+        });
+        return { rawTx, firstBlock: block.number };
+      } catch (error) {
+        const revert =
+          error instanceof BaseError &&
+          error.walk(
+            (cause) => cause instanceof ExecutionRevertedError,
+          ) instanceof ExecutionRevertedError;
+        throw new ServiceError(
+          revert ? "REGISTRY_REJECTED" : "REGISTRY_UNAVAILABLE",
+          revert
+            ? "Registry rejected the proposed operation"
+            : "Registry RPC is unavailable",
+          revert ? 422 : 503,
+        );
+      }
     },
     async receipt(hash: Hex) {
       try {
@@ -219,6 +250,50 @@ export function registryChain(
       } catch (error) {
         if (!(error instanceof TransactionReceiptNotFoundError)) throw error;
       }
+    },
+    async replaced(request: RegistryRequest) {
+      const expected = parseTransaction(
+        request.rawTx as TransactionSerialized,
+      ).nonce;
+      if (expected === undefined)
+        throw new Error("Stored Registry transaction has no nonce");
+      const latest = await client.getBlock({ blockTag: "latest" });
+      const count = (hash: Hex) =>
+        client.getTransactionCount({
+          address: admin.address,
+          blockHash: hash,
+          requireCanonical: true,
+        });
+      if ((await count(latest.hash)) <= expected) return false;
+
+      // Some RPC nodes retain block bodies after pruning historical account state.
+      const from = request.firstBlock ?? BigInt(deployment.auditStartBlock);
+      const sender = admin.address.toLowerCase();
+      for (let to = latest.number; to >= from; to -= 8n) {
+        const numbers = Array.from(
+          { length: 8 },
+          (_, offset) => to - BigInt(offset),
+        ).filter((number) => number >= from);
+        const blocks = await Promise.all(
+          numbers.map((blockNumber) =>
+            client.getBlock({ blockNumber, includeTransactions: true }),
+          ),
+        );
+        const consumed = blocks
+          .flatMap((block) => block.transactions)
+          .find(
+            (transaction) =>
+              transaction.from.toLowerCase() === sender &&
+              transaction.nonce === expected,
+          );
+        if (consumed) {
+          const current = await client.getBlock({ blockNumber: latest.number });
+          return (
+            current.hash === latest.hash && consumed.hash !== request.txHash
+          );
+        }
+      }
+      return false;
     },
     async wait(hash: Hex) {
       return result(

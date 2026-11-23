@@ -3,7 +3,7 @@ import { openDatabase } from "@ledgera/shared/db";
 import { eq } from "drizzle-orm";
 import { type Hex, zeroHash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { customerService } from "../src/customers.ts";
 import { wallets } from "../src/db/schema.ts";
 import { VaspStore } from "../src/db/store.ts";
@@ -58,7 +58,7 @@ test.skipIf(!connection)(
       let mined = false;
       const chain = {
         async build(_: string, address: Hex) {
-          return admin.signTransaction({
+          const rawTx = await admin.signTransaction({
             chainId: 31337,
             type: "eip1559",
             nonce: signed++,
@@ -67,10 +67,14 @@ test.skipIf(!connection)(
             maxFeePerGas: 10n,
             maxPriorityFeePerGas: 1n,
           });
+          return { rawTx, firstBlock: 13n };
         },
         async receipt() {
           if (mined)
             return { success: true, blockNumber: 14n, blockHash: zeroHash };
+        },
+        async replaced() {
+          return false;
         },
         async wait() {
           throw new Error("wire timeout");
@@ -122,6 +126,60 @@ test.skipIf(!connection)(
           ),
         ).address,
       ).toBe(updated.customer.address);
+      await expect(
+        new VaspStore(
+          a.db,
+          "A",
+          createWalletVault(Buffer.alloc(32, 9)),
+        ).verifyWalletKey(),
+      ).rejects.toThrow();
+      await expect(restarted.verifyWalletKey()).resolves.toBeUndefined();
+
+      const retry = await restarted.createCustomer({
+        ...person,
+        email: "late-receipt@example.invalid",
+      });
+      const onChain = { success: true, blockNumber: 15n, blockHash: zeroHash };
+      const lookup = vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(onChain);
+      const replaced = vi.fn(async () => false);
+      const stale = await customerService(
+        restarted,
+        { ...chain, receipt: lookup, replaced },
+        {
+          async submit() {
+            return "nonce_used" as const;
+          },
+        },
+        365,
+      ).mutate(retry.id, "register");
+      expect(stale.customer.kycStatus).toBe("approved");
+      expect(lookup).toHaveBeenCalledTimes(2);
+      expect(replaced).not.toHaveBeenCalled();
+
+      const displaced = await restarted.createCustomer({
+        ...person,
+        email: "replaced@example.invalid",
+      });
+      const confirmedReplaced = vi.fn(async () => true);
+      await expect(
+        customerService(
+          restarted,
+          {
+            ...chain,
+            receipt: async () => undefined,
+            replaced: confirmedReplaced,
+          },
+          gateway,
+          365,
+        ).mutate(displaced.id, "register"),
+      ).rejects.toMatchObject({ code: "REGISTRY_REJECTED" });
+      expect(confirmedReplaced).toHaveBeenCalledTimes(1);
+      expect((await restarted.customer(displaced.id)).kycStatus).toBe("error");
+      expect(await restarted.nextRegistryRequest()).toBeUndefined();
+
       expect(await other.customer(second.id)).toMatchObject({
         kycStatus: "pending",
         address: null,

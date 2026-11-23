@@ -10,6 +10,7 @@ x-app-healthcheck: &app-healthcheck
   retries: 15
 
 x-vasp: &vasp
+  restart: on-failure
   build:
     context: .
     dockerfile: services/Dockerfile

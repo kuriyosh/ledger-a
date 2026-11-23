@@ -8,6 +8,13 @@
       "when": 1795456371872,
       "tag": "0000_customers-and-kyc",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795458959497,
+      "tag": "0001_registry-scan-floor",
+      "breakpoints": true
     }
   ]
 }

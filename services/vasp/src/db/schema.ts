@@ -65,5 +65,6 @@ export const registryRequests = pgTable("registry_requests", {
   }).notNull(),
   txHash: bytes("tx_hash").notNull().unique(),
   rawTx: bytes("raw_tx").notNull(),
+  firstBlock: bigint("first_block", { mode: "bigint" }),
   createdAt: instant("created_at").notNull().defaultNow(),
 });

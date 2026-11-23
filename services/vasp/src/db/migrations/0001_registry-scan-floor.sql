@@ -1,0 +1,1 @@
+ALTER TABLE "registry_requests" ADD COLUMN "first_block" bigint;

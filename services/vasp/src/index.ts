@@ -33,6 +33,7 @@ const store = new VaspStore(
   env.CUSTOMER_ID_PREFIX,
   createWalletVault(env.VASP_KEY_ENCRYPTION_KEY),
 );
+await store.verifyWalletKey();
 const customers = customerService(
   store,
   chain,
