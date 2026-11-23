@@ -44,13 +44,13 @@ type Options = {
   chainId: number;
   genesisHash: Hex;
   store: GatewayStore;
-  accept: ReturnType<typeof createAdmission>;
+  accept: ReturnType<typeof createAdmission>["accept"];
   signal: AbortSignal;
   notifications: ForwardNotifications;
 };
 
 export async function waitForForwarding(
-  store: GatewayStore,
+  store: Pick<GatewayStore, "forwardResult">,
   receipt: SignedReceipt,
   notifications: ForwardNotifications,
   signal: AbortSignal,

@@ -7,6 +7,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgSchema,
   text,
   timestamp,
@@ -66,3 +67,30 @@ export const rejections = gateway.table("rejections", {
   reason: text("reason").notNull(),
   detail: jsonb("detail").$type<Record<string, unknown>>().notNull(),
 });
+
+export const relayRequests = gateway.table(
+  "relay_requests",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    seq: bigint("seq", { mode: "bigint" })
+      .notNull()
+      .references(() => logEntries.seq),
+    vaspId: integer("vasp_id").notNull(),
+    requestFrom: bytea("request_from").notNull(),
+    requestTo: bytea("request_to").notNull(),
+    selector: bytea("selector").notNull(),
+    nonce: numeric("forwarder_nonce", {
+      precision: 78,
+      scale: 0,
+      mode: "bigint",
+    }).notNull(),
+    digest: bytea("request_hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (row) => [
+    index("relay_requests_seq").on(row.seq),
+    index("relay_requests_nonce").on(row.requestFrom, row.nonce),
+  ],
+);

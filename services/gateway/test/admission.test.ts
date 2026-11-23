@@ -3,7 +3,7 @@ import {
   receiptGenesisHash,
   receiptTypes,
 } from "@ledgera/shared/receipt";
-import { type Address, type Hex, verifyTypedData } from "viem";
+import { type Address, type Hex, verifyTypedData, zeroHash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, test } from "vitest";
 import {
@@ -34,27 +34,35 @@ const STANDARD = {
   value: 10n,
 } as const;
 
-function fixture(initial?: {
-  nonce?: bigint;
-  eligible?: boolean;
-  balance?: bigint;
-}) {
+function fixture(
+  initial?: {
+    nonce?: bigint;
+    eligible?: boolean;
+    balance?: bigint;
+  },
+  claims: Awaited<ReturnType<IntakeTransaction["relayClaims"]>> = [],
+) {
   const entries: AdmissionRecord[] = [];
   const errors: AdmissionError[] = [];
   const store: AdmissionStore = {
     async serialize<T>(action: (transaction: IntakeTransaction) => Promise<T>) {
       return await action({
-        async history(sender: Address, hash: Hex) {
+        async history(sender: Address) {
           const sameSender = entries.filter((entry) => entry.sender === sender);
           return {
             head: entries.at(-1),
-            duplicate: entries.some((entry) => entry.txHash === hash),
             outstanding: sameSender.map((entry) => ({
               nonce: entry.nonce,
               cost: 105_010n,
             })),
             queued: entries.length,
           };
+        },
+        async relayClaims() {
+          return claims;
+        },
+        async hasReceipt(hash: Hex) {
+          return entries.some((entry) => entry.txHash === hash);
         },
         async append(entry) {
           entries.push(entry);
@@ -66,7 +74,7 @@ function fixture(initial?: {
     },
   };
   let timestamp = 100;
-  const accept = createAdmission(
+  const admission = createAdmission(
     store,
     {
       async senderState() {
@@ -84,7 +92,7 @@ function fixture(initial?: {
     POLICY,
     () => timestamp--,
   );
-  return { accept, entries, errors };
+  return { ...admission, entries, errors };
 }
 
 describe("Gateway transaction admission", () => {
@@ -199,3 +207,47 @@ describe("Gateway transaction admission", () => {
     expect(entries).toHaveLength(1);
   });
 });
+
+const relayDigest: Hex = `0x${"a".repeat(64)}`;
+
+test.each([false, true])(
+  "keeps identical signatures reserved after a failed attempt (rejected=%s)",
+  async (rejected) => {
+    const { acceptRelay, entries } = fixture(undefined, [
+      { txHash: zeroHash, digest: relayDigest, seq: 10n, rejected },
+    ]);
+    const relay = {
+      sender: ALICE.address,
+      vaspId: 1,
+      operations: [
+        {
+          from: BOB.address,
+          to: POLICY.verifyingContract,
+          selector: "0x01020304" as const,
+          nonce: 2n,
+          digest: relayDigest,
+        },
+      ],
+      async isReverted() {
+        return true;
+      },
+      sign(nonce: bigint) {
+        return ALICE.signTransaction({ ...STANDARD, nonce: Number(nonce) });
+      },
+    };
+    await expect(acceptRelay(relay)).rejects.toMatchObject({
+      code: "DUPLICATE_TX",
+      details: { txHash: zeroHash, seq: "10", rejected },
+    });
+    expect(entries).toHaveLength(0);
+    const next = {
+      ...relay,
+      operations: relay.operations.map((operation) => ({
+        ...operation,
+        digest: zeroHash,
+      })),
+    };
+    await expect(acceptRelay(next)).resolves.toMatchObject({ seq: 1n });
+    expect(entries).toHaveLength(1);
+  },
+);

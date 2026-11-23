@@ -1,0 +1,361 @@
+{
+  "id": "f32cc295-e2ba-4d9a-997c-589bfe64c714",
+  "prevId": "f2de887a-7cd3-42c7-85b3-678c335256a5",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "gateway.log_entries": {
+      "name": "log_entries",
+      "schema": "gateway",
+      "columns": {
+        "seq": {
+          "name": "seq",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender": {
+          "name": "sender",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_nonce": {
+          "name": "tx_nonce",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_tx": {
+          "name": "raw_tx",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at_ms": {
+          "name": "received_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prev_hash": {
+          "name": "prev_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_hash": {
+          "name": "entry_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signature": {
+          "name": "signature",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vasp_id": {
+          "name": "vasp_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forward_status": {
+          "name": "forward_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "forward_error": {
+          "name": "forward_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "forwarded_at": {
+          "name": "forwarded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "included_block": {
+          "name": "included_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "included_index": {
+          "name": "included_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "log_entries_sender_nonce": {
+          "name": "log_entries_sender_nonce",
+          "columns": [
+            {
+              "expression": "sender",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tx_nonce",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_entries_status_seq": {
+          "name": "log_entries_status_seq",
+          "columns": [
+            {
+              "expression": "forward_status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "log_entries_tx_hash_unique": {
+          "name": "log_entries_tx_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": ["tx_hash"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "log_entries_binary_sizes": {
+          "name": "log_entries_binary_sizes",
+          "value": "\n      octet_length(\"gateway\".\"log_entries\".\"tx_hash\") = 32 and octet_length(\"gateway\".\"log_entries\".\"sender\") = 20\n      and octet_length(\"gateway\".\"log_entries\".\"prev_hash\") = 32 and octet_length(\"gateway\".\"log_entries\".\"entry_hash\") = 32\n      and octet_length(\"gateway\".\"log_entries\".\"signature\") = 65\n    "
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "gateway.rejections": {
+      "name": "rejections",
+      "schema": "gateway",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender": {
+          "name": "sender",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "gateway.relay_requests": {
+      "name": "relay_requests",
+      "schema": "gateway",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vasp_id": {
+          "name": "vasp_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_from": {
+          "name": "request_from",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_to": {
+          "name": "request_to",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "selector": {
+          "name": "selector",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "forwarder_nonce": {
+          "name": "forwarder_nonce",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "relay_requests_seq": {
+          "name": "relay_requests_seq",
+          "columns": [
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "relay_requests_nonce": {
+          "name": "relay_requests_nonce",
+          "columns": [
+            {
+              "expression": "request_from",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "forwarder_nonce",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "relay_requests_seq_log_entries_seq_fk": {
+          "name": "relay_requests_seq_log_entries_seq_fk",
+          "tableFrom": "relay_requests",
+          "tableTo": "log_entries",
+          "schemaTo": "gateway",
+          "columnsFrom": ["seq"],
+          "columnsTo": ["seq"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "relay_requests_request_hash_unique": {
+          "name": "relay_requests_request_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": ["request_hash"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
