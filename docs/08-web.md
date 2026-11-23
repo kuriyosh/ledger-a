@@ -243,6 +243,7 @@
 | GET | `/v1/attacker/status` | アドレス、Registry の状態、L1 と L2 の残高、`DepositProbe` のカウンタ、操作ごとに必要な残高 |
 | POST | `/v1/attacker/l1-deposit` | Sepolia の `OptimismPortal` に Deposit を送る |
 | GET | `/v1/attacker/deposits/:l1TxHash` | Deposit の進行 |
+| GET | `/v1/attacker/deposits/latest` | 最新のデモ Deposit と L2 の状態 |
 | POST | `/v1/attacker/l2-send` | L2 に取引を送る |
 | POST | `/v1/issuer/mint` | 発行体の鍵でトークンを発行する |
 | POST | `/v1/demo/reorder-next` | Gateway の `POST /admin/demo/reorder-next` を呼ぶ |
@@ -250,7 +251,7 @@
 | POST | `/v1/demo/runs` | 新しいデモ回を作る。`make demo-seed` が呼ぶ |
 | GET | `/v1/demo/runs/current` | 現在のデモ回 |
 
-発行とデモ回の開始には `Authorization: Bearer` で `GATEWAY_ADMIN_TOKEN` を送る。
+外部者の照会と操作、発行、デモ回の開始には `Authorization: Bearer` で `GATEWAY_ADMIN_TOKEN` を送る。
 
 `POST /v1/issuer/mint`
 
@@ -268,7 +269,7 @@
 { "mintEth": "0.001", "action": "probe" }
 ```
 
-- `OptimismPortal.depositTransaction` を attacker の鍵で送る。`msg.value` は `mintEth`。
+- `OptimismPortal.depositTransaction` をデモ専用の鍵で送る。`mintEth` は 0.001 ETH。`Idempotency-Key` が同じ場合は保存済みの署名取引を再利用する。
 - `action` が `probe` なら、`to` は `DepositProbe`、`data` は `poke()`。`none` なら `to` は attacker 自身、`data` は空。
 - 宛先をトークンにする `action` は用意しない。トークンへの送金は、標準の実行層でもトークンの検査で失敗する。実行層の規則が効いた証拠にならない（02 章 9.1）。
 - `depositTransaction` の L2 側のガス上限（`_gasLimit`）は 200,000 を明示する。L2 での見積もりは呼ばない。未登録の送信者では見積もりが失敗するため。

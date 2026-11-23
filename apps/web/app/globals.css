@@ -679,3 +679,15 @@ th {
   color: #183552;
   box-shadow: 0 8px 20px #13294324;
 }
+
+.enforcement-address,
+.enforcement-output {
+  overflow-wrap: anywhere;
+}
+
+.enforcement-output {
+  padding: 0.75rem;
+  border-radius: 0.4rem;
+  color: #e1edf8;
+  background: #162b42;
+}

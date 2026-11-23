@@ -431,7 +431,27 @@ function RegistryList({ demo }: { demo: boolean }) {
   );
 }
 
-function L1({ status, batcher }: { status?: ChainStatus; batcher?: string }) {
+function L1({
+  status,
+  batcher,
+  demo,
+}: {
+  status?: ChainStatus;
+  batcher?: string;
+  demo: boolean;
+}) {
+  const link = useQuery({
+    queryKey: ["demo", "enforcement-deposit", "latest"],
+    queryFn: () =>
+      api<{
+        l1TxHash: string;
+        l2TxHash: string | null;
+        l2Status: string;
+      } | null>("demo", "/v1/attacker/deposits/latest"),
+    enabled: demo,
+    retry: false,
+    refetchInterval: (query) => (query.state.error ? false : 2_000),
+  });
   const deposits = useQuery({
     queryKey: ["indexer", "deposits"],
     queryFn: () =>
@@ -460,6 +480,33 @@ function L1({ status, batcher }: { status?: ChainStatus; batcher?: string }) {
           </div>
         )}
       </dl>
+      {link.data && (
+        <>
+          <h3 className="subhead">外部者の Deposit</h3>
+          <dl className="network-list">
+            <div>
+              <dt>L1 取引</dt>
+              <dd>
+                <code title={link.data.l1TxHash}>
+                  {shortAddress(link.data.l1TxHash)}
+                </code>
+              </dd>
+            </div>
+            <div>
+              <dt>L2 取引</dt>
+              <dd>
+                {link.data.l2TxHash ? (
+                  <code title={link.data.l2TxHash}>
+                    {shortAddress(link.data.l2TxHash)}
+                  </code>
+                ) : (
+                  "待機中"
+                )}
+              </dd>
+            </div>
+          </dl>
+        </>
+      )}
       <h3 className="subhead">Deposit の L2 取引</h3>
       <ul className="history">
         {deposits.data?.transactions.map((tx) => (
@@ -613,7 +660,9 @@ export function ChainPanel({
       <div className="chain-content">
         {tab === "transactions" && <Transactions />}
         {tab === "registry" && <RegistryList demo={demo} />}
-        {tab === "l1" && <L1 status={index.data} batcher={batcher} />}
+        {tab === "l1" && (
+          <L1 status={index.data} batcher={batcher} demo={demo} />
+        )}
         {tab === "network" && <Network status={index.data} />}
       </div>
     </aside>

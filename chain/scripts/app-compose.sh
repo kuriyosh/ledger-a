@@ -55,11 +55,18 @@ LEDGERA_UID=$(id -u)
 LEDGERA_GID=$(id -g)
 
 profiles=()
+companion=()
 if [[ "$(read_env 'process.env.DEMO_MODE || ""')" == true ]]; then
   profiles+=(--profile demo)
+  if [[ "$LEDGERA_APP_MODE" == devnet ]]; then
+    export L2_DIRECT_RPC_URL
+    L2_DIRECT_RPC_URL=$(read_env 'process.env.L2_DIRECT_RPC_URL || ""')
+    L2_DIRECT_RPC_URL=${L2_DIRECT_RPC_URL:-${SEQUENCER_RPC_URLS%%,*}}
+    companion+=(-f docker-compose.enforcement-demo.yml)
+  fi
 fi
 files=()
 audit_file="$(dirname "$account_file")/.env.auditor.generated"
 if [[ -f .env ]]; then files+=(--env-file .env); fi
 if [[ -f "$audit_file" ]]; then files+=(--env-file "$audit_file"); fi
-exec docker compose "${profiles[@]}" "${files[@]}" --env-file "$account_file" -f docker-compose.yml "$@"
+exec docker compose "${profiles[@]}" "${files[@]}" --env-file "$account_file" -f docker-compose.yml "${companion[@]}" "$@"

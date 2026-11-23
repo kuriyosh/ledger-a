@@ -6,6 +6,12 @@ import { ServiceError } from "@ledgera/shared/errors";
 import { rawGateway } from "@ledgera/shared/raw-gateway";
 import { serviceApp, startService } from "@ledgera/shared/server";
 import { privateKeyToAccount } from "viem/accounts";
+import {
+  depositHash,
+  depositInput,
+  enforcementDemo,
+  enforcementInput,
+} from "./enforcement-demo.ts";
 import { demoEnv } from "./env.ts";
 import { mintChain, mintInput, mintService } from "./mint.ts";
 import { runService } from "./runs.ts";
@@ -45,6 +51,72 @@ function authorize(header?: string) {
 }
 
 const app = serviceApp("demo-tools");
+if (
+  deployment.environment === "devnet" &&
+  env.L1_RPC_URL &&
+  env.L2_DIRECT_RPC_URL &&
+  env.ATTACKER_PRIVATE_KEY
+) {
+  const enforcement = enforcementDemo(
+    database,
+    deployment,
+    {
+      l1: env.L1_RPC_URL,
+      l2: env.L2_RPC_URL,
+      direct: env.L2_DIRECT_RPC_URL,
+      gateway: env.GATEWAY_URL,
+    },
+    env.ATTACKER_PRIVATE_KEY,
+    env.ATTACKER_MAX_FEE_PER_GAS_WEI,
+  );
+  app.get("/v1/attacker/status", async (context) => {
+    authorize(context.req.header("Authorization"));
+    return context.json(await enforcement.status());
+  });
+  app.post("/v1/attacker/l1-deposit", async (context) => {
+    authorize(context.req.header("Authorization"));
+    const input = depositInput.safeParse(
+      await context.req.json().catch(() => undefined),
+    );
+    const id = context.req.header("Idempotency-Key") ?? randomUUID();
+    if (!input.success || !/^[A-Za-z0-9._-]{1,80}$/.test(id))
+      throw new ServiceError(
+        "INVALID_REQUEST",
+        "Invalid demo deposit request",
+        400,
+      );
+    return context.json(await enforcement.startDeposit(input.data, id), 201);
+  });
+  app.get("/v1/attacker/deposits/latest", async (context) => {
+    authorize(context.req.header("Authorization"));
+    return context.json(await enforcement.latestDeposit());
+  });
+  app.get("/v1/attacker/deposits/:hash", async (context) => {
+    authorize(context.req.header("Authorization"));
+    const hash = depositHash.safeParse(context.req.param("hash"));
+    if (!hash.success)
+      throw new ServiceError(
+        "INVALID_REQUEST",
+        "Invalid demo deposit hash",
+        400,
+      );
+    return context.json(await enforcement.readDeposit(hash.data));
+  });
+  app.post("/v1/attacker/l2-send", async (context) => {
+    authorize(context.req.header("Authorization"));
+    const input = enforcementInput.safeParse(
+      await context.req.json().catch(() => undefined),
+    );
+    if (!input.success)
+      throw new ServiceError(
+        "INVALID_REQUEST",
+        "Invalid demo transaction",
+        400,
+      );
+    return context.json(await enforcement.send(input.data));
+  });
+}
+
 async function gatewayControl(
   path: "state" | "reorder-next",
   method: "GET" | "POST",
