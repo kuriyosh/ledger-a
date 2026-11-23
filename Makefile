@@ -1,4 +1,4 @@
-.PHONY: setup keys lint fmt test test-integration
+.PHONY: setup keys lint fmt test test-contracts test-integration
 
 setup:
 	pnpm install --frozen-lockfile
@@ -18,10 +18,8 @@ fmt:
 test:
 	pnpm test
 
-test-integration:
-	pnpm test:integration
-
-.PHONY: test-contracts
-
 test-contracts:
 	forge test --root contracts
+
+test-integration:
+	pnpm test:integration
