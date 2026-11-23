@@ -124,7 +124,7 @@ flowchart LR
 - [x] `chain/scripts/build-op-reth.sh` と `make chain-image`
 - [x] `chain/versions.env` に `OPTIMISM_FORK_COMMIT` と `OP_RETH_IMAGE` を入れる
 - [x] `chain/scripts/bootstrap-l2.sh` を devnet に対応させる（拒否の確認、`deployments/devnet.json` の書き出し）
-- [x] 改造版のイメージで `make chain-up`、`make l2-bootstrap`
+- [x] 改造版のイメージで `make chain-up`、`make l2-bootstrap`（ローカル Sepolia フォーク）
 - [x] `chain/compose/docker-compose.replica.yml`（検証ノード、対照ノード）、`chain/scripts/compare-heads.sh`、`compare-deposit.sh`
 - [x] `make replica-up`、`replica-compare`、`control-up`、`control-compare`、`control-down`
 

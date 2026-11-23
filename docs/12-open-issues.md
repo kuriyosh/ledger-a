@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | V1 | 固定する tag（`op-reth/v2.9.0`）で、02 章 6.3 と 6.4 のファイルと関数が同じ位置にある | fork でソースを読む | M2 | 同じ役割の関数を探し、そこに変更を入れる | 固定タグでハンドラとプールビルダーの拡張点を確認 |
 | V2 | ハンドラ内の `journal.db_mut().storage()` が、同じブロックの先行取引の書き込みを返す | op-revm と op-reth のテスト | M2 | warm 状態を変えない形でジャーナルから読む | 同じブロック内の先行取引で登録すると、次の取引が通ることを op-revm のテストで確認 |
-| V3 | `from` を省略した `eth_call` が通る。未登録の `from` を指定するとエラーになる | devnet で `cast` | M2 | RPC の実行経路を判別して検査を外す | ローカル Sepolia フォークで、`from` を省略した呼び出しが成功。未登録の `from` を指定した見積もりは拒否 |
+| V3 | `from` を省略した `eth_call` が通る。未登録の `from` を指定するとエラーになる | devnet で `cast` | M2 | RPC の実行経路を判別して検査を外す | ローカル Sepolia フォークで、`from` を省略した `eth_call` が成功。未登録の `from` を指定した `eth_call` と `eth_estimateGas` は拒否 |
 | V4 | プール検査のラッパーを `OpNode::components()` に入れて型が通る | fork でビルド | M2 | `OpTransactionValidator` に直接書く | ラッパーを標準構成に組み込んだノードをビルドし、RPC からの受付を確認 |
 | V5 | L1 へのデプロイに要る Sepolia ETH の量。上流の README は 2〜3 ETH と書いている | 実測 | M0 | 01 章 5.4 の数字を直す | 未確認 |
 | V6 | priority fee が同じ取引が、devnet の op-reth で到着順に並ぶ | 100 件を送って監査 | M6 | 02 章 7.3 の順序固定を必須にする | 未確認 |
@@ -25,7 +25,7 @@
 | V17 | anvil の `--order fifo` で、結合テストの順序が安定する | 結合テストを繰り返す | M3 | 自動採掘を止め、ブロックを明示的に進める | 未確認 |
 | V18 | Sepolia へのデプロイでも `fundDevAccounts` が L2 の genesis に反映される | `cast balance` | M0 | admin が L1 から Deposit して原資にする | Sepolia のローカルフォーク向け genesis で開発用アカウント 0 に 10,000 ETH |
 | V19 | `deployOverrides` と `setGasConfigEcotone(0, 0)` の後、L2 の L1 データ手数料が 0 になる。`GasPriceOracle` の fee scalar と、レシートの `l1Fee` が 0 | devnet で `cast` | M0 | Gateway の残高検査と、外部者の取引に必要な残高（08 章 10.1）に、L1 データ手数料を加える | Sepolia のローカルフォークで L1 と L2 の fee scalar が 0。L2 のレシートの l1Fee も 0 |
-| V20 | 対照ノード（標準の op-reth）が、未登録アドレスの Deposit を含むブロックを導出する。その Deposit のレシートが成功になる | `make control-compare` | M2 | 標準イメージの Sequencer で別の devnet を立て、同じ `to`、`data`、`gasLimit` の Deposit を送って比べる | ローカル Sepolia フォークで、改造版は status 0 とカウンタ 0。標準の対照ノードは status 1 とカウンタ 1 |
+| V20 | 対照ノード（標準の op-reth）が、未登録アドレスの Deposit を含むブロックを導出する。その Deposit のレシートが成功になる | `make control-compare` | M2 | 標準イメージの Sequencer で別の devnet を立て、同じ `to`、`data`、`gasLimit` の Deposit を送って比べる | ローカル Sepolia フォークで、改造版は status 0 とカウンタ 0。標準の対照ノードは status 1 とカウンタ 1。3 台が同じ親ブロックから導出 |
 | V21 | 残高 0.001 ETH、`maxFeePerGas` 3 gwei の外部者の取引が、op-reth の標準の検証を通り、規則のエラーで拒否される | devnet で `cast send` | M2 | `ATTACKER_MAX_FEE_PER_GAS_WEI` を下げるか、Deposit の mint を増やす | ローカル Sepolia フォークで、同じ 0.001 ETH、3 gwei、gas 200,000 の取引を比較。未登録者は規則で拒否し、登録者はブロックに取り込んだ |
 
 ## 2. 既知の制約

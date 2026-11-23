@@ -35,16 +35,20 @@ CHAIN_NODE = node --env-file-if-exists=.env --env-file=.env.generated
 REPLICA_COMPOSE = docker compose --env-file chain/versions.env --env-file .env -f chain/compose/docker-compose.replica.yml
 CONTROL_COMPOSE = $(REPLICA_COMPOSE) --project-name ledgera-control --profile control
 
-.PHONY: chain-image replica-up replica-down replica-compare control-up control-down control-compare
+.PHONY: chain-image replica-up replica-down replica-reset replica-compare control-up control-down control-compare
 
 chain-image:
 	bash chain/scripts/build-op-reth.sh
 
 replica-up:
+	bash chain/scripts/check-op-reth-image.sh op-reth-replica $(REPLICA_COMPOSE) --project-name ledgera-replica
 	$(REPLICA_COMPOSE) --project-name ledgera-replica up -d --wait op-node-replica
 
 replica-down:
 	$(REPLICA_COMPOSE) --project-name ledgera-replica down
+
+replica-reset:
+	$(REPLICA_COMPOSE) --project-name ledgera-replica down --volumes
 
 replica-compare:
 	bash chain/scripts/compare-heads.sh
@@ -67,6 +71,7 @@ chain-up:
 	test -s chain/runtime/genesis.json
 	test -s chain/runtime/rollup.json
 	test -s chain/runtime/jwt.txt
+	bash chain/scripts/check-op-reth-image.sh op-reth $(CHAIN_COMPOSE)
 	$(CHAIN_COMPOSE) up -d --build --wait
 
 chain-down:

@@ -18,6 +18,9 @@ if (( replica_height < height )); then
 fi
 
 printf -v block '0x%x' "$height"
-actual=$(cast_in_network ledgera rpc --rpc-url http://op-reth-replica:8545 eth_getBlockByNumber "$block" false | jq -er '.hash')
+actual=$(cast_in_network ledgera-replica_engine rpc --rpc-url http://op-reth-replica:8545 eth_getBlockByNumber "$block" false | jq -er '.hash')
 printf 'Safe block %s\nSequencer  %s\nReplica    %s\n' "$height" "$expected" "$actual"
-test "$expected" = "$actual"
+if [[ "$expected" != "$actual" ]]; then
+  echo "The replica block hash does not match the sequencer safe block" >&2
+  exit 1
+fi

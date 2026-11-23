@@ -13,7 +13,7 @@ x-reth: &reth
     - --authrpc.jwtsecret=/workspace/jwt.txt
     - --rollup.disable-tx-pool-gossip
     - --disable-discovery
-  networks: [app]
+  networks: [engine]
 
 x-node: &node
   restart: unless-stopped
@@ -21,10 +21,11 @@ x-node: &node
   environment: &l1
     OP_NODE_L1_ETH_RPC: ${L1_RPC_URL:?Set L1_RPC_URL in .env}
     OP_NODE_L1_BEACON: ${L1_BEACON_URL:?Set L1_BEACON_URL in .env}
+    OP_NODE_L1_TRUST_RPC: ${L1_TRUST_RPC:-false}
   volumes:
     - ../runtime/rollup.json:/workspace/rollup.json:ro
     - ../runtime/jwt.txt:/workspace/jwt.txt:ro
-  networks: [app]
+  networks: [app, engine]
 
 x-node-args: &node-args
   - op-node
@@ -41,6 +42,7 @@ services:
   op-reth-replica:
     <<: *reth
     image: ${OP_RETH_IMAGE}
+    pull_policy: never
     volumes:
       - ../runtime/genesis.json:/workspace/genesis.json:ro
       - ../runtime/jwt.txt:/workspace/jwt.txt:ro
@@ -73,6 +75,8 @@ services:
     depends_on: [op-reth-control]
 
 networks:
+  engine:
+    internal: true
   app:
     external: true
     name: ledgera
