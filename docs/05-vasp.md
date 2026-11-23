@@ -142,9 +142,41 @@ flowchart TD
 
 ### 4.5 入金の検知
 
-- 2 秒ごとに `eth_getLogs` で両トークンの `Transfer` を取得し、宛先が自社顧客のものを `transfers` に `direction = 'in'` で記録する。
+- 2 秒ごとに、未処理のブロックを番号順に処理する。
+- ブロックごとに `eth_getBlockByNumber` と、ブロックハッシュを指定した `eth_getLogs` を呼ぶ。両トークンの `Transfer` のうち、宛先が自社顧客のものを `transfers` に `direction = 'in'` で記録する。
+- 記録には、ブロック番号、ブロックハッシュ、ログの位置（`log_index`）を持たせる。
 - 同じ取引の `TravelRuleTransfer` イベントから `refId` を取り、受信した電文と結びつける。
-- 処理済みのブロック番号は `cursors` に持つ。
+- 処理済みブロックの番号とハッシュは `processed_blocks` に持つ。`finalized` より古い行は消す。
+
+### 4.6 再編成への対応
+
+unsafe ブロックは消えることがある。原因は Sequencer の切替と、op-reth のデータ消失（02 章 13 節）。VASP の記録をチェーンに合わせ直す。
+
+検出。Indexer と同じ手順（07 章 2.1）。
+
+- 取得したブロックの `parentHash` が、`processed_blocks` の 1 つ前のハッシュと違えば再編成とみなす。
+- ハッシュが一致する高さ（分岐点）まで遡る。分岐点より上の `processed_blocks` を消し、ブロックを処理し直す。
+
+分岐点より上のブロックに依存する記録の扱い。
+
+| 記録 | 扱い |
+|---|---|
+| 入金（`transfers`、`direction = 'in'`） | `status` を `reorged` にする。処理し直して同じ移転が見つかれば、新しい位置で行を作る |
+| 送金、交換（`confirmed`、`failed`） | `submitted` に戻し、レシートを待ち直す。取引は Gateway が送り直す（04 章 7.2） |
+| KYC の承認（`approved`） | `registerAccount` のレシートを待ち直す。成功でなければ `error` にする |
+| アラート | 根拠の入金（`alerts.transfer_id`）が `reorged` になったら、下の表のとおりにする |
+
+根拠の入金が消えたアラートの扱い。
+
+| 元の状態 | 扱い |
+|---|---|
+| `open` | `invalidated` にする |
+| `freeze_requested` | `invalidated` にする。コンソーシアムサービスに申請の取り下げを依頼する（06 章 4.4） |
+| `frozen` | 状態は変えない。`evidence_reorged` を true にする。遮断を解くかは VASP 管理者が判断し、`UNBLOCK_ACCOUNT` を申請する |
+| `closed` | 変えない |
+
+- 処理し直して同じ入金がまた見つかれば、新しい行に対して AML の規則を評価し直す。該当すれば新しいアラートを作る。
+- `finalized` のブロックは再編成されない。`finalized` より古い記録は対象にしない。
 
 ## 5. トラベルルール
 
@@ -300,7 +332,7 @@ VASP 間 API（署名付きリクエスト）。
 | `LARGE_AMOUNT` | 金額がしきい値以上 | `AML_THRESHOLD_TUSD`（既定 5,000）、`AML_THRESHOLD_TJPY`（既定 500,000） |
 | `WATCHLIST` | 受け取った顧客の氏名が一覧に含まれる | `AML_WATCHLIST`（カンマ区切り） |
 
-該当したら `alerts` に `open` で記録する。
+該当したら `alerts` に `open` で記録する。根拠の入金を `transfer_id` に持つ。
 
 アラートの状態。
 
@@ -309,7 +341,8 @@ VASP 間 API（署名付きリクエスト）。
 | `open` | 未対応 |
 | `freeze_requested` | コンソーシアムに凍結を申請した |
 | `frozen` | 申請が実行され、アドレスが `BLOCKED` になった |
-| `closed` | 対応なしで閉じた。申請が取り下げられた、または失敗した場合も含む |
+| `closed` | 対応なしで閉じた。申請が取り下げられた場合も含む |
+| `invalidated` | 根拠の入金が再編成で消えた（4.6） |
 
 ### 7.2 VASP 管理者の操作
 
@@ -322,7 +355,8 @@ VASP 間 API（署名付きリクエスト）。
 
 - `reason` は乱数 32 バイト。アラートの ID と対応づけて DB に持つ。
 - 申請後はコンソーシアムサービスの申請 ID を `alerts.proposal_id` に保存し、状態を `freeze_requested` にする。
-- 5 秒ごとに申請の状態を読む。`executed` なら `frozen`、`cancelled` か `failed` なら `closed` にする。
+- 5 秒ごとに申請の状態を読む。`executed` なら `frozen`、`cancelled` なら `closed` にする。`failed` と `cancelling` の間は `freeze_requested` のままにする。申請がまだチェーン上で実行できるため（06 章 3 節）。
+- 申請の取り下げの依頼は、管理者の操作ではなく、再編成の検出時にサービスが自動で送る。コンソーシアムサービスの `POST /v1/proposals/:id/withdrawal-request` を署名付きリクエストで呼ぶ。
 
 ## 8. API
 
@@ -489,6 +523,8 @@ VASP 間 API（署名付きリクエスト）。
 | `address` | bytea、一意 | |
 | `encrypted_private_key` | bytea | nonce ‖ 暗号文 ‖ タグ |
 | `registered_tx_hash` | bytea、null 可 | `registerAccount` の取引 |
+| `registered_block_number` | bigint、null 可 | 取り込まれたブロック |
+| `registered_block_hash` | bytea、null 可 | 同上。再編成の照合に使う |
 | `valid_until` | timestamptz | |
 
 `transfers`
@@ -502,12 +538,17 @@ VASP 間 API（署名付きリクエスト）。
 | `counterparty_vasp_id` | integer、null 可 | |
 | `token` | bytea | |
 | `amount` | numeric(78,0) | |
-| `status` | text | 4.2。入金は `confirmed` だけ |
+| `status` | text | 4.2。入金は `confirmed` か `reorged` |
 | `ref_id` | bytea、null 可 | トラベルルールの参照 ID |
 | `tx_hash` | bytea、null 可 | |
+| `block_number` | bigint、null 可 | 取り込まれたブロック |
+| `block_hash` | bytea、null 可 | 同上。再編成の照合に使う |
+| `log_index` | integer、null 可 | 入金だけ。`Transfer` のログの位置 |
 | `gateway_seq` | bigint、null 可 | |
 | `error_code` | text、null 可 | |
 | `created_at`、`updated_at` | timestamptz | |
+
+入金は（`block_hash`、`log_index`）で一意にする。
 
 `travel_rule_messages`
 
@@ -534,6 +575,8 @@ VASP 間 API（署名付きリクエスト）。
 | `maker_signature` | bytea | |
 | `status` | text | `quoted`、`submitted`、`confirmed`、`failed`、`expired` |
 | `tx_hash` | bytea、null 可 | |
+| `block_number` | bigint、null 可 | 取り込まれたブロック |
+| `block_hash` | bytea、null 可 | 同上。再編成の照合に使う |
 | `gateway_seq` | bigint、null 可 | |
 | `error_code` | text、null 可 | |
 | `created_at`、`updated_at` | timestamptz | |
@@ -558,7 +601,9 @@ VASP 間 API（署名付きリクエスト）。
 | `address` | bytea |
 | `rule` | text |
 | `detail` | jsonb |
-| `status` | text（`open`、`freeze_requested`、`frozen`、`closed`） |
+| `transfer_id` | text（根拠の入金。`transfers.id`） |
+| `status` | text（`open`、`freeze_requested`、`frozen`、`closed`、`invalidated`） |
+| `evidence_reorged` | boolean（`frozen` の後に根拠の入金が消えたら true） |
 | `reason_id` | bytea |
 | `proposal_id` | text、null 可 |
 | `created_at` | timestamptz |
@@ -574,7 +619,7 @@ VASP 間 API（署名付きリクエスト）。
 | `status` | text（`pending`、`approved`、`rejected`） |
 | `created_at`、`decided_at` | timestamptz |
 
-`sessions`（`token`、`customer_id`、`expires_at`）、`cursors`（`name`、`block_number`）も持つ。
+`sessions`（`token`、`customer_id`、`expires_at`）、`processed_blocks`（`block_number`、`block_hash`）も持つ。
 
 ## 10. 設定
 
@@ -583,7 +628,7 @@ VASP 間 API（署名付きリクエスト）。
 | `PORT` | 8621 / 8622 | |
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | |
-| `L2_RPC_URL` | - | 読み取り用 |
+| `L2_RPC_URL` | - | 読み取り用。rpc-proxy を指す |
 | `GATEWAY_URL`、`GATEWAY_API_KEY` | - | |
 | `CONSORTIUM_URL` | - | |
 | `VASP_ID` | - | 1 か 2 |
@@ -618,4 +663,8 @@ VASP 間 API（署名付きリクエスト）。
 | 結合 | 却下と期限切れで送金が止まる |
 | 結合 | 交換: 見積もり、実行、両残高の入れ替わり。期限切れの見積もりで残高が変わらない |
 | 結合 | 高額の入金でアラートが出る。凍結申請がコンソーシアムに届く |
+| 結合 | 遮断された顧客の送金と交換が `SignerNotAllowed` で `failed` になる |
+| 結合 | 再編成（anvil の `evm_revert`）で入金のブロックが消えると、入金が `reorged`、アラートが `invalidated` になる |
+| 結合 | `freeze_requested` のアラートの根拠が消えると、コンソーシアムに取り下げの依頼が届く |
+| 結合 | 再編成で消えた送金が `submitted` に戻り、送り直された取引のレシートで `confirmed` になる |
 | 結合 | 開示請求の承認で氏名が返る |

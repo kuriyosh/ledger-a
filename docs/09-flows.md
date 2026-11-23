@@ -12,9 +12,10 @@
 | Tan Mei | VASP B | 事前に登録する。1,000 tUSD を持つ |
 | Lee Jun | VASP B | 事前に登録する。残高なし |
 | VASP B の自己勘定 | VASP B | 初期化で tUSD と tJPY を持つ。交換の相手方 |
-| 外部者 | なし | Sepolia に 0.05 ETH を持つ。L2 には何も持たない |
+| 外部者 | なし | Sepolia に 0.05 ETH を持つ。Registry に登録しない |
 
-事前の登録は `make demo-seed` が行う（[10-dev-ops.md](10-dev-ops.md)）。
+- 事前の登録は `make demo-seed` が行う（[10-dev-ops.md](10-dev-ops.md)）。
+- `make demo-seed` は実行のたびに新しいデモ回を作る。外部者以外の登場人物は、回ごとに新しいアドレスになる（9 節）。
 
 場面の一覧。
 
@@ -166,7 +167,7 @@ sequenceDiagram
 
 | 手順 | 画面 | 操作 | 結果 | 止めた層 |
 |---:|---|---|---|---|
-| 1 | 外部者 | L1 から Deposit で送金を試みる。場面 3 の前に送っておく | L2 のブロックに入るが失敗。mint された 0.001 ETH だけが残る | 状態遷移 |
+| 1 | 外部者 | L1 から Deposit で `DepositProbe.poke()` を呼ぶ。場面 3 の前に送っておく | L2 のブロックに入るが失敗。カウンタは増えない。mint された 0.001 ETH だけが残る | 状態遷移 |
 | 2 | 外部者 | L2 に直接トークン送金 | `ledgera: sender not allowed` | プール |
 | 3 | 外部者 | L2 に直接 ETH 送金 | 同上 | プール |
 | 4 | 外部者 | L2 に直接コントラクトをデプロイ | 同上 | プール |
@@ -177,7 +178,9 @@ sequenceDiagram
 説明の要点。
 
 - 手順 1 は Sequencer を通らない経路。それでも同じ規則が適用される。
+- 手順 1 の宛先 `DepositProbe` は、登録状態を見ないカウンタ。標準の実行層なら、同じ Deposit は成功してカウンタが増える。失敗の原因は実行層の規則だけ。標準の実行層で成功することは M2 で確認している（[02-chain.md](02-chain.md) の 10.2）。
 - 手順 2〜4 は、トークン以外の取引も止まることを示す。トークンコントラクトだけの制限ではない。
+- 手順 2〜4 は、op-reth の標準の検証（残高、手数料）を通る条件で送る。返るエラーは規則による拒否だけになる（[08-web.md](08-web.md) の 10.1）。
 - 手順 6 と 7 は、登録済みの利用者でも、ルールに反する移転はチェーンが止めることを示す。
 
 ```mermaid
@@ -188,10 +191,10 @@ sequenceDiagram
   participant OR as op-reth
   participant GW as gateway
 
-  AT->>L1: OptimismPortal.depositTransaction（mint 0.001 ETH、tUSD.transfer の呼び出し）
+  AT->>L1: OptimismPortal.depositTransaction（mint 0.001 ETH、DepositProbe.poke の呼び出し）
   L1-->>ON: TransactionDeposited
   ON->>OR: Deposit 取引を含むブロックを構築
-  Note over OR: 送信者が未登録 → 失敗 Deposit。mint だけ反映
+  Note over OR: 送信者が未登録 → 失敗 Deposit。poke は実行されない。mint だけ反映
   AT->>OR: eth_sendRawTransaction（直接）
   OR-->>AT: ledgera: sender not allowed
   AT->>GW: eth_sendRawTransaction
@@ -200,12 +203,15 @@ sequenceDiagram
 
 確認点。
 
-- Deposit に対応する L2 取引のレシートが失敗。tUSD の残高はどのアドレスも変わらない。
-- 外部者の L2 の ETH 残高が 0.001 ETH。nonce が 1。
+- Deposit に対応する L2 取引のレシートが失敗。`DepositProbe.count(外部者)` が Deposit の前後で変わらない。
+- 外部者の L2 の ETH 残高が Deposit の前より 0.001 ETH 増える。nonce が 1 増える。
+- 対照として、登録済みの admin が同じ `to`、`data`、`gasLimit` で Deposit を送る。レシートが成功で、`DepositProbe.count(admin)` が 1 増える。
+- 手順 2〜4 のエラー文が `ledgera: sender not allowed` を含む。残高不足や手数料のエラーではない。
 - 手順 2〜5 の取引ハッシュがどのブロックにも入っていない。
 - 手順 5 の拒否が Gateway の `GET /v1/rejections` に出る。
 - 手順 6 と 7 の取引は L2 に入り、レシートが失敗。佐藤さんの残高は変わらない。
 - 検証ノードを動かしている場合、手順 1 のブロックのハッシュが Sequencer と一致する。
+- 対照ノードを動かしている場合、手順 1 と同じ Deposit のレシートが対照ノードでは成功で、`DepositProbe.count(外部者)` が 1 になる。確認できるのは、そのチェーンで最初の未登録 Deposit のときだけ。
 
 ## 6. 場面 5: 止める
 
@@ -217,7 +223,7 @@ sequenceDiagram
 | 2 | コンソーシアム | 構成員 1 として申請を開き、承認する | 「承認」の取引が出る |
 | 3 | コンソーシアム | 構成員 2 に切り替えて承認する | 「承認」の取引が出る。申請が実行可能になる |
 | 4 | コンソーシアム | 実行する | 「実行」の取引が出る。登録簿の Lim さんの状態が「遮断」になる |
-| 5 | ユーザー B | Lim さんが Lee さんに 100 tUSD を送る | 失敗した取引が出る。理由は `AccountNotEligible` |
+| 5 | ユーザー B | Lim さんが Lee さんに 100 tUSD を送る | 失敗した取引が出る。理由は `SignerNotAllowed` |
 
 ```mermaid
 sequenceDiagram
@@ -242,8 +248,10 @@ sequenceDiagram
   UB->>VB: POST /v1/me/transfers（Lee へ 100 tUSD）
   VB->>GW: POST /relay/v1/forward（submitOnRevert）
   GW->>L2: LedgerForwarder.execute
-  Note over L2: LedgerToken が AccountNotEligible で revert
+  Note over L2: LedgerForwarder が署名者を検査し、SignerNotAllowed で revert
 ```
+
+手順 5 の説明。代理送信では、取引の送信者は VASP B の代理送信用アカウントになる。実行層が見るのはこのアカウントで、Lim さんではない。遮断された Lim さんの署名は `LedgerForwarder` が止める。送金に限らず、`approve` などトークンを動かさない操作も止まる。
 
 確認点。
 
@@ -251,7 +259,8 @@ sequenceDiagram
 - `AccountUpdated` の `actor` が `ConsortiumSafe`、`status` が `BLOCKED`、`version` が 1 増えている。
 - 承認が 1 件の時点では、consortium の `POST /v1/proposals/:id/execute` が 409 `NOT_EXECUTABLE` を返す。L2 に取引を送らない。
 - 実行後、vasp-b の `alerts` の Lim さんの行が `frozen` になる。
-- Lim さんの送金は L2 に入り、レシートが失敗。Lim さんの残高は 10,000 tUSD のまま。
+- Lim さんの送金は L2 に入り、レシートが失敗。`failure.errorName` が `SignerNotAllowed`。Lim さんの残高は 10,000 tUSD のまま。
+- 遮断後に Lim さんが交換（`approve` ＋ `fill`）を実行しても、`SignerNotAllowed` で失敗する。`allowance(Lim, AtomicSwap)` は 0 のまま。
 - vasp-b の管理者が `reinstateAccount` を送っても `InvalidTransition` で失敗する。
 
 ## 7. 場面 6: 確かめる
@@ -262,7 +271,7 @@ sequenceDiagram
 
 | 手順 | 画面 | 操作 | 結果 |
 |---:|---|---|---|
-| 1 | 監査者 | 到着順の監査を開く | 違反 0 件。ここまでの全取引が通番順に並んでいる |
+| 1 | 監査者 | 到着順の監査を開く。集計区間は「この回」 | 違反 0 件。この回の全取引が通番順に並んでいる |
 | 2 | デモ操作 | 「次の 2 件の順序を入れ替える」を押す | 仕掛けが待機中になる |
 | 3 | ユーザー A | 佐藤さんが鈴木さんに 1,000 tJPY を送る | 通番 n が振られる。取引は保留され、画面は「送信中」のまま |
 | 4 | ユーザー B | 60 秒以内に、Tan さんが Lee さんに 10 tUSD を送る | n より後の通番 m が振られる。m、n の順に転送され、両方とも完了する |
@@ -295,7 +304,9 @@ sequenceDiagram
 
 確認点。
 
+- 以下の確認は、現在のデモ回の開始通番と開始ブロックを `fromSeq`、`fromBlock` に指定して行う。
 - 手順 1 の時点で `GET /v1/fifo/violations` が空。
+- 手順 1 の時点で、この回の Receipt のうち未取り込みのものがない。場面 4 と 5 で失敗した取引も、ブロックに入っている。
 - 手順 5 で違反が 1 件。`evidence` の 2 つの Receipt の署名が `ReceiptLog.verifyReceipt` で true。
 - C1、C2、C3 は違反なし。Receipt とログ自体は正しいまま、順序だけが食い違う。
 
@@ -352,3 +363,32 @@ sequenceDiagram
 - 切替の前後で、L2 のブロック番号に欠番と重複がない。
 - 切替中に受け付けた取引が、切替後にブロックに入る。
 - auditor の C4、C5 の違反が増えない。
+
+## 9. デモの再演
+
+チェーンを作り直さずに、場面 1 から再演できる。`make demo-seed` を実行して新しいデモ回を作る。
+
+前の回から残るものと、その扱い。
+
+| 残るもの | 再演への影響 | 扱い |
+|---|---|---|
+| 遮断された Lim さんのアドレス | 同じアドレスには送金できない。場面 3 が成立しない | 登場人物を回ごとに作り直す。新しい Lim さんは別のアドレスになる |
+| 場面 6 で起こした順序違反 | 全期間の違反件数は 0 に戻らない。場面 6 の手順 1 が成立しない | 監査の集計を回の開始通番からにする。手順 1 は「この回の違反 0 件」を見せる |
+| 登録簿の過去の行 | 前の回の顧客と、遮断済みの行が残る | 登録簿は既定で「この回」だけを表示する |
+| 外部者の L2 残高と nonce | 回を重ねるごとに増える | 確認点は Deposit の前後の差で見る |
+| 対照ノード | 最初の未登録 Deposit のブロックで導出が止まっている | 2 回目以降は使わない |
+| VASP B の自己勘定の残高 | 場面 2 のたびに tUSD が 10,000 減る | 初期残高は 1,000,000 tUSD。100 回ぶんある |
+| Safe の nonce、Registry のバージョン | 回を重ねるごとに進む | 確認点は前後の差で見る |
+
+`make demo-seed` が行うこと（[08-web.md](08-web.md) の 10.1）。
+
+1. 回の番号を 1 増やす。その時点の通番とブロックを、回の開始位置として記録する。
+2. 鈴木さん、Lim さん、Tan さん、Lee さんを、回ごとのメールアドレスで登録する。佐藤さんは場面 1 で登録する。
+3. 画面が新しい回に切り替わる。対象は、メールアドレス欄の初期値、登録簿の表示範囲、監査の集計区間。
+
+再演の前に確かめること。
+
+- 前の回の申請がコンソーシアムに未完了で残っていない。残っていれば実行するか、取り下げる。
+- Gateway の仕掛けが「待機中」や「保留中」で残っていない。
+
+初期状態（遮断も違反の記録もない状態）に戻すときは、環境を作り直す。L1 へのデプロイからやり直す（[02-chain.md](02-chain.md) の 13 節）。

@@ -73,10 +73,13 @@
 | 「確認を飛ばして送る」 | `demo.skipChecks` を付けて送金する |
 | 「期限切れの見積もりで実行」 | 見積もりの期限後に、`demo.allowExpired` を付けて交換する |
 
+`DEMO_MODE` のときは、口座開設とログインのメールアドレス欄に、現在のデモ回の値を初期表示する（例: `sato.r3@example.com`）。回ごとに別の顧客になる（[09-flows.md](09-flows.md) の 9 節）。
+
 失敗理由の表示。
 
 | `errorCode` | 文言 |
 |---|---|
+| `SignerNotAllowed` | あなたのアドレスは現在取引できません |
 | `AccountNotEligible` | 相手、またはあなたのアドレスは取引できません |
 | `TravelRuleRequired` | 相手の事業者の確認が必要な送金です |
 | `QuoteExpired` | 見積もりの有効期限が切れました |
@@ -90,10 +93,11 @@
 | 顧客 | ID、氏名、KYC の状態、アドレス、Registry の状態 | 承認、却下、停止、停止の解除、入金（デモ） |
 | トラベルルール（受信） | 送付 VASP、金額、受取人、氏名の照合結果、状態 | 承認、却下 |
 | トラベルルール（送信） | 相手 VASP、金額、状態、取引ハッシュ | - |
-| アラート | 規則、対象の顧客、金額、状態、申請の進行（承認 n / 2） | 凍結を申請、閉じる |
+| アラート | 規則、対象の顧客、金額、状態、根拠の入金の確定段階、申請の進行（承認 n / 2） | 凍結を申請、閉じる |
 | 開示請求 | アドレス、請求者、理由、状態 | 承認、却下 |
 
 - 氏名などの個人情報が見えるのはこの画面とユーザー画面だけ。
+- 根拠の入金が再編成で消えたアラートは「無効」と表示する。遮断済みのアラートには「根拠の入金が消えた」と表示する（05 章 4.6）。
 - 「Registry の状態」は indexer から取る。VASP の DB の値と並べて表示する。
 - 「入金（デモ）」は、法定通貨の入金があったものとして、顧客のアドレスにトークンを発行する。demo-tools の `POST /v1/issuer/mint` を呼ぶ。`DEMO_MODE` のときだけ表示する。
 
@@ -109,6 +113,9 @@
 
 - 承認すると、右のチェーン表示に `approveHash` の取引が出る。
 - 実行すると、`execTransaction` の取引と `AccountUpdated` のイベントが出る。
+- 承認のある申請の取り下げは、2 人の構成員が順に「取り下げ」を押す。チェーン表示に、取消取引の `approveHash` と `execTransaction` が出る（06 章 4.4）。1 人目が押した後は「取り下げ中（1 / 2）」と表示する。
+- VASP から取り下げの依頼がある申請には、依頼の理由を表示し、「実行」を無効にする。
+- 実行に失敗した申請には「再実行」と「取り下げ」を出す。
 
 ## 6. 監査者画面
 
@@ -116,13 +123,17 @@
 
 | 要素 | 内容 | API |
 |---|---|---|
-| 概要 | 検査済みの通番とブロック、検査ごとの結果、違反の件数 | `GET /v1/fifo/summary` |
+| 集計区間 | 「この回」と「全期間」を切り替える。既定は「この回」 | demo-tools の `GET /v1/demo/runs/current` |
+| 概要 | 検査済みの通番とブロック、検査ごとの結果、違反の件数、除外の件数 | `GET /v1/fifo/summary` |
 | エントリの表 | 通番、受付時刻、取引ハッシュ、送信者、ブロック位置、判定 | `GET /v1/fifo/entries` |
 | 違反の一覧 | 種別、説明、証拠（2 つの Receipt と位置） | `GET /v1/fifo/violations` |
+| 除外の一覧 | 未採用のうち理由を確認できたもの。理由、確認したブロック、読んだ値 | `GET /v1/fifo/exclusions` |
 | コミット | 範囲、範囲の最後のエントリのハッシュ、L2 の取引 | indexer の `GET /v1/receipt-commitments` |
 | 再検査 | 全件を検査し直す | `POST /v1/fifo/run` |
 
-違反のある行は色を変える。証拠の Receipt は署名付きの JSON をそのまま見せる。
+- 違反のある行は色を変える。証拠の Receipt は署名付きの JSON をそのまま見せる。
+- 「この回」は、現在のデモ回の開始通番と開始ブロックを `fromSeq`、`fromBlock` に渡す。検査そのものは全期間に対して行われている（07 章 3.3）。
+- `DEMO_MODE` でないときは「全期間」だけを表示する。
 
 ### 6.2 アドレスの追跡
 
@@ -141,19 +152,20 @@
 
 | 要素 | 内容 |
 |---|---|
-| 状態 | アドレス、Registry の状態（未登録）、Sepolia の残高、L2 の残高 |
+| 状態 | アドレス、Registry の状態（未登録）、Sepolia の残高、L2 の残高、`DepositProbe` のカウンタ |
 | 操作ボタン | 下の表 |
 | 出力 | 送った内容、RPC のエラー文、取引ハッシュ、レシートの状態を時系列で出す |
 
 | 操作 | demo-tools の API | 期待する結果 |
 |---|---|---|
-| L1 から Deposit で送金を試みる | `POST /v1/attacker/l1-deposit` | L2 のブロックに入るが失敗。L2 の残高は mint 分だけ増える |
+| L1 から Deposit で L2 のコントラクトを呼ぶ | `POST /v1/attacker/l1-deposit` | L2 のブロックに入るが失敗。`DepositProbe` のカウンタは増えない。L2 の残高は mint 分だけ増える |
 | L2 に直接トークン送金 | `POST /v1/attacker/l2-send`（`route: direct`、`action: token-transfer`） | `ledgera: sender not allowed` |
 | L2 に直接 ETH 送金 | 同（`action: eth-transfer`） | 同上 |
 | L2 に直接コントラクトをデプロイ | 同（`action: deploy`） | 同上 |
 | Gateway 経由で送金 | 同（`route: gateway`） | 同上。Receipt は出ない |
 
-L2 の残高が 0 のときは、直接送信のボタンを無効にする。残高不足のエラーが先に出て、規則による拒否を見せられないため。最初に Deposit を行う。
+- L2 の残高が、取引に必要な残高（10.1 の表）に足りないときは、直接送信のボタンを無効にする。op-reth は規則の判定より先に残高を確かめる。足りないと残高不足のエラーが出て、規則による拒否を見せられない。最初に Deposit を行う。
+- 出力では、エラー文が `ledgera: sender not allowed` を含むときだけ「規則による拒否」と表示する。それ以外のエラーは文面をそのまま出す。
 
 ## 8. チェーン表示
 
@@ -188,6 +200,7 @@ L2 の残高が 0 のときは、直接送信のボタンを無効にする。�
 - 左は indexer の `GET /v1/registry/accounts`。
 - 右は各 VASP の `GET /v1/admin/addresses`。列の見出しに「チェーンには載らない」と書く。
 - 右の列は表示の切替ができる。隠すと、チェーンから見える情報だけになる。
+- `DEMO_MODE` のときは、既定で現在のデモ回に登録されたアドレスだけを表示する。indexer に `registeredFromBlock`（回の開始ブロック）を渡す。「全期間」に切り替えると、運営側のアカウントと過去の回のアドレスも出る。
 
 ### 8.3 L1
 
@@ -214,8 +227,10 @@ L2 の残高が 0 のときは、直接送信のボタンを無効にする。�
 |---|---|---|
 | 次の 2 件の順序を入れ替える | Gateway の仕掛けを 1 回分有効にする（04 章 12 節） | demo-tools の `POST /v1/demo/reorder-next` |
 | 仕掛けの状態 | 待機中、保留中、完了 | demo-tools の `GET /v1/demo/state` |
+| 現在のデモ回 | 回の番号、開始時刻、開始通番、開始ブロック | demo-tools の `GET /v1/demo/runs/current` |
 
-Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-leader` を端末で実行する。
+- Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-leader` を端末で実行する。
+- 新しいデモ回も画面から作らない。`make demo-seed` を端末で実行する。
 
 ## 10. demo-tools
 
@@ -225,13 +240,15 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
 
 | メソッド | パス | 内容 |
 |---|---|---|
-| GET | `/v1/attacker/status` | アドレス、Registry の状態、L1 と L2 の残高 |
+| GET | `/v1/attacker/status` | アドレス、Registry の状態、L1 と L2 の残高、`DepositProbe` のカウンタ、操作ごとに必要な残高 |
 | POST | `/v1/attacker/l1-deposit` | Sepolia の `OptimismPortal` に Deposit を送る |
 | GET | `/v1/attacker/deposits/:l1TxHash` | Deposit の進行 |
 | POST | `/v1/attacker/l2-send` | L2 に取引を送る |
 | POST | `/v1/issuer/mint` | 発行体の鍵でトークンを発行する |
 | POST | `/v1/demo/reorder-next` | Gateway の `POST /admin/demo/reorder-next` を呼ぶ |
 | GET | `/v1/demo/state` | Gateway の `GET /admin/demo/state` を呼ぶ |
+| POST | `/v1/demo/runs` | 新しいデモ回を作る。`make demo-seed` が呼ぶ |
+| GET | `/v1/demo/runs/current` | 現在のデモ回 |
 
 `POST /v1/issuer/mint`
 
@@ -245,11 +262,12 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
 `POST /v1/attacker/l1-deposit`
 
 ```json
-{ "mintEth": "0.001", "action": "token-transfer" }
+{ "mintEth": "0.001", "action": "probe" }
 ```
 
 - `OptimismPortal.depositTransaction` を attacker の鍵で送る。`msg.value` は `mintEth`。
-- `action` が `token-transfer` なら、`to` は tUSD、`data` は `transfer(宛先, 1 tUSD)`。`none` なら `to` は attacker 自身、`data` は空。
+- `action` が `probe` なら、`to` は `DepositProbe`、`data` は `poke()`。`none` なら `to` は attacker 自身、`data` は空。
+- 宛先をトークンにする `action` は用意しない。トークンへの送金は、標準の実行層でもトークンの検査で失敗する。実行層の規則が効いた証拠にならない（02 章 9.1）。
 - `depositTransaction` の L2 側のガス上限（`_gasLimit`）は 200,000 を明示する。L2 での見積もりは呼ばない。未登録の送信者では見積もりが失敗するため。
 - L2 側の取引ハッシュは L1 のレシートの `TransactionDeposited` ログから求める。viem の `viem/op-stack` の `getL2TransactionHashes` を使う。
 
@@ -261,11 +279,14 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
   "l1Status": "confirmed",
   "l2TxHash": "0x…",
   "l2Status": "failed",
-  "l2BalanceWei": "1000000000000000"
+  "l2BalanceWei": "1000000000000000",
+  "probeCountBefore": "0",
+  "probeCountAfter": "0"
 }
 ```
 
-`l2Status` は `pending`（まだ L2 に入っていない）、`failed`、`success`。
+- `l2Status` は `pending`（まだ L2 に入っていない）、`failed`、`success`。
+- `probeCountBefore` は Deposit を送った時点、`probeCountAfter` は現在の `DepositProbe.count(attacker)`。規則が効いていれば同じ値になる。
 
 `POST /v1/attacker/l2-send`
 
@@ -275,7 +296,7 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
 
 | `route` | 送信先 |
 |---|---|
-| `direct` | op-reth の RPC |
+| `direct` | op-reth の RPC（`L2_DIRECT_RPC_URL`）。rpc-proxy を通さない |
 | `gateway` | Gateway の `/rpc` |
 
 | `action` | 取引 |
@@ -294,7 +315,51 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
 
 - EIP-1559、priority fee 1 wei。Gateway の形式検査を通し、登録状態の検査で止まることを見せるため。
 - `gas`、`nonce`、手数料をすべて明示し、手元で署名して `eth_sendRawTransaction` で送る。`eth_estimateGas` を呼ばない。未登録の送信者では見積もりの段階でエラーになり、プールや Gateway に届かないため。
-- `gas` は `token-transfer` と `eth-transfer` が 100,000、`deploy` が 200,000。
+- `maxFeePerGas` は `ATTACKER_MAX_FEE_PER_GAS_WEI`（既定 3 gwei）。共通の `MAX_FEE_PER_GAS_WEI`（100 gwei）は使わない。
+- 直接送信に使う鍵は attacker だけ。発行体の取引は Gateway に送る。
+
+手数料を別に決める理由。op-reth のプールは、規則の判定より先に標準の検証を行う（02 章 6.4）。標準の検証は、残高が `gas × maxFeePerGas + value` 以上であることを求める。外部者の L2 残高は Deposit の mint（0.001 ETH）だけ。
+
+| `action` | `gas` | 必要な残高（3 gwei） | 100 gwei の場合 |
+|---|---:|---:|---:|
+| `token-transfer` | 100,000 | 0.0003 ETH | 0.01 ETH |
+| `eth-transfer` | 100,000 | 0.0003 ETH ＋ 1 wei | 0.01 ETH ＋ 1 wei |
+| `deploy` | 200,000 | 0.0006 ETH | 0.02 ETH |
+
+- 3 gwei なら、3 つとも 0.001 ETH で足りる。100 gwei では残高不足で落ち、規則のエラーにならない。
+- 3 gwei は Gateway の形式検査（`maxFeePerGas >= base fee × 2 + 1`）も通る。L2 の base fee は genesis で 1 gwei。DevNet の取引量では上がらず、空のブロックが続くと下がる。
+- L1 データ手数料は 0 なので、必要な残高に加えない（02 章 2 節）。
+
+送る前の確認。標準の検証のエラーを、規則による拒否と取り違えないために行う。
+
+- attacker の L2 残高が、上の表の必要な残高以上である。
+- `maxFeePerGas` が `現在の base fee × 2 + 1` 以上である。
+- どちらかを満たさなければ送らず、409 `ATTACKER_NOT_READY` を返す。`details` に不足の内容を入れる。
+
+`POST /v1/demo/runs`
+
+本文なし。新しいデモ回を作る（[09-flows.md](09-flows.md) の 9 節）。
+
+1. 回の番号を 1 増やす。
+2. Gateway の `GET /v1/log/head` と L2 の最新ブロックから、開始通番（最新の通番 + 1）と開始ブロック（最新のブロック + 1）を決める。
+3. 登場人物を作る（[10-dev-ops.md](10-dev-ops.md) の 5 節の表）。各 VASP の API を、申込、KYC の承認、発行の順に呼ぶ。メールアドレスは `<名前>.r<回の番号>@example.com`。
+4. 回の番号、開始時刻、開始通番、開始ブロックを `runs` に保存する。
+
+- 登場人物の氏名とメールアドレスは保存しない。メールアドレスは回の番号から決まる。個人情報を持つのは VASP だけにする。
+
+`GET /v1/demo/runs/current`
+
+```json
+{
+  "run": 3,
+  "startedAt": "2026-11-19T03:00:00Z",
+  "startSeq": "412",
+  "startBlock": "20510",
+  "emailSuffix": ".r3@example.com"
+}
+```
+
+デモ回が 1 つもないときは 404 を返す。画面は「全期間」で表示する。
 
 ### 10.2 設定
 
@@ -302,12 +367,16 @@ Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-lea
 |---|---|
 | `PORT` | 8660 |
 | `DEMO_MODE` | true でなければ起動時に終了する |
+| `DATABASE_URL` | デモ回の保存。スキーマ名は `demo`。表は `runs`（`run`、`started_at`、`start_seq`、`start_block`）だけ |
 | `DEPLOYMENTS_FILE` | |
-| `L1_RPC_URL`、`L2_RPC_URL`、`GATEWAY_URL` | |
+| `L1_RPC_URL`、`L2_RPC_URL`、`GATEWAY_URL` | `L2_RPC_URL` は読み取り用。rpc-proxy を指す |
+| `L2_DIRECT_RPC_URL` | op-reth の URL。外部者の直接送信だけに使う |
 | `ATTACKER_PRIVATE_KEY` | |
+| `ATTACKER_MAX_FEE_PER_GAS_WEI` | 外部者の取引の `maxFeePerGas`。既定は 3000000000（3 gwei） |
 | `ISSUER_PRIVATE_KEY` | |
-| `ATTACK_TARGET_ADDRESS` | 送金の宛先。vasp-b-treasury のアドレス（`.env.generated` の `VASP_B_TREASURY_ADDRESS`）を渡す |
+| `ATTACK_TARGET_ADDRESS` | 直接送信の送金の宛先。vasp-b-treasury のアドレス（`.env.generated` の `VASP_B_TREASURY_ADDRESS`）を渡す |
 | `GATEWAY_ADMIN_TOKEN` | |
+| `VASP_A_URL`、`VASP_B_URL`、`VASP_A_ADMIN_TOKEN`、`VASP_B_ADMIN_TOKEN` | デモ回の登場人物を作る |
 
 ## 11. web の設定
 

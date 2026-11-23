@@ -18,6 +18,7 @@ flowchart LR
     VASPB["vasp-b"]
     CONS["consortium"]
     GW["gateway"]
+    RPCP["rpc-proxy（読み取り専用）"]
     IDX["indexer"]
     AUD["auditor"]
     DEMO["demo-tools"]
@@ -50,15 +51,18 @@ flowchart LR
   VASPA -->|"凍結申請"| CONS
   CONS -->|"署名済み tx"| GW
   GW -->|"通番順に転送"| RETH
+  RPCP -->|"読み取りだけ中継"| RETH
   NODE <-->|"Engine API"| RETH
   NODE -->|"L1 を読む"| PORTAL
   BATCH -->|"Batch 投稿"| INBOX
-  IDX -->|"ブロック取得"| RETH
+  IDX -->|"ブロック取得"| RPCP
   AUD -->|"受付ログ取得"| GW
-  AUD -->|"ブロック取得"| RETH
-  DEMO -->|"直接送信"| RETH
+  AUD -->|"ブロック取得"| RPCP
+  DEMO -->|"外部者の直接送信"| RETH
   DEMO -->|"Deposit"| PORTAL
 ```
+
+vasp-a、vasp-b、consortium、demo-tools も、L2 の読み取りは rpc-proxy を通す（図では省略）。
 
 ## 2. コンポーネント
 
@@ -76,17 +80,19 @@ flowchart LR
 | 名前 | 運営者 | 役割 | ポート |
 |---|---|---|---:|
 | gateway | ネットワーク運営 | 取引の受付、通番と Receipt の発行、代理送信、通番順の転送、受付ログのコミット | 8600 |
+| rpc-proxy | ネットワーク運営 | op-reth と op-node の RPC を読み取り専用で中継する。取引を送るメソッドを拒否する | 8545 |
 | vasp-a | VASP A | 顧客管理、KYC、鍵の保管、送金、交換、トラベルルール、AML アラート | 8621 |
 | vasp-b | VASP B | 同上。加えて交換レートの提示（マーケットメーカー役） | 8622 |
 | consortium | コンソーシアム | 申請の受付、Safe の承認と実行 | 8630 |
 | indexer | ネットワーク運営 | L2 のブロックを監査 DB に取り込む。検索 API を提供する | 8640 |
 | auditor | 監査者 | 受付ログと L2 ブロックを照合する。アドレス追跡を受け付ける | 8650 |
-| demo-tools | デモ運営 | 外部者の操作、順序入れ替えの仕掛け | 8660 |
+| demo-tools | デモ運営 | 外部者の操作、順序入れ替えの仕掛け、デモ回の管理 | 8660 |
 | web | デモ運営 | 全役割の画面 | 3000 |
 | postgres | - | 各サービスの DB。サービスごとにスキーマを分ける | 5432 |
 
 - vasp-a と vasp-b は同じコードを別の設定で 2 つ起動する。
 - サービス間で DB を直接読まない。必ず API を通す。
+- op-reth の RPC に直接つなぐのは gateway と demo-tools だけ。ほかのサービスとホストは rpc-proxy を通して読む（[10-dev-ops.md](10-dev-ops.md) の 7 節）。
 
 ### 2.3 L2 コントラクト
 
@@ -98,22 +104,24 @@ flowchart LR
 | `LedgerForwarder` | ERC-2771 のメタトランザクション転送 | 同上 |
 | `AtomicSwap` | 署名付き Quote による 2 通貨の同時交換 | 同上 |
 | `ReceiptLog` | 受付ログのハッシュ連鎖のコミット先 | 同上 |
+| `DepositProbe` | 呼び出し元ごとのカウンタ。登録状態を見ない。L1 Deposit に規則が適用されたかの確認に使う | 同上 |
 | `ConsortiumSafe` | 2/3 のマルチシグ（Safe v1.3.0 のプロキシ） | 同上 |
 
 デプロイ時に決まるアドレスは `deployments/<環境名>.json` に書き出す。サービスと画面はこのファイルを読む。
 
-## 3. 検査の 4 層
+## 3. 検査の 5 層
 
-登録状態の検査は 4 か所にある。正当性の根拠は「状態遷移」に置く。
+登録状態の検査は 5 か所にある。正当性の根拠は「状態遷移」に置く。
 
 | 層 | 場所 | 検査内容 | 位置づけ |
 |---|---|---|---|
 | 事前検査 | gateway | 送信者の登録状態、取引形式、nonce | 早期拒否。エラーをすぐ返す |
 | プール | op-reth のプール検証 | 送信者の登録状態 | Gateway を通らない直接送信の早期拒否 |
 | 状態遷移 | op-revm のハンドラ | 送信者の登録状態 | 根拠。全ノードが同じ判定をする。L1 Deposit にも適用される |
+| 代理送信 | `LedgerForwarder` | メタトランザクションの署名者の登録状態 | 代理送信では取引の送信者が代理送信用アカウントになる。署名者にも発信資格を求める |
 | 資産移転 | `LedgerToken` | 送り手と受け手の保有資格、凍結、トラベルルール | トークンを移転するときの検査 |
 
-上の 2 層は運営者が外せる。下の 2 層はブロックの再実行で検証される。
+上の 2 層は運営者が外せる。下の 3 層はブロックの再実行で検証される。
 
 ## 4. データの置き場所
 
@@ -218,8 +226,8 @@ leder-a/
   chain/
     versions.env             上流のバージョン、fork の参照コミット
     compose/
-      docker-compose.chain.yml   op-reth、op-node、op-batcher
-      docker-compose.replica.yml 検証ノード
+      docker-compose.chain.yml   op-reth、op-node、op-batcher、rpc-proxy
+      docker-compose.replica.yml 検証ノード、対照ノード
       docker-compose.ha.yml      Sequencer 3 台構成
     scripts/
       derive-accounts.ts     ニーモニックからアドレス一覧を出す
@@ -228,6 +236,7 @@ leder-a/
       build-op-reth.sh       fork を取得して Docker イメージを作る
       bootstrap-l2.sh        Bootstrap.s.sol の実行、デプロイ結果の書き出し、拒否の確認
       compare-heads.sh       Sequencer と検証ノードのブロックハッシュを比べる
+      compare-deposit.sh     Deposit の結果を Sequencer、検証ノード、対照ノードで比べる
     .deployer/               op-deployer の状態（git 管理外）
     runtime/                 生成した設定とデータ（git 管理外）
 
@@ -240,6 +249,7 @@ leder-a/
       LedgerForwarder.sol
       AtomicSwap.sol
       ReceiptLog.sol
+      DepositProbe.sol
       interfaces/
       libraries/
     script/
@@ -257,6 +267,7 @@ leder-a/
 
   services/
     gateway/
+    rpc-proxy/
     vasp/
     consortium/
     indexer/
@@ -269,7 +280,7 @@ leder-a/
   e2e/                       デモ場面の自動テスト
 ```
 
-各サービスのディレクトリ構成は共通にする。
+各サービスのディレクトリ構成は共通にする。rpc-proxy は DB を持たないので、`db/` と `drizzle.config.ts` を置かない。
 
 ```
 services/<name>/
@@ -296,6 +307,7 @@ services/<name>/
 - 時刻は API では ISO 8601（UTC）。Receipt の受付時刻だけはミリ秒の整数。
 - エラー応答は `{ "error": { "code": "<識別子>", "message": "<説明>", "details": {} } }`。
 - すべてのサービスは `GET /healthz` を持つ。
-- RPC の URL を設定する環境変数（`L2_RPC_URL`、`AUDIT_RPC_URL`、`ROLLUP_RPC_URL`）は、カンマ区切りで複数指定できる。`packages/config` が viem の `fallback` でまとめる。冗長化構成では 3 台分を指定する。
+- サービスが L2 を読む URL（`L2_RPC_URL`、`AUDIT_RPC_URL`、`ROLLUP_RPC_URL`）は rpc-proxy を指す。op-reth を直接指すのは、gateway の `SEQUENCER_RPC_URLS` と demo-tools の `L2_DIRECT_RPC_URL` だけ。
+- 冗長化構成では、gateway と rpc-proxy に 3 台分の URL をカンマ区切りで指定する。ほかのサービスの設定は変えない。
 - ログは JSON 1 行。`service`、`level`、`msg`、`traceId` を含める。
 - サービス間の呼び出しでは `X-Trace-Id` を引き継ぐ。

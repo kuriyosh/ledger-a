@@ -7,9 +7,10 @@
 | `KycRegistry` | なし。OP Stack の `Proxy` の実装として置く | `ConsortiumSafe` |
 | `LedgerToken`（tJPY、tUSD） | OZ `ERC20`、`ERC2771Context`、`Ownable` | issuer |
 | `TravelRuleCompliance` | OZ `EIP712`、`Ownable` | issuer |
-| `LedgerForwarder` | OZ `ERC2771Forwarder` | なし |
+| `LedgerForwarder` | OZ `ERC2771Forwarder`。`KycRegistry` を参照する | なし |
 | `AtomicSwap` | OZ `EIP712`、`ERC2771Context`、`Ownable` | admin |
 | `ReceiptLog` | OZ `EIP712`、`Ownable` | `ConsortiumSafe` |
+| `DepositProbe` | なし | なし |
 | `ConsortiumSafe` | Safe v1.3.0（`SafeL2`）のプロキシ | 自身（所有者 3、しきい値 2） |
 
 - Solidity 0.8.28。EVM バージョンは cancun。
@@ -24,6 +25,7 @@
 flowchart LR
   FWD["LedgerForwarder"] --> TOKEN["LedgerToken"]
   FWD --> SWAP["AtomicSwap"]
+  FWD --> REG
   SWAP --> TOKEN
   TOKEN --> REG["KycRegistry"]
   TOKEN --> TRC["TravelRuleCompliance"]
@@ -330,6 +332,7 @@ OZ v5 の `_update(from, to, value)` を上書きする。
 
 - `transferFrom` も同じ検査を受ける。呼び出し元（spender）の登録状態は検査しない。
 - 「強制移転中」と「承認が消費済み」は transient storage のフラグで `_update` に伝える。
+- `approve` は `_update` を通らない。トークンは `approve` の呼び出し元を検査しない。停止や遮断されたアドレスの `approve` は、代理送信なら `LedgerForwarder`（5.3）、直接送信なら実行層（02 章 6 節）が止める。
 
 `transferWithTravelRule` の処理。
 
@@ -470,15 +473,26 @@ event TravelRuleAttestationConsumed(
 
 利用者が署名したメタトランザクションを、代理送信用アカウントが実行するための転送コントラクト。OZ の `ERC2771Forwarder` を継承する。
 
+- 代理送信では、L2 取引の送信者は代理送信用アカウントになる。実行層の規則（02 章 6 節）が検査するのはこの送信者で、署名者ではない。
+- 署名者の発信資格は、このコントラクトが実行のたびに検査する。
+
 ```solidity
 contract LedgerForwarder is ERC2771Forwarder {
-    constructor() ERC2771Forwarder("ledgerA Forwarder") {}
+    error SignerNotAllowed(address signer);
+
+    constructor(address registry_) ERC2771Forwarder("ledgerA Forwarder") {}
+
+    function registry() external view returns (address); // KycRegistry
 
     /// 失敗時に、呼び出し先の revert データをそのまま返す
     function execute(ForwardRequestData calldata request) public payable override;
 
     /// 全件が成功しなければ全体を revert する
     function executeAll(ForwardRequestData[] calldata requests) external payable;
+
+    /// 署名者が Registry で有効でなければ revert する
+    function _execute(ForwardRequestData calldata request, bool requireValidRequest)
+        internal override returns (bool);
 }
 ```
 
@@ -509,6 +523,12 @@ struct ForwardRequestData {
 
 ### 5.3 上書きする動作
 
+- `_execute`: 先頭で `registry.isActive(request.from)` を確かめる。false なら `SignerNotAllowed(request.from)` で revert する。その後に OZ の `_execute` を呼ぶ。
+  - `execute`、`executeAll`、OZ の `executeBatch` は、どれも `_execute` を通る。
+  - 判定は実行層の発信資格と同じ。状態が `ACTIVE`、期限内、所属 VASP が `ACTIVE`（2.5）。
+  - 呼び出し先と関数を問わない。`approve` のように移転を伴わない呼び出しも、署名者が停止、遮断、期限切れなら実行されない。
+  - `request.from` が署名者と一致することは、続く OZ の検証が確かめる。一致しなければ `ERC2771ForwarderInvalidSigner` で revert する。
+  - revert するので、署名者の nonce は消費されない。
 - `execute`: OZ の実装は、呼び出し先が失敗すると理由を捨てて `FailedCall()` で revert する。上書きして、呼び出し先の revert データをそのまま返す。失敗理由（`AccountNotEligible` など）を、`eth_call`、`eth_estimateGas`、トレースの最上位で取れるようにするため。
   - `_execute(request, true)` が false を返した直後に、`returndatacopy` で直前の呼び出しの戻りデータを取り出して revert する。
 - `executeAll`: 各リクエストを `_execute(request, true)` で順に実行する。1 件でも失敗したら、その revert データで全体を revert する。OZ の `executeBatch` は呼び出し先の失敗で全体を止めないので使わない。
@@ -521,6 +541,9 @@ nonce は連番なので、同じ署名者のリクエストは署名した順�
 - 署名の改ざん、期限切れ、nonce の不一致が拒否される。
 - 呼び出し先のカスタムエラーが `execute` の revert データとして返る。
 - `executeAll` で 2 件目が失敗すると、1 件目の効果も残らない。
+- 署名者が未登録、`SUSPENDED`、`BLOCKED`、期限切れ、VASP 停止のとき、`execute` と `executeAll` が `SignerNotAllowed` で revert する。署名者の nonce は変わらない。
+- 遮断された署名者の `approve` が実行されず、allowance が変わらない。
+- 遮断を解くと、同じ署名のリクエストが実行できる。
 
 ## 6. AtomicSwap
 
@@ -718,8 +741,16 @@ DevNet では `gateway` と `gatewaySigner` は同じアドレス（01 章の in
    ```
 
 - 実行者自身は `approveHash` を省略できる。`v = 1` の署名は「実行者が本人」でも受け入れられる。
-- `safeTxGas` と `gasPrice` を 0 にしているので、内側の呼び出しが失敗すると `execTransaction` 全体が revert する。
-- 成功すると `ExecutionSuccess(hash, 0)` が出る。
+- `execTransaction` を送るのは所有者でなくてもよい。しきい値の数の `approveHash` が済んでいれば、L2 に取引を送れるアカウントなら誰でも実行できる。
+- `safeTxGas` と `gasPrice` を 0 にしているので、内側の呼び出しが失敗すると `execTransaction` 全体が revert する。nonce は進まない。
+- 成功すると `ExecutionSuccess(hash, 0)` が出る。nonce が 1 進む。
+
+承認の失効と取消取引。
+
+- `approveHash` で記録した承認（`approvedHashes`）を消す関数はない。そのハッシュの nonce が消費されるまで、承認済みの操作は L2 で実行できる。
+- 承認済みの操作を失効させるには、同じ nonce の取消取引を実行する。取消取引は `to` が `ConsortiumSafe` 自身、`value` が 0、`data` が空。
+- 取消取引も、ほかの操作と同じく 2 者の承認で実行する。成功すると nonce が 1 進み、元のハッシュは実行できなくなる。
+- 申請の取り下げはこの手順で行う（06 章 4.4）。
 
 Safe を通して行う操作。
 
@@ -728,8 +759,36 @@ Safe を通して行う操作。
 | `KycRegistry` | `registerVasp`、`setVaspStatus`、`setVaspKeys`、`registerOperatorAccount`、`blockAccount`、`unblockAccount` |
 | `ReceiptLog` | `setGateway` |
 | L2 `ProxyAdmin` | `upgrade`（Registry の実装差し替え） |
+| `ConsortiumSafe` 自身 | 取消取引（データなし） |
 
-## 9. デプロイ結果の形式
+## 9. DepositProbe
+
+### 9.1 役割
+
+L1 Deposit に実行層の規則が適用されたかを確かめるための、呼び出し元ごとのカウンタ（02 章 9.1、10.2）。
+
+- Registry を参照しない。所有者も権限もない。誰が呼んでも成功する。
+- 標準の実行層では、未登録アドレスの Deposit でも `poke()` が成功する。改造版では実行されない。
+- 結果の違いが実行層の規則だけで決まる。トークンのように、コントラクト側の検査で失敗することがない。
+
+```solidity
+contract DepositProbe {
+    mapping(address => uint256) public count;
+
+    event Poked(address indexed caller, uint256 count);
+
+    function poke() external {
+        uint256 next = ++count[msg.sender];
+        emit Poked(msg.sender, next);
+    }
+}
+```
+
+### 9.2 テスト
+
+- `poke()` のたびに、呼び出し元の `count` が 1 増える。ほかのアドレスの `count` は変わらない。
+
+## 10. デプロイ結果の形式
 
 `deployments/<環境名>.json`。
 
@@ -752,19 +811,22 @@ Safe を通して行う操作。
     "tUSD": "0x…",
     "atomicSwap": "0x…",
     "receiptLog": "0x…",
+    "depositProbe": "0x…",
     "consortiumSafe": "0x…"
   },
   "vasps": { "network": 0, "a": 1, "b": 2 }
 }
 ```
 
-## 10. anvil モードでの違い
+## 11. anvil モードでの違い
 
 | 項目 | devnet | anvil |
 |---|---|---|
 | `KycRegistry` のアドレス | `0x42…0700`（OP Stack の `Proxy`） | 通常のアドレス（OZ の `ERC1967Proxy`） |
 | Safe の実装 | genesis のもの | `Bootstrap.s.sol` がデプロイする |
 | 規則の有効化 | 実行層が強制する | フラグは立つが、実行層は強制しない |
+| `LedgerForwarder` の署名者の検査 | 働く | 働く |
+| `DepositProbe` | 場面 4 の Deposit の宛先 | デプロイするが使わない。L1 Deposit がない |
 | `l1` | Sepolia のアドレス | 省略 |
 
 コントラクトは Registry のアドレスをコンストラクタで受け取る。ハードコードしない。

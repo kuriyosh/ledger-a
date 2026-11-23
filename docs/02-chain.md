@@ -25,7 +25,10 @@ OPTIMISM_FORK_REPO=https://github.com/kuriyosh/optimism.git
 OPTIMISM_FORK_BRANCH=ledgera/op-reth-v2.9.0
 OPTIMISM_FORK_COMMIT=<fork の 40 桁コミット>
 OP_RETH_IMAGE=ledgera/op-reth:<短縮コミット>
+FOUNDRY_IMAGE=ghcr.io/foundry-rs/foundry:<固定するバージョン>
 ```
+
+`FOUNDRY_IMAGE` は、op-reth に直接つなぐ作業（5 節の初期化、`make chain-shell`）をコンテナの中で行うために使う。
 
 ## 2. チェーンのパラメータ
 
@@ -36,7 +39,7 @@ OP_RETH_IMAGE=ledgera/op-reth:<短縮コミット>
 | L2 ブロック時間 | 2 秒 | intent の `deployOverrides.l2BlockTime` |
 | ガス上限 | op-deployer の既定値 | 変更しない |
 | EIP-1559 パラメータ | op-deployer の既定値 | 変更しない |
-| L1 データ手数料 | 0 | `gasPriceOracleBaseFeeScalar = 0`、`gasPriceOracleBlobBaseFeeScalar = 0` |
+| L1 データ手数料 | 0 | intent の `gasPriceOracleBaseFeeScalar = 0`、`gasPriceOracleBlobBaseFeeScalar = 0` と、L1 の `SystemConfig.setGasConfigEcotone(0, 0)`（3.1 の手順 6） |
 | operator fee | 0 | 既定値 |
 | 最小 base fee | 0 | 既定値 |
 | データ可用性 | calldata | op-batcher の `--data-availability-type=calldata` |
@@ -46,7 +49,7 @@ L2 chain ID は chainlist と衝突しないことを M0 で確認する。
 
 ## 3. L1 へのデプロイ
 
-`chain/scripts/deploy-l1.sh` が手順 1〜5、`chain/scripts/gen-config.sh` が手順 6〜7 を行う。`gen-config.sh` は `chain/runtime/jwt.txt` も作る。公式サンプル `docs/public-docs/create-l2-rollup-example/scripts/setup-rollup.sh` を元にする。
+`chain/scripts/deploy-l1.sh` が手順 1〜6、`chain/scripts/gen-config.sh` が手順 7〜8 を行う。`gen-config.sh` は `chain/runtime/jwt.txt` も作る。公式サンプル `docs/public-docs/create-l2-rollup-example/scripts/setup-rollup.sh` を元にする。
 
 ### 3.1 手順
 
@@ -72,14 +75,22 @@ L2 chain ID は chainlist と衝突しないことを M0 で確認する。
      --private-key "$ADMIN_PRIVATE_KEY"
    ```
 
-6. 設定を取り出す。
+6. L1 の `SystemConfig` の fee scalar を 0 にする。アドレスは `chain/.deployer/state.json` の `opChainDeployments[0].SystemConfigProxy`。送信者は `systemConfigOwner`（admin）。
+
+   ```
+   cast send "$SYSTEM_CONFIG_PROXY" "setGasConfigEcotone(uint32,uint32)" 0 0 \
+     --rpc-url "$L1_RPC_URL" \
+     --private-key "$ADMIN_PRIVATE_KEY"
+   ```
+
+7. 設定を取り出す。
 
    ```
    op-deployer inspect genesis --workdir chain/.deployer "$L2_CHAIN_ID" > chain/runtime/genesis.json
    op-deployer inspect rollup  --workdir chain/.deployer "$L2_CHAIN_ID" > chain/runtime/rollup.json
    ```
 
-7. `chain/.deployer/state.json` から L1 コントラクトのアドレスを読み、`deployments/devnet.json` の `l1` に書く。使うのは `opChainDeployments[0].OptimismPortalProxy` と `SystemConfigProxy`。
+8. `chain/.deployer/state.json` から L1 コントラクトのアドレスを読み、`deployments/devnet.json` の `l1` に書く。使うのは `opChainDeployments[0].OptimismPortalProxy` と `SystemConfigProxy`。
 
 ### 3.2 intent.toml の編集
 
@@ -107,13 +118,21 @@ L2 chain ID は chainlist と衝突しないことを M0 で確認する。
 - `l2ProxyAdminOwner` は L2 の `ProxyAdmin`（`0x4200000000000000000000000000000000000018`）の所有者になる。Registry を predeploy に配置するのに使う。
 - `fundDevAccounts = true` は Anvil の既定アカウント 30 個に L2 の genesis で残高を与える。初期化（5 節）の原資にする。これらの鍵は公開されているが、規則の有効化後は未登録なので取引できない。
 
+fee scalar を 2 か所で 0 にする理由。
+
+- `deployOverrides` の 2 項目が効くのは、L2 の genesis と `rollup.json` の初期値だけ。
+- L1 の `SystemConfig` は、op-deployer v0.9.0 が標準値（base fee scalar 1368、blob base fee scalar 801949）で初期化する。`deployOverrides` では変わらない。
+- L2 は `SystemConfig` の更新イベントに追従する。L1 側が標準値のままだと、L1 と L2 の設定が食い違う。手順 6 で L1 側も 0 にして揃える。
+- L2 で 0 になっていることは初期化のときに確認する（5 節、V19）。
+
 ## 4. 起動
 
-`chain/compose/docker-compose.chain.yml` に 3 サービスを書く。公式サンプルの `docker-compose.yml` からの差分は次のとおり。
+`chain/compose/docker-compose.chain.yml` に op-reth、op-node、op-batcher、rpc-proxy の 4 サービスを書く。公式サンプルの `docker-compose.yml` からの差分は次のとおり。
 
 - op-reth のイメージを `${OP_RETH_IMAGE}` にする。
 - proposer、challenger、dispute-mon を削る。
 - 各コンポーネントに、役割に対応する鍵を渡す（公式サンプルは全部に同じ鍵を渡している）。
+- op-reth と op-node のポートをホストに出さない。ホストに出すのは rpc-proxy だけ（[10-dev-ops.md](10-dev-ops.md) の 7 節）。
 
 ### 4.1 op-reth
 
@@ -134,6 +153,7 @@ node
 
 - `debug` は Indexer が失敗理由を取るのに使う（07 章）。
 - `--rollup.disable-tx-pool-gossip` は必須。取引を RPC だけで受け付けるようにする。
+- HTTP と WS は `ledgera-chain` ネットワークの中だけで待ち受ける。取引を送れるのは、このネットワークに入っている Gateway と demo-tools だけ。
 
 ### 4.2 op-node
 
@@ -188,12 +208,14 @@ op-batcher
 
 ## 5. L2 の初期化
 
-`chain/scripts/bootstrap-l2.sh`（`make l2-bootstrap`）が行う。この時点では規則が無効なので、Gateway を通さない。
+`chain/scripts/bootstrap-l2.sh`（`make l2-bootstrap`）が行う。この時点では規則が無効なので、Gateway を通さない。op-reth の RPC はホストに出していないので、`ledgera-chain` ネットワークにつないだ Foundry コンテナ（`FOUNDRY_IMAGE`）の中で実行する。
 
-1. `contracts/script/Bootstrap.s.sol` を op-reth の RPC に対して `--broadcast` で実行する（下の表の手順 1〜13）。
-2. forge の broadcast 記録（`contracts/broadcast/Bootstrap.s.sol/<chain ID>/run-latest.json`）から、アドレスとレシートのブロック番号を読む。
-3. 開発用アカウント 1 から `cast send` で送金し、`ledgera: sender not allowed` で拒否されることを確認する。
-4. `deployments/devnet.json` の `contracts`、`enforcementBlock`、`auditStartBlock` を書く。`l1` は `gen-config.sh` が書いた値を残す。
+1. L2 の `GasPriceOracle`（`0x420000000000000000000000000000000000000F`）の `baseFeeScalar()` と `blobBaseFeeScalar()` が 0 を返すまで待つ。
+2. `contracts/script/Bootstrap.s.sol` を op-reth の RPC に対して `--broadcast` で実行する（下の表の手順 1〜13）。
+3. forge の broadcast 記録（`contracts/broadcast/Bootstrap.s.sol/<chain ID>/run-latest.json`）から、アドレスとレシートのブロック番号を読む。
+4. 手順 2 の取引を 1 つ選び、`eth_getTransactionReceipt` の `l1Fee` が 0 であることを確認する。
+5. 開発用アカウント 1 から `cast send` で送金し、`ledgera: sender not allowed` で拒否されることを確認する。
+6. `deployments/devnet.json` の `contracts`、`enforcementBlock`、`auditStartBlock` を書く。`l1` は `gen-config.sh` が書いた値を残す。
 
 やり直しができるように、`Bootstrap.s.sol` は次の作りにする。
 
@@ -206,7 +228,7 @@ op-batcher
 | 2 | admin | `KycRegistry` の実装をデプロイする |
 | 3 | admin | `ProxyAdmin.upgradeAndCall(0x42…0700, 実装, initialize(admin))` を呼ぶ |
 | 4 | admin | `ConsortiumSafe`（所有者 3、しきい値 2）をデプロイして `setup` する |
-| 5 | admin | `LedgerForwarder`、`TravelRuleCompliance`、`LedgerToken` × 2、`AtomicSwap`、`ReceiptLog` をデプロイする。`ReceiptLog` 以外の所有者は、いったん admin にする。続けて `bindToken`、`setSupportedToken`、`addAgent(issuer)` を呼び、`transferOwnership` で 03 章 1 節の表の所有者に移す。`ReceiptLog` には gateway のアドレスと所有者（`ConsortiumSafe`）をコンストラクタで渡す |
+| 5 | admin | `LedgerForwarder`、`TravelRuleCompliance`、`LedgerToken` × 2、`AtomicSwap`、`ReceiptLog`、`DepositProbe` をデプロイする。`LedgerForwarder` には Registry のアドレスを渡す。所有者を持つコントラクトのうち `ReceiptLog` 以外は、所有者をいったん admin にする。続けて `bindToken`、`setSupportedToken`、`addAgent(issuer)` を呼び、`transferOwnership` で 03 章 1 節の表の所有者に移す。`ReceiptLog` には gateway のアドレスと所有者（`ConsortiumSafe`）をコンストラクタで渡す |
 | 6 | admin | `registerVasp` で VASP 0、1、2 を登録する。管理者（admin、vasp-a-admin、vasp-b-admin）は同時に登録される |
 | 7 | admin | `registerOperatorAccount` で gateway、issuer、consortium-1〜3、relayer-a、relayer-b を登録する |
 | 8 | vasp-b-admin | `registerAccount` で vasp-b-treasury を `VASP_TREASURY` として登録する |
@@ -398,6 +420,7 @@ op-reth のプールに入る時点でも同じ判定を行う。合意には関
 - 判定は `OpValidatorWrapper` トレイトで差し込む。`wrap(self, validator, provider)` で元の検証器と状態プロバイダを受け取る。
 - 実装例は fork 内の `rust/op-reth/crates/node/tests/it/custom_pool/validator.rs`。
 - `KycValidator` は内側の検証が `Valid` を返したときだけ判定する。
+- このため、標準の検証（nonce、残高、手数料）で落ちる取引には、規則のエラーが返らない。規則による拒否を確かめる取引は、標準の検証を通る残高と手数料で送る（08 章 10.1）。
 - 判定は最新ブロックの状態で行う。スロット計算と判定は `op_revm::ledgera` を使う。
 - 拒否は `InvalidPoolTransactionError::Other` で返す。メッセージは `ledgera: sender not allowed: <アドレス>`。
 - Gateway と demo-tools は、エラーメッセージに `ledgera: sender not allowed` が含まれるかで判定する。この文字列は変えない。
@@ -414,8 +437,11 @@ fork リポジトリ内に書く。
 | | 判定表: 規則無効、免除アドレス、未登録、`SUSPENDED`、`BLOCKED`、期限切れ、VASP 停止、EIP-7702、正常 |
 | | 未登録の通常取引が `SenderNotAllowed` を返し、状態が変わらない |
 | | 未登録の Deposit が `FailedDeposit` になり、nonce が 1 増え、mint が残る |
+| | 宛先が登録状態を見ないコントラクト（カウンタ）の Deposit で比べる。未登録の送信者ではカウンタが増えない。同じ `to`、`data`、`gasLimit` を登録済みの送信者が送ると増える |
 | | 同じブロック内で登録された直後の取引が通る |
 | `op-reth` 結合 | プールが未登録の送信者を拒否し、メッセージが規定の文字列を含む |
+| | 残高、`gas`、`maxFeePerGas` が同じ取引を、登録済みと未登録の送信者から送る。登録済みは受理され、未登録は規定の文字列で拒否される |
+| | 残高が `gas × maxFeePerGas` に足りない未登録の送信者には、標準の残高不足のエラーが返る。規定の文字列は返らない |
 | | プール検査を外した構成で、ペイロードが未登録の取引を含まない |
 
 DevNet 上の確認は検証ノード（10 節）と E2E（[10-dev-ops.md](10-dev-ops.md)）で行う。
@@ -430,25 +456,27 @@ DevNet 上の確認は検証ノード（10 節）と E2E（[10-dev-ops.md](10-de
 
 | 条件 | 担保する場所 |
 |---|---|
-| 取引を受け付けるのは Gateway だけ | op-reth の RPC の書き込みを Gateway 以外に開かない。取引の gossip を切る |
+| 取引を受け付けるのは Gateway だけ | op-reth の RPC をホストに出さない。サービスとホストには、読み取り専用の rpc-proxy だけを見せる（10 章 7 節）。取引の gossip を切る |
 | Gateway は通番順に 1 件ずつ転送し、応答を待ってから次を送る | Gateway |
 | すべての取引の priority fee が同じ | Gateway が `maxPriorityFeePerGas == 1 wei` 以外を拒否する |
 | 受け付けた取引はプールですぐ実行可能になる | Gateway が nonce の連続、`maxFeePerGas`、残高を事前に検査する |
 
 - op-reth のプールは、実効 priority fee が同じ取引を、実行可能になった順（`submission_id` の小さい順）に並べる。
 - priority fee を 0 ではなく 1 wei にする理由。op-reth はブロックの構築中にペイロードを何度か作り直し、手数料の合計が増えたものだけを採用する。0 だと、取引を追加して作り直しても合計が変わらず、作り直したペイロードが捨てられる。その場合、スロットの途中で届いた取引は次のブロックに回る。
+- op-reth に直接つながるのは Gateway と demo-tools。demo-tools が直接送るのは、場面 4 の外部者（未登録）の取引だけ。ブロックに入らないので、順序に影響しない。
 
-### 7.2 到着順の例外
+### 7.2 通番どおりに並ばない場合
 
-次の場合は通番と異なる順になる。監査ツールは例外として記録する（07 章）。
+次の場合は、通番の順とブロック内の順が一致しない。扱いは監査ツールと揃える（07 章 3.2）。
 
-| 場合 | 挙動 |
-|---|---|
-| Deposit 取引 | ブロックの先頭に入る。通番を持たない |
-| 実行時に無効になった取引（残高不足、送信者の停止） | ブロックに入らない |
-| ブロックのガス上限に収まらない取引 | 飛ばされ、後続が先に入ることがある |
+| 場合 | 挙動 | 監査での扱い |
+|---|---|---|
+| Deposit 取引 | ブロックの先頭に入る。通番を持たない | 検査の対象外 |
+| 実行時に無効になった取引（送信者の停止、残高不足） | ブロックに入らない | 監査ツールが L2 の状態で理由を確認できれば「正当な除外」。確認できなければ違反（C5） |
+| ブロックのガス上限に収まらない取引 | 飛ばされ、後続が先に入ることがある | 違反（C4）。例外にしない |
 
-3 つめは DevNet の取引量では起きない。
+- 3 つめは DevNet の取引量では起きない。ブロックのガス上限は 60,000,000（op-deployer の既定値）。1 取引の上限は `GAS_LIMIT_CAP`（5,000,000）。
+- 3 つめを起こさないようにするには、7.3 の強化を入れる。
 
 ### 7.3 任意の強化
 
@@ -474,10 +502,16 @@ M7 までに余力があれば行う。必須ではない。
 
 未登録アドレスの Deposit（デモ場面 4）。
 
-1. attacker が Sepolia で `depositTransaction` を呼ぶ。`msg.value` を付け、`data` にトークン送金などの呼び出しを入れる。
+1. attacker が Sepolia で `depositTransaction` を呼ぶ。`msg.value` を付け、`to` に `DepositProbe`、`data` に `poke()` を入れる。
 2. L2 に Deposit 取引が入る。規則により失敗 Deposit になる。
-3. `data` の呼び出しは実行されない。attacker の L2 残高は mint 分だけ増える。
+3. `poke()` は実行されない。`DepositProbe.count(attacker)` は増えない。attacker の L2 残高は mint 分だけ増える。
 4. attacker はその ETH を動かせない。送信者として拒否されるため。
+
+宛先を `DepositProbe` にする理由。
+
+- `DepositProbe` は登録状態を見ない（03 章 9 節）。標準の実行層では、同じ Deposit が成功してカウンタが増える。
+- 宛先をトークンにすると、標準の実行層でもトークンの検査で失敗する。レシート、mint、nonce、残高の結果が同じになり、実行層の規則が効いた証拠にならない。
+- 標準の実行層との比較は対照ノードで行う（10.2）。
 
 ### 9.2 標準ブリッジ
 
@@ -485,21 +519,46 @@ M7 までに余力があれば行う。必須ではない。
 - Messenger の別名アドレスは登録しない。登録すると、未登録の L1 利用者が L2 の任意の呼び出しを起動できる。
 - 運営側アカウントが ETH を追加で持ち込むときは、そのアカウント自身が `depositTransaction` を呼ぶ。
 
-## 10. 検証ノード（要件 9、26）
+## 10. 検証ノードと対照ノード（要件 9、26）
 
-「どのノードが再実行しても同じ判定になる」ことを確認する構成。`chain/compose/docker-compose.replica.yml` に書く。
+`chain/compose/docker-compose.replica.yml` に書く。どちらも Sequencer とは P2P でつながない。L1 の Batch だけからブロックを導出する。
+
+### 10.1 検証ノード
+
+「どのノードが再実行しても同じ判定になる」ことを確認する構成。
 
 | サービス | 内容 |
 |---|---|
 | op-reth-replica | fork のイメージ。別のデータディレクトリ |
-| op-node-replica | `--sequencer.enabled=false`、`--p2p.disable`。L1 の Batch だけからブロックを導出する |
+| op-node-replica | `--sequencer.enabled=false`、`--p2p.disable` |
 
 確認方法。
 
 - `chain/scripts/compare-heads.sh` が Sequencer の safe ブロックと検証ノードの同じ高さのブロックのハッシュを比べる。
 - 未登録アドレスの Deposit を含むブロックで一致すれば、失敗 Deposit の判定が再現されている。
 
-補足の確認（任意）。op-reth-replica を公式イメージ（`OP_RETH_STOCK_IMAGE`）に替えると、未登録アドレスの Deposit を含むブロックからハッシュが食い違う。規則が合意の一部であることを示せる。
+### 10.2 対照ノード
+
+「同じ Deposit が、標準の実行層では成功する」ことを確認する構成。Deposit が失敗した原因が実行層の規則であることを示す。Compose のプロファイル `control` に入れ、`make control-up` で起動する。
+
+| サービス | 内容 |
+|---|---|
+| op-reth-control | 公式イメージ（`OP_RETH_STOCK_IMAGE`）。別のデータディレクトリ |
+| op-node-control | op-node-replica と同じ設定 |
+
+確認方法。`chain/scripts/compare-deposit.sh <L2 の取引ハッシュ>`（`make control-compare`）が、未登録アドレスの Deposit（9.1）の結果を 3 つのノードから読んで並べる。期待する結果は次のとおり。
+
+| ノード | 実行層 | レシート | `DepositProbe.count(attacker)` |
+|---|---|---|---:|
+| Sequencer | 改造版 | 失敗 | 0 |
+| 検証ノード | 改造版 | 失敗 | 0 |
+| 対照ノード | 標準 | 成功 | 1 |
+
+- 3 つのノードは、L1 の同じ Deposit を取り込む。違うのは実行層だけ。
+- 規則の有効化より前のブロックと、未登録アドレスの Deposit を含まないブロックは、標準の実行層でも同じ結果になる。対照ノードはそこまで Sequencer と一致する。
+- 対照ノードは、未登録アドレスの Deposit を含むブロックからハッシュが食い違う。以降の Batch は親のハッシュが合わず、導出が進まない。
+- 対照ノードで確認できるのは、そのチェーンで最初の未登録 Deposit だけ。確認が済んだら `make control-down` でデータごと消す。
+- 対照ノードが期待どおりに導出するかは M2 で確かめる（V20）。
 
 ## 11. 冗長化（要件 19）
 
@@ -536,19 +595,47 @@ op-conductor の環境変数。
 ```
 OP_CONDUCTOR_NODE_RPC=http://op-node-N:8547
 OP_CONDUCTOR_EXECUTION_RPC=http://op-reth-N:8545
+OP_CONDUCTOR_CONSENSUS_ADDR=0.0.0.0
 OP_CONDUCTOR_CONSENSUS_PORT=50050
+OP_CONDUCTOR_CONSENSUS_ADVERTISED=op-conductor-N:50050
 OP_CONDUCTOR_RAFT_SERVER_ID=sequencer-N
 OP_CONDUCTOR_RAFT_STORAGE_DIR=/data/raft
 OP_CONDUCTOR_RAFT_BOOTSTRAP=true    # 1 台目だけ
+OP_CONDUCTOR_HEALTHCHECK_INTERVAL=1
+OP_CONDUCTOR_HEALTHCHECK_UNSAFE_INTERVAL=6
+OP_CONDUCTOR_HEALTHCHECK_MIN_PEER_COUNT=1
+OP_CONDUCTOR_RPC_ADDR=0.0.0.0
+OP_CONDUCTOR_RPC_PORT=8547
 OP_CONDUCTOR_PAUSED=true            # 起動時
 ```
 
+必須の項目。v0.9.6 は次の 9 項目が明示されていないと起動しない。既定値がある項目も省略できない。
+
+| 項目 | 値 | 補足 |
+|---|---|---|
+| `NODE_RPC` | 同じ組の op-node | |
+| `EXECUTION_RPC` | 同じ組の op-reth | |
+| `CONSENSUS_ADDR` | `0.0.0.0` | Raft の待受アドレス。既定は `127.0.0.1` で、ほかのコンテナから届かない |
+| `CONSENSUS_PORT` | 50050 | |
+| `RAFT_SERVER_ID` | `sequencer-N` | 3 台で重複させない |
+| `RAFT_STORAGE_DIR` | `/data/raft` | ボリュームに置く |
+| `HEALTHCHECK_INTERVAL` | 1 | 単位は秒 |
+| `HEALTHCHECK_UNSAFE_INTERVAL` | 6 | 単位は秒。最新の unsafe ブロックの時刻と現在の差の上限。ブロック時間（2 秒）の 3 倍にしている |
+| `HEALTHCHECK_MIN_PEER_COUNT` | 1 | op-node の P2P ピア数の下限 |
+
+必須ではないが明示する項目。
+
+- `CONSENSUS_ADVERTISED`: ほかの組に知らせる Raft のアドレス。省略すると待受アドレス（`0.0.0.0`）を知らせてしまう。Compose のサービス名とポートを入れる。
+- `RPC_ADDR`、`RPC_PORT`: op-conductor の RPC の既定ポートは 8545。op-node の `--conductor.rpc` と Gateway の `CONDUCTOR_RPC_URLS` は 8547 を指すので、8547 を明示する。
+
+`HEALTHCHECK_MIN_PEER_COUNT` を 1 にする理由。3 台構成で 1 台が止まると、残った op-node のピアは 1 つになる。2 以上にすると、残った 2 台も不健全と判定され、切り替わらない。
+
 起動後の手順。
 
-1. 1 台目の op-conductor に `conductor_addServerAsVoter` で 2 台目と 3 台目を追加する。
+1. 1 台目の op-conductor に `conductor_addServerAsVoter` で 2 台目と 3 台目を追加する。追加するアドレスは各組の `CONSENSUS_ADVERTISED`。
 2. 3 台に `conductor_resume` を送る。
 
-引数と手順は M7 の着手時に公式手順と照合する（V11）。
+必須の項目と RPC の既定ポートは、v0.9.6 のソース（`op-conductor/flags/flags.go` の `requiredFlags`、`op-service/rpc/cli.go`）で確認した。ヘルスチェックの値と起動後の手順は、M7 の着手時に公式手順と照合する（V11）。
 
 ### 11.3 Gateway の切替
 
@@ -560,7 +647,7 @@ op-conductor は未処理の取引を引き継がない。Gateway が再送す�
 
 詳細は [04-gateway.md](04-gateway.md) の 7 節。
 
-ほかのサービスの読み取りは 3 台の URL を並べて指定する（01 章 8 節）。止まった組を避けて読む。
+ほかのサービスの読み取りは rpc-proxy を通る。rpc-proxy は 3 台のうち、ブロック高が最も高い組に転送する（10 章 7 節）。止まった組を避けて読む。
 
 ### 11.4 障害試験（デモ場面 7）
 
@@ -616,6 +703,6 @@ Rust のバージョンは fork の `rust/rust-toolchain.toml` に従う。
 
 | 状況 | 手順 |
 |---|---|
-| op-reth のデータが壊れた | データディレクトリを消して起動する。op-node が L1 の Batch から再構築する。Batch 未投稿のブロックは失われる |
-| L2 の状態を空に戻したい | L1 へのデプロイからやり直す（3 節）。Sepolia ETH を再度使う。同じ L1 コントラクトのままでは、過去の Batch から同じ状態が再構築される |
-| デモを最初からやり直したい | チェーンは作り直さない。新しい顧客を作って場面 1 から行う |
+| op-reth のデータが壊れた | データディレクトリを消して起動する。op-node が L1 の Batch から再構築する。Batch 未投稿のブロックは失われる。失われたブロックの取引は Gateway が送り直す（04 章 7.2）。各サービスは再編成として扱う |
+| デモを最初からやり直したい | チェーンは作り直さない。`make demo-seed` で新しいデモ回を作り、場面 1 から行う（09 章 9 節）。登場人物のアドレスと、監査の集計区間が新しくなる |
+| 初期状態に戻したい（遮断も違反の記録もない状態） | L1 へのデプロイからやり直す（3 節）。`make clean` で各サービスの DB も消す。Sepolia ETH を再度使う。同じ L1 コントラクトのままでは、過去の Batch から同じ状態が再構築される |

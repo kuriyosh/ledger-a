@@ -25,6 +25,11 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 - ハッシュが一致する高さまで遡り、それより上の行をすべての表から消して取り込み直す。
 - すべての表は `block_number` を持つ。消す条件は `block_number > 分岐点`。
 
+DB の作り直し。
+
+- indexer の DB は L2 のブロックだけから作れる。ほかのサービスの DB に依存しない。
+- スキーマを消して起動すると、`INDEXER_START_BLOCK` から取り込み直す。結果は消す前と同じになる。
+
 確定段階。
 
 - 5 秒ごとに op-node の `optimism_syncStatus` を呼び、`unsafe_l2`、`safe_l2`、`finalized_l2` のブロック番号を `chain_status` に保存する。
@@ -158,7 +163,7 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 | `enforcement_enabled` | boolean |
 | `registry_version` | bigint |
 
-保存期間は定めない。DevNet では全件を残す。
+保存期間は定めない。DevNet では全件を残す。バックアップは取らない。失ったときは L2 から取り込み直す（2.1）。
 
 ### 2.5 API
 
@@ -170,7 +175,7 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 | `/v1/blocks?limit=&before=` | ブロックの一覧 |
 | `/v1/txs?limit=&before=&address=&kind=` | 取引の一覧 |
 | `/v1/txs/:hash` | 取引の詳細 |
-| `/v1/registry/accounts?vaspId=&status=` | アカウントの現在の状態の一覧 |
+| `/v1/registry/accounts?vaspId=&status=&registeredFromBlock=` | アカウントの現在の状態の一覧。`registeredFromBlock` を指定すると、そのブロック以降に登録されたアカウントだけを返す |
 | `/v1/registry/accounts/:address` | 現在の状態と変更履歴 |
 | `/v1/registry/accounts/:address/at?block=` | 指定ブロック時点の状態 |
 | `/v1/registry/vasps` | VASP の一覧 |
@@ -218,8 +223,8 @@ auditor は Gateway と indexer の DB を読まない。公開 API と L2 の R
 | `PORT` | 8640 | |
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | |
-| `L2_RPC_URL` | - | `debug` 名前空間が要る |
-| `ROLLUP_RPC_URL` | - | op-node |
+| `L2_RPC_URL` | - | rpc-proxy を指す。`debug_traceTransaction` を使う |
+| `ROLLUP_RPC_URL` | - | rpc-proxy の `/rollup`（op-node への中継） |
 | `INDEXER_START_BLOCK` | 0 | |
 | `POLL_INTERVAL_MS` | 1000 | |
 
@@ -234,6 +239,7 @@ anvil モードでは `ROLLUP_RPC_URL` を空にする。確定段階はすべ�
 | 結合（anvil） | 送金、交換、Registry 更新、Safe 実行の後、API が期待どおりの値を返す |
 | 結合（anvil） | 指定ブロック時点の残高と Registry の状態が、その時点の `eth_call` と一致する |
 | 結合（anvil） | 失敗取引の理由がカスタムエラー名で返る |
+| 結合（anvil） | スキーマを消して取り込み直すと、取引、残高、Registry の履歴の API が消す前と同じ値を返す |
 
 ---
 
@@ -243,8 +249,8 @@ anvil モードでは `ROLLUP_RPC_URL` を空にする。確定段階はすべ�
 
 | 入力 | 取得元 |
 |---|---|
-| 受付ログ（Receipt、転送状態） | Gateway の `GET /v1/log` |
-| L2 のブロックと取引 | `AUDIT_RPC_URL`。既定は Sequencer の op-reth。検証ノード（02 章 10 節）も指定できる。その場合、検出は L1 への Batch 公開まで遅れる |
+| 受付ログ（Receipt、署名済み取引） | Gateway の `GET /v1/log`。転送状態（`forwardStatus`、`forwardError`）は表示にだけ使い、判定には使わない |
+| L2 のブロック、取引、状態 | `AUDIT_RPC_URL`。既定は rpc-proxy 経由の Sequencer。検証ノード（02 章 10.1）も指定できる。その場合、検出は L1 への Batch 公開まで遅れる |
 | Receipt の署名者、`genesisHash`、コミット | `ReceiptLog` の参照関数と `Committed` イベント |
 | 監査の開始ブロック | デプロイ結果の `auditStartBlock` |
 
@@ -255,33 +261,68 @@ anvil モードでは `ROLLUP_RPC_URL` を空にする。確定段階はすべ�
 | C1 | 署名 | 各 Receipt の署名から復元したアドレスが `gatewaySigner` と一致する | `BAD_SIGNATURE` |
 | C2 | 連鎖 | 通番が 1 から連続する。`entryHash` を再計算した値が一致する。`prevHash(n) == entryHash(n - 1)`、`prevHash(1) == genesisHash` | `BROKEN_CHAIN` |
 | C3 | コミット | 各 `Committed(fromSeq, toSeq, headHash)` について、再計算した `entryHash(toSeq)` が `headHash` と一致する。範囲が連続する | `COMMIT_MISMATCH` |
-| C4 | 順序 | ブロックに入ったエントリを通番順に並べたとき、位置（ブロック番号、ブロック内の番号）が単調に増える | `ORDER_VIOLATION` |
-| C5 | 取り込み | 転送済みで未取り込みのエントリについて、監査先ノードの最新ブロックの時刻 ≤ 受付時刻 + `INCLUSION_DEADLINE_SEC`（120 秒） | `NOT_INCLUDED` |
+| C4 | 順序 | ブロックに入ったエントリを通番順に並べたとき、位置（ブロック番号、ブロック内の番号）が単調に増える。原因を問わず、逆転はすべて違反にする | `ORDER_VIOLATION` |
+| C5 | 取り込み | 発行済みの全 Receipt が対象。期限までにブロックに入らなかったエントリのうち、除外の理由を L2 で確認できないものを違反にする | `NOT_INCLUDED` |
 | C6 | 無受付 | 開始ブロック以降の Deposit 以外の取引すべてに、対応する Receipt がある | `UNRECEIPTED_TX` |
 | C7 | 時刻 | 受付時刻 ≤ 取り込まれたブロックの時刻 + `TIME_TOLERANCE_SEC`（5 秒） | `RECEIPT_AFTER_INCLUSION` |
 
-C4 の報告。通番順で隣り合う取り込み済みエントリのうち、位置が逆転している組をすべて挙げる。証拠として 2 つの Receipt と 2 つの位置を付ける。
+C4 の報告。
 
-C5 は時計ではなく監査先ノードのブロック時刻で測る。監査先が遅れているノードでも、誤って違反にしない。
+- 通番順で隣り合う取り込み済みエントリのうち、位置が逆転している組をすべて挙げる。証拠として 2 つの Receipt と 2 つの位置を付ける。
+- ブロックのガス上限に収まらずに飛ばされた取引による逆転も、違反にする（02 章 7.2）。到着順が守られなかった事実は変わらないため。
+
+C5 の判定。
+
+- 対象は Receipt のある全エントリ。Gateway の転送状態（`queued`、`forwarded`、`rejected`、`held_demo`）で対象を絞らない。転送状態と拒否理由は Receipt の署名対象ではなく、Gateway が後から書き換えられるため。
+- 期限は「受付時刻 + `INCLUSION_DEADLINE_SEC`（120 秒）」。監査先ノードの最新ブロックの時刻が期限を超えても未取り込みなら「未採用」とする。
+- 時計ではなく、監査先ノードのブロック時刻で測る。監査先が遅れているノードでも、誤って違反にしない。
+- 未採用のエントリには「除外の確認」を行う。確認できれば「正当な除外」、できなければ `NOT_INCLUDED`。
+- 期限の後に取り込まれても、違反の記録は消さない。取り込み位置を追記する。
+
+除外の確認。監査ツールが、エントリの署名済み取引（`rawTx`）と L2 の状態だけで行う。Gateway が申告した理由（`forwardError`）は使わない。
+
+1. `keccak256(rawTx)` が Receipt の `txHash` と一致することを確かめる。一致しなければ確認できないものとして扱う。
+2. `rawTx` から `gas`、`maxFeePerGas`、`value` を取り出す。
+3. 判定区間のブロックを順に調べる。判定区間は、受付時刻より前の最後のブロックから、時刻が期限を超えた最初のブロックまで。
+4. いずれかのブロックの終了時点で、下の表のどちらかが成り立てば正当な除外とする。
+
+| 理由 | 確認する内容 |
+|---|---|
+| `SENDER_INACTIVE` | そのブロックでの `KycRegistry.isActive(sender)` が false |
+| `INSUFFICIENT_FUNDS` | そのブロックでの `eth_getBalance(sender)` が `gas × maxFeePerGas + value` 未満 |
+
+- どちらも、op-reth がその取引をブロックに入れられない条件（02 章 7.2 の 2 行目）。
+- 正当な除外には、理由、確認したブロック番号、読んだ値を証拠として付ける。
 
 違反にしないもの。
 
 | 場合 | 扱い |
 |---|---|
 | Deposit 取引 | 検査の対象外。通番を持たない |
-| 転送状態が `rejected` のエントリ | 「理由つきの除外」として記録する。違反ではない |
-| 理由が `ledgera: sender not allowed` の除外 | 受付時刻の直後のブロックで `KycRegistry.isActive(sender)` を呼ぶ。true なら `UNJUSTIFIED_EXCLUSION` の違反にする |
+| 正当な除外（C5 で理由を確認できた未採用） | 除外として記録する。違反ではない |
 
 検査できないこと。
 
 - Gateway が Receipt を出さずに取引を捨てた場合。ログに残らないので検出できない。
 - C6 は、Gateway を通さずにブロックへ入った取引を検出する。Gateway に届かなかった取引は検出しない。
+- 除外の確認は、判定区間のどこかで理由が成り立てば通る。理由が成り立つまで取引が保留されていた場合と区別できない。
 
 ### 3.3 実行
 
 - 10 秒ごとに、前回の続きから差分を検査する。
 - `POST /v1/fifo/run` で通番 1 から全件を検査し直す。
-- 進行位置（検査済みの通番とブロック番号）は DB に持つ。
+- 進行位置（検査済みの通番、ブロック番号、ブロックハッシュ）は DB に持つ。
+
+再編成への対応。
+
+- 検査済みの最後のブロックのハッシュを、監査先ノードの同じ高さのハッシュと比べる。違えば、一致する高さまで遡る。
+- それより上のブロックに基づく位置、検査結果、違反、除外を消して検査し直す。
+
+集計区間。
+
+- 検査は常に通番 1、開始ブロックから行う。ハッシュ連鎖（C2）は途中から検証できないため。
+- 集計と一覧の API は `fromSeq` と `fromBlock` を受け取る。指定した通番以降のエントリと、指定したブロック以降の取引だけを返す。
+- デモ画面は、現在のデモ回の開始通番と開始ブロックを渡す（08 章 6.1）。前の回の違反は「全期間」に切り替えると見える。
 
 CLI。
 
@@ -302,9 +343,10 @@ pnpm --filter @ledgera/auditor fifo --from 1 --json
 
 | メソッド | パス | 内容 |
 |---|---|---|
-| GET | `/v1/fifo/summary` | 検査済みの通番とブロック、検査ごとの件数、違反の件数 |
+| GET | `/v1/fifo/summary?fromSeq=&fromBlock=` | 検査済みの通番とブロック、検査ごとの件数、違反の件数、除外の件数 |
 | GET | `/v1/fifo/entries?fromSeq=&limit=` | エントリごとの Receipt、位置、検査結果 |
-| GET | `/v1/fifo/violations` | 違反の一覧 |
+| GET | `/v1/fifo/violations?fromSeq=&fromBlock=` | 違反の一覧。通番を持たない違反（C6）は `fromBlock` で絞る |
+| GET | `/v1/fifo/exclusions?fromSeq=` | 正当な除外の一覧。理由と証拠 |
 | POST | `/v1/fifo/run` | 全件の再検査 |
 | GET | `/v1/trace/:address` | アドレスの追跡結果 |
 | GET | `/v1/trace/:address/balances?block=` | 指定ブロック時点の残高 |
@@ -337,9 +379,10 @@ pnpm --filter @ledgera/auditor fifo --from 1 --json
 
 | 表 | 列 |
 |---|---|
-| `audit_state` | `last_seq`、`last_block`、`updated_at` |
-| `fifo_entries` | `seq`（主キー）、`tx_hash`、`received_at_ms`、`forward_status`、`pos_block`、`pos_index`、`checks`（jsonb） |
-| `violations` | `id`、`check_code`、`type`、`seq_a`、`seq_b`、`tx_hash`、`detail`、`evidence`（jsonb）、`detected_at` |
+| `audit_state` | `last_seq`、`last_block`、`last_block_hash`、`updated_at` |
+| `fifo_entries` | `seq`（主キー）、`tx_hash`、`received_at_ms`、`forward_status`（表示用）、`pos_block`、`pos_index`、`checks`（jsonb） |
+| `violations` | `id`、`check_code`、`type`、`seq_a`、`seq_b`、`tx_hash`、`block_number`、`detail`、`evidence`（jsonb）、`detected_at` |
+| `exclusions` | `seq`（主キー）、`tx_hash`、`reason`、`verified_block`、`evidence`（jsonb）、`detected_at` |
 | `disclosures` | `id`、`address`、`vasp_id`、`vasp_request_id`、`reason`、`status`、`created_at` |
 
 ### 3.7 設定
@@ -349,7 +392,7 @@ pnpm --filter @ledgera/auditor fifo --from 1 --json
 | `PORT` | 8650 | |
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | |
-| `AUDIT_RPC_URL` | - | L2 の RPC |
+| `AUDIT_RPC_URL` | - | L2 の RPC。rpc-proxy か検証ノードを指す |
 | `GATEWAY_URL` | - | 公開 API だけを使う |
 | `INDEXER_URL` | - | |
 | `VASP_AUDITOR_KEYS` | - | JSON。VASP ID → 開示請求用の API キー |
@@ -362,8 +405,14 @@ pnpm --filter @ledgera/auditor fifo --from 1 --json
 | 種類 | 内容 |
 |---|---|
 | 単体 | 合成したログとブロックで、C1〜C7 がそれぞれ違反を検出する。正常なデータでは 0 件 |
-| 単体 | Deposit と理由つきの除外を違反にしない |
+| 単体 | Deposit を違反にしない |
+| 単体 | C5: 転送状態が `queued`、`forwarded`、`rejected` のどれでも、期限を過ぎた未取り込みのエントリが `NOT_INCLUDED` になる |
+| 単体 | C5: 判定区間で送信者が無効になったエントリと、残高が不足したエントリは、正当な除外になる。証拠にブロック番号と読んだ値が入る |
+| 単体 | C5: `forwardError` に理由が書かれていても、L2 で確認できなければ `NOT_INCLUDED` になる |
+| 単体 | 再編成で位置が変わると、検査結果が作り直される |
+| 単体 | `fromSeq` と `fromBlock` を指定すると、それより前の違反が集計に入らない |
 | 結合（anvil） | Gateway 経由で 100 件送り、違反 0 件 |
 | 結合（anvil） | Gateway の `reorder-next` の後、C4 の違反が 1 件出て、証拠に 2 つの Receipt が入る |
+| 結合（anvil） | Gateway の転送先だけを遮断して受け付けた取引が、期限後に `NOT_INCLUDED` になる。転送先を試験用のプロキシにして遮断し、`INCLUSION_DEADLINE_SEC` を短くする |
 | 結合（anvil） | Gateway を通さずに送った取引が C6 で検出される |
 | 結合（anvil） | 開示請求から開示内容の取得まで |

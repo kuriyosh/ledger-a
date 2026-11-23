@@ -119,7 +119,7 @@ JSON-RPC。
 ログの性質。
 
 - 追記だけ。`seq`、`tx_hash`、`sender`、`raw_tx`、`received_at_ms`、`prev_hash`、`entry_hash`、`signature` は書き換えない。DB のトリガーで更新と削除を拒否する。
-- 転送の状態とブロック内の位置は別の列に持ち、更新する。これらは Receipt の署名対象ではない。
+- 転送の状態とブロック内の位置は別の列に持ち、更新する。これらは Receipt の署名対象ではない。監査ツールはこれらを判定に使わない（07 章 3.2）。
 
 ## 6. 代理送信
 
@@ -191,7 +191,7 @@ JSON-RPC。
 | 関数 | トークンは `transfer`、`transferWithTravelRule`、`approve`。`AtomicSwap` は `fill` |
 | `value` | 0 |
 | `deadline` | 現在から 10 分以内 |
-| 署名者 | `vaspOf(from)` が API キーの VASP と一致する。状態は検査しない。停止や遮断はシミュレーションの失敗として現れる |
+| 署名者 | `vaspOf(from)` が API キーの VASP と一致する。状態は Gateway では検査しない。停止や遮断は `LedgerForwarder` が `SignerNotAllowed` で止め（03 章 5.3）、シミュレーションの失敗として現れる |
 | 回数 | VASP ごとに 1 分あたり `RELAY_RATE_LIMIT_PER_MIN` 件 |
 | 署名 | 各リクエストの EIP-712 署名を Gateway 自身が検証する。nonce は `LedgerForwarder.nonces(from)` に、同じ呼び出しの中で先行する同じ署名者のリクエスト数を足した値を使う |
 
@@ -223,10 +223,14 @@ JSON-RPC。
 | nonce が古い、残高不足、`ledgera: sender not allowed` | `rejected`。理由を `forward_error` に残す |
 | 接続エラー、タイムアウト | 間隔を空けて再試行する。成功するまで後続を送らない |
 
+- `rejected` と `forward_error` は Gateway の申告で、Receipt の署名対象ではない。監査ツールは、Receipt のある全エントリを取り込みの期限で監視する。未取り込みの理由は L2 の状態で確かめ直す（07 章 3.2）。
+- `rejected` にしたエントリも、`queued` のまま転送できなかったエントリも、監査では「Receipt 発行後の不採用」として扱われる。
+
 ### 7.2 取り込みの追跡
 
 - 新しいブロックごとに取引ハッシュを照合し、`included_block` と `included_index` を埋める。
-- 再編成でブロックが消えたら、その位置情報を消す。
+- 再編成でブロックが消えたら、その位置情報を消す。消したエントリは、通番順に Sequencer へ送り直す。後続のエントリより先に送る。
+- 送り直しで「nonce が古い」と返っても、その取引ハッシュがブロックに入っていれば `forwarded` のままにする。
 
 ### 7.3 Sequencer の切替（冗長化構成）
 
@@ -268,6 +272,7 @@ JSON-RPC。
   "prevHash": "0x…",
   "entryHash": "0x…",
   "signature": "0x…",
+  "rawTx": "0x…",
   "source": "relay",
   "vaspId": 1,
   "forwardStatus": "forwarded",
@@ -276,6 +281,9 @@ JSON-RPC。
   "includedIndex": 1
 }
 ```
+
+- `rawTx` は署名済みの L2 取引。監査ツールが `txHash` との一致を確かめ、未取り込みの理由の確認に使う（07 章 3.2）。
+- `forwardStatus`、`forwardError`、`includedBlock`、`includedIndex` は表示用。署名対象ではない。
 
 JSON-RPC（`POST /rpc`）で受けるメソッド。
 
@@ -286,10 +294,12 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 | `eth_chainId` | L2 の chain ID を返す |
 | その他 | `-32601` |
 
-読み取りは Gateway を通さず、op-reth の RPC に直接行う。`packages/config` に、読み取りは op-reth、書き込みは Gateway に向ける viem クライアントの生成関数を置く。取引を送るサービス（vasp、consortium、demo-tools）はすべてこれを使う。このクライアントの動作。
+読み取りは Gateway を通さず、rpc-proxy 経由で op-reth に行う。`packages/config` に、読み取りは rpc-proxy、書き込みは Gateway に向ける viem クライアントの生成関数を置く。取引を送るサービス（vasp、consortium、demo-tools）はすべてこれを使う。このクライアントの動作。
 
 - 取引を EIP-1559、`maxPriorityFeePerGas = 1 wei`、`maxFeePerGas = MAX_FEE_PER_GAS_WEI` で組み立てる。
 - 鍵ごとに送信を直列にする。前の取引の Gateway の応答を待ってから、次の nonce で送る。同じ鍵の取引を並行して送ると `NONCE_GAP` になるため。
+
+例外は demo-tools が送る外部者の取引。このクライアントを使わず、手数料を別に決めて手元で組み立てる（08 章 10.1）。
 
 ## 10. DB スキーマ
 
@@ -358,7 +368,7 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 | `PORT` | 8600 | |
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | デプロイ結果のパス |
-| `SEQUENCER_RPC_URLS` | - | op-reth の URL。冗長化構成ではカンマ区切りで 3 つ |
+| `SEQUENCER_RPC_URLS` | - | op-reth の URL。rpc-proxy を通さず、`ledgera-chain` ネットワークで直接つなぐ。冗長化構成ではカンマ区切りで 3 つ |
 | `CONDUCTOR_RPC_URLS` | 空 | op-conductor の URL。`SEQUENCER_RPC_URLS` と同じ順 |
 | `GATEWAY_PRIVATE_KEY` | - | Receipt の署名とコミット |
 | `RELAYER_KEYS` | - | JSON。VASP ID → 秘密鍵 |
@@ -402,6 +412,8 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 | 結合（anvil） | 代理送信: 許可外の呼び出し先、他社の署名者、回数超過が拒否される |
 | 結合（anvil） | `submitOnRevert` で失敗取引が L2 に入り、Receipt が発行される |
 | 結合（anvil） | コミットが連続する。Gateway を再起動しても通番と連鎖が続く |
+| 結合（anvil） | 再編成（`evm_revert`）で消えた取引が、通番順に送り直される |
+| 結合（anvil） | 遮断された署名者の代理送信が `SIMULATION_REVERTED` になり、`errorName` が `SignerNotAllowed` になる |
 | 結合（anvil） | `reorder-next` で 2 件の順が入れ替わる |
 
 anvil は `--order fifo --block-time 2` で起動する。
