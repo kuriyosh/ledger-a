@@ -74,6 +74,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | `make l2-bootstrap` | L2 の初期化（02 章 5 節）。`ledgera-chain` ネットワークにつないだ Foundry コンテナで実行する |
 | `make app-up`、`app-down`、`app-logs` | postgres、各サービス、web |
 | `make demo-seed` | 新しいデモ回を作る。登場人物と残高を作り、画面と監査の集計を新しい回に切り替える |
+| `make e2e APP_MODE=anvil` | 起動済みの試験環境に新しいデモ回を作り、場面と DB の保存先を検証する |
 | `make up`、`make down` | チェーンとアプリをまとめて起動、停止 |
 | `make status` | 各コンポーネントの稼働、ブロック高、safe ブロック、通番、残高を表示する |
 | `make replica-up`、`replica-down`、`replica-reset`、`replica-compare` | 検証ノードの起動と停止、データの削除、ブロックハッシュの比較 |
