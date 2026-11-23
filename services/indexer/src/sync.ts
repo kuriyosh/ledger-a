@@ -3,7 +3,10 @@ import { logService } from "@ledgera/shared/server";
 import type { IndexerStore, Position } from "./db/store.ts";
 import type { BlockRef, indexerRpc } from "./rpc.ts";
 
-type Chain = ReturnType<typeof indexerRpc>;
+type Chain = Pick<
+  ReturnType<typeof indexerRpc>,
+  "chainId" | "latest" | "header" | "block" | "finality"
+>;
 type Store = Pick<
   IndexerStore,
   "tip" | "blockAt" | "rewind" | "append" | "updateFinality"

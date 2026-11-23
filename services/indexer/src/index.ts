@@ -1,10 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { readDeployment } from "@ledgera/config";
 import { openDatabase } from "@ledgera/shared/db";
-import { serviceApp, startService } from "@ledgera/shared/server";
+import { logService, serviceApp, startService } from "@ledgera/shared/server";
 import { IndexerStore } from "./db/store.ts";
 import { decoder } from "./decode.ts";
 import { indexerEnv } from "./env.ts";
+import { failureWorker } from "./failures.ts";
 import { indexerRoutes } from "./http.ts";
 import { chainQuery } from "./query.ts";
 import { registryQuery } from "./registry-query.ts";
@@ -54,7 +55,7 @@ const indexer = indexerSync(
   env.POLL_INTERVAL_MS,
 );
 const controller = new AbortController();
-const worker = indexer.run(controller.signal);
+const failures = failureWorker(database.db, deployment, env.L2_RPC_URL, rpc);
 const app = serviceApp("indexer");
 indexerRoutes(
   app,
@@ -65,7 +66,29 @@ indexerRoutes(
 startService(app, env, {
   onShutdown: () => controller.abort(),
   onClose: async () => {
-    await worker;
+    await workers;
     await database.close();
   },
 });
+
+async function runWorker(
+  name: string,
+  run: (signal: AbortSignal) => Promise<void>,
+) {
+  try {
+    await run(controller.signal);
+    if (!controller.signal.aborted) throw new Error("Worker stopped");
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    logService("indexer", "error", "Indexer worker exited", null, {
+      worker: name,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    process.exitCode = 1;
+    process.kill(process.pid, "SIGTERM");
+  }
+}
+const workers = Promise.allSettled([
+  runWorker("sync", indexer.run),
+  runWorker("failure-classification", failures.run),
+]);

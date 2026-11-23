@@ -133,8 +133,8 @@ function txView(
     kind: row.kind,
     call: row.decodedCall,
     failure: row.failureKind && {
-      kind: row.failureKind,
       ...(row.failureDetail as Record<string, unknown>),
+      kind: row.failureKind,
     },
     mint: row.mint?.toString() ?? null,
   };
