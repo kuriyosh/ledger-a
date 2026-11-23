@@ -250,3 +250,24 @@ export const quotesIssued = pgTable("quotes_issued", {
   filledTxHash: bytes("filled_tx_hash"),
   filledBlockNumber: bigint("filled_block_number", { mode: "bigint" }),
 });
+
+export const disclosureRequests = pgTable(
+  "disclosure_requests",
+  {
+    id: text("id").primaryKey(),
+    address: bytes("address").notNull(),
+    requestedBy: text("requested_by", { enum: ["auditor"] }).notNull(),
+    reason: text("reason").notNull(),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected"],
+    }).notNull(),
+    disclosure: jsonb("disclosure").$type<{
+      address: `0x${string}`;
+      customerIdentification: string;
+      name: { primaryIdentifier: string; secondaryIdentifier: string };
+    }>(),
+    createdAt: instant("created_at").notNull().defaultNow(),
+    decidedAt: instant("decided_at"),
+  },
+  (row) => [index("disclosures_created").on(row.createdAt, row.id)],
+);

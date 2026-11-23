@@ -36,6 +36,13 @@
       "when": 1795465130917,
       "tag": "0004_swaps-and-quotes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795466628597,
+      "tag": "0005_disclosure-requests",
+      "breakpoints": true
     }
   ]
 }
