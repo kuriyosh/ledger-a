@@ -108,7 +108,7 @@ export function evaluateDeposit(
   )
     return {
       accountStatus: account.status,
-      kind: account.kind,
+      accountKind: account.kind,
       vaspId: account.vaspId,
       ...(vaspStatus !== undefined && { vaspStatus }),
       validUntil: account.validUntil.toString(),

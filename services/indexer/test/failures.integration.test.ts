@@ -16,6 +16,7 @@ import { transactions } from "../src/db/schema.ts";
 import { IndexerStore } from "../src/db/store.ts";
 import { decoder } from "../src/decode.ts";
 import { failureWorker } from "../src/failures.ts";
+import { chainQuery } from "../src/query.ts";
 import type { ChainBlock } from "../src/rpc.ts";
 
 const url = process.env.TEST_INDEXER_FAILURES_DATABASE_URL;
@@ -233,7 +234,21 @@ test.skipIf(!url)(
         rows.find((row) => row.blockNumber === 1n && row.txIndex === 1),
       ).toMatchObject({
         failureKind: "SENDER_NOT_ALLOWED",
-        failureDetail: { sender, accountStatus: 3 },
+        failureDetail: { sender, accountKind: 1, accountStatus: 3 },
+      });
+      const view = await chainQuery(
+        database.db,
+        decoder(deployment.contracts),
+      ).transactions({ limit: 100 });
+      expect(
+        view.transactions.find((item) => item.hash === hash(102))?.failure,
+      ).toEqual({
+        kind: "SENDER_NOT_ALLOWED",
+        sender,
+        accountKind: 1,
+        accountStatus: 3,
+        vaspId: 1,
+        validUntil: "0",
       });
       expect(
         rows.find((row) => row.blockNumber === 1n && row.txIndex === 3),
