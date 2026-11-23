@@ -165,8 +165,8 @@ flowchart LR
 - [x] `services/gateway`: キューから通番順に転送
 - [x] `services/gateway`: 取り込みの追跡、コミット
 - [ ] `services/gateway`: デモ用の仕掛け
-- [ ] `services/auditor`: 検査 C1〜C7、除外の確認、集計区間、再編成への対応、進行位置の保存、API、CLI
-- [ ] `docker-compose.yml`（postgres、gateway、auditor）と `docker-compose.anvil.yml`（anvil、rpc-proxy）
+- [x] `services/auditor`: 検査 C1〜C7、除外の確認、集計区間、再編成への対応、進行位置の保存、API、CLI
+- [x] `docker-compose.yml`（postgres、gateway、auditor）と `docker-compose.anvil.yml`（anvil、rpc-proxy）
 
 受け入れ基準。
 

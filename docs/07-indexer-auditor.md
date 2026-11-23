@@ -327,7 +327,7 @@ C5 の判定。
 CLI。
 
 ```
-pnpm --filter @ledgera/auditor fifo --from 1 --json
+pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 ```
 
 違反が 1 件でもあれば終了コード 1。
