@@ -47,6 +47,10 @@ export LEDGERA_UID LEDGERA_GID
 LEDGERA_UID=$(id -u)
 LEDGERA_GID=$(id -g)
 
+profiles=()
+if [[ "$(read_env 'process.env.DEMO_MODE || ""')" == true ]]; then
+  profiles+=(--profile demo)
+fi
 files=()
 if [[ -f .env ]]; then files+=(--env-file .env); fi
-exec docker compose "${files[@]}" --env-file "$account_file" -f docker-compose.yml "$@"
+exec docker compose "${profiles[@]}" "${files[@]}" --env-file "$account_file" -f docker-compose.yml "$@"

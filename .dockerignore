@@ -30,3 +30,7 @@
 !services/indexer/src/**/*.ts
 !services/indexer/src/db/migrations/**/*.sql
 !services/indexer/src/db/migrations/meta/_journal.json
+!services/demo-tools/package.json
+!services/demo-tools/src/**/*.ts
+!services/demo-tools/src/db/migrations/**/*.sql
+!services/demo-tools/src/db/migrations/meta/_journal.json
