@@ -125,6 +125,8 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 
 ## 6. anvil モード
 
+Anvil と DevNet はホストのポートと Docker ネットワーク名を共有する。どちらか一方を起動する。
+
 ```
 make setup
 make anvil-up

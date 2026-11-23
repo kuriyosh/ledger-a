@@ -310,7 +310,7 @@ C5 の判定。
 ### 3.3 実行
 
 - 10 秒ごとに、前回の続きから差分を検査する。
-- `POST /v1/fifo/run` で、保存済みの Receipt と現在の公開ログを通番 1 から照合する。同じ通番の内容が食い違えば、両方の Receipt を証拠として残す。
+- `POST /v1/fifo/run` で、保存済みの Receipt と現在の公開ログを通番 1 から照合する。同じ通番の内容が食い違えば、両方の Receipt を証拠として残す。公開ログから欠けた分も記録する。
 - 同じ違反は ID と初回の検出時刻を引き継ぐ。C5 の判定は、区間終端のブロックハッシュが一致する間は保存済みの結果を使う。
 - 進行位置（検査済みの通番、ブロック番号、ブロックハッシュ）は DB に持つ。
 
@@ -385,7 +385,7 @@ pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 | `audit_blocks` | ブロック番号、ハッシュ、監査に使う取引とコミット |
 | `fifo_entries` | `seq`（主キー）、`tx_hash`、`received_at_ms`、`forward_status`（表示用）、`pos_block`、`pos_index`、`receipt`、`position`、`checks`（jsonb） |
 | `inclusion_decisions` | 通番、取引ハッシュ、期限と判定区間の終端ハッシュ、除外の証拠 |
-| `violations` | `id`、`check_code`、`type`、`seq_a`、`seq_b`、`tx_hash`、`block_number`、`detail`、`evidence`（jsonb）、`detected_at` |
+| `violations` | `id`、`check_code`、`type`、`identity`、`observation_id`、`seq_a`、`seq_b`、`tx_hash`、`block_number`、`detail`、`evidence`（jsonb）、`detected_at` |
 | `exclusions` | `seq`（主キー）、`tx_hash`、`reason`、`verified_block`、`evidence`（jsonb）、`detected_at` |
 | `disclosures` | `id`、`address`、`vasp_id`、`vasp_request_id`、`reason`、`status`、`created_at` |
 

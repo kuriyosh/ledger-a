@@ -92,3 +92,28 @@ test("distinguishes an older RPC tip on the same fork from a shorter competing f
   expect(await isLagging(source, [firstBlock, later], 2n)).toBe(false);
   expect(await isLagging(source, [firstBlock, later], 3n)).toBe(false);
 });
+
+test("a full scan reports an archived sequence omitted below a stable Gateway head", async () => {
+  const third = { ...second, seq: 3n };
+  const result = await scanReceipts(
+    {
+      async head() {
+        return { seq: 3n, entryHash: hash };
+      },
+      async page() {
+        return [first, third];
+      },
+    },
+    [first, second, third],
+    true,
+    signal,
+  );
+  expect(result.receipts).toHaveLength(3);
+  expect(result.problems).toMatchObject([
+    {
+      type: "BROKEN_CHAIN",
+      seqA: 2n,
+      evidence: { archived: { seq: 2n, entryHash: hash } },
+    },
+  ]);
+});

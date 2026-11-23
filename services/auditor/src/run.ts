@@ -54,6 +54,7 @@ export async function scanReceipts(
   );
   let next = full ? 1n : (firstWaiting?.seq ?? (last > 0n ? last : 1n));
   const problems: Violation[] = [];
+  const published = new Set<bigint>();
 
   while (next <= head.seq) {
     signal.throwIfAborted();
@@ -61,6 +62,7 @@ export async function scanReceipts(
     const page = await gateway.page(next, signal);
     for (const receipt of page) {
       if (receipt.seq > head.seq) continue;
+      if (full) published.add(receipt.seq);
       const archived = receipts.get(receipt.seq);
       const observed = receiptEvidence(receipt);
       if (receipt.seq < next) {
@@ -99,6 +101,25 @@ export async function scanReceipts(
       }
     }
     if (next === before) break;
+  }
+
+  if (full) {
+    const missing = saved.filter(
+      ({ seq }) => seq <= head.seq && !published.has(seq),
+    );
+    if (missing.length) {
+      const repeated = await gateway.head(signal);
+      if (repeated.seq === head.seq && repeated.entryHash === head.entryHash) {
+        for (const receipt of missing) {
+          problems.push(
+            observation(receipt.seq, "Gateway omitted an archived Receipt", {
+              archived: receiptEvidence(receipt),
+              advertised: head,
+            }),
+          );
+        }
+      }
+    }
   }
 
   const ordered = [...receipts.values()].sort((a, b) =>
