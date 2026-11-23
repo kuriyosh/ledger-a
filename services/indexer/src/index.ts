@@ -3,8 +3,10 @@ import { readDeployment } from "@ledgera/config";
 import { openDatabase } from "@ledgera/shared/db";
 import { serviceApp, startService } from "@ledgera/shared/server";
 import { IndexerStore } from "./db/store.ts";
+import { decoder } from "./decode.ts";
 import { indexerEnv } from "./env.ts";
 import { indexerRpc } from "./rpc.ts";
+import { chainState } from "./state.ts";
 import { indexerSync } from "./sync.ts";
 
 const env = indexerEnv.parse(process.env);
@@ -18,9 +20,28 @@ const rpc = indexerRpc(
 if ((await rpc.chainId()) !== deployment.chainId)
   throw new Error("Indexer L2 chain ID does not match the deployment");
 
+const state = chainState(env.L2_RPC_URL, deployment.contracts);
+if (env.INDEXER_START_BLOCK > 0n) {
+  const parent = env.INDEXER_START_BLOCK - 1n;
+  if (parent <= (await rpc.latest())) {
+    try {
+      await state.registry((await rpc.header(parent)).hash);
+    } catch (error) {
+      throw new Error(
+        "Partial indexing requires historical L2 state at the start block",
+        { cause: error },
+      );
+    }
+  }
+}
+
 const migrations = fileURLToPath(new URL("./db/migrations/", import.meta.url));
 const database = await openDatabase(env.DATABASE_URL, "indexer", migrations);
-const store = new IndexerStore(database.db, env.INDEXER_START_BLOCK);
+const store = new IndexerStore(database.db, env.INDEXER_START_BLOCK, {
+  decode: decoder(deployment.contracts),
+  state,
+  tokens: deployment.contracts,
+});
 await store.initialize();
 const indexer = indexerSync(
   store,
