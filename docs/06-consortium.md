@@ -61,13 +61,13 @@ stateDiagram-v2
 | `executable` | しきい値の数の `approveHash` が記録されている。nonce は未消費 |
 | `failed` | `execTransaction` が revert した。nonce は未消費で、承認は有効なまま。内側の呼び出しが通る状態になれば実行できる |
 | `cancelling` | 取消取引の承認を集めている。元の操作はまだ実行できる |
-| `cancelled` | 元の操作は実行できない。承認が 1 件もないか、取消取引で nonce が消費された |
+| `cancelled` | 元の操作は実行できない。承認が 1 件もないか、取消取引か別の確定済み操作で nonce が消費された |
 | `executed` | 元の操作が実行された |
 
 - 終了状態は `executed` と `cancelled` の 2 つ。どちらも、その申請の承認が L2 で使えなくなった状態を指す。
 - `failed` は終了状態にしない。承認が L2 に残り、後から実行できるため。再実行するか、取り下げる。
 - 未完了（`open`、`executable`、`failed`、`cancelling`）の申請は同時に 1 件まで。2 件目は 409 `PROPOSAL_IN_PROGRESS` で拒否する。Safe の nonce が申請ごとに 1 つ進むため、並行させると後続のハッシュが無効になる。
-- 実行済みの取引が finalized に達するまでは、次の申請を 409 `PROPOSAL_IN_PROGRESS` で拒否する。再編成で元の申請が実行前の状態に戻る場合がある。
+- 実行または取消の取引が finalized に達するまでは、次の申請を 409 `PROPOSAL_IN_PROGRESS` で拒否する。再編成で元の申請が実行前の状態に戻る場合がある。
 
 ## 4. 処理
 
@@ -141,6 +141,7 @@ stateDiagram-v2
 | `nonce()` が `safe_nonce` と同じ。`approvedHashes(owner, safeTxHash)` がしきい値以上 | `executable`。`failed` と `cancelling` は変えない |
 | `nonce()` が進んだ。`ExecutionSuccess(safeTxHash)` がある | `executed` |
 | `nonce()` が進んだ。`ExecutionSuccess(cancelSafeTxHash)` がある | `cancelled` |
+| finalized ブロックで `nonce()` が進んだ。元の操作と取消の成功イベントがない | `cancelled` |
 
 - 再編成で承認や実行の取引が消えた場合も、この照合で状態が戻る。消えた取引は Gateway が送り直す（04 章 7.2）。
 - `approvals` の取引ハッシュとブロック番号も、`ApproveHash` イベントから取り直す。

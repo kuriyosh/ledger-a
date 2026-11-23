@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { openDatabase } from "@ledgera/shared/db";
 import { ServiceError } from "@ledgera/shared/errors";
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { getAddress, type Hex } from "viem";
 import type { ProposalInput } from "../proposals.ts";
 import type { Approval, MemberId, SafeCall } from "../safe.ts";
@@ -14,7 +24,7 @@ export type ProposalStatus = Proposal["status"];
 export type PendingAction = {
   proposalId: string;
   memberId: MemberId;
-  action: "approve" | "execute";
+  action: (typeof pendingActions.$inferSelect)["action"];
   txHash: Hex;
   rawTx: Hex;
   firstBlock: bigint;
@@ -26,7 +36,13 @@ function reservesSlot() {
   return or(
     inArray(proposals.status, active),
     and(
-      eq(proposals.status, "executed"),
+      or(
+        eq(proposals.status, "executed"),
+        and(
+          eq(proposals.status, "cancelled"),
+          isNotNull(proposals.cancelExecutedBlock),
+        ),
+      ),
       eq(proposals.executionFinalized, false),
     ),
   );
@@ -54,6 +70,14 @@ function entry(row: Proposal) {
     executedTxHash: row.executedTxHash && hex(row.executedTxHash),
     executedBlock: row.executedBlock,
     failedTxHash: row.failedTxHash && hex(row.failedTxHash),
+    cancelSafeTxHash: row.cancelSafeTxHash && hex(row.cancelSafeTxHash),
+    cancelExecutedTxHash:
+      row.cancelExecutedTxHash && hex(row.cancelExecutedTxHash),
+    cancelExecutedBlock: row.cancelExecutedBlock,
+    cancelExecutionPrepared: row.cancelExecutionPrepared,
+    cancelledLocally: row.cancelledLocally,
+    withdrawalRequestedAt: row.withdrawalRequestedAt,
+    withdrawalReason: row.withdrawalReason,
     createdAt: row.createdAt,
   };
 }
@@ -169,12 +193,15 @@ export class ConsortiumRows {
     return entry(inserted);
   }
 
-  async approvals(id: string): Promise<Approval[]> {
+  async approvals(
+    id: string,
+    kind: "execute" | "cancel" = "execute",
+  ): Promise<Approval[]> {
     return (
       await this.db
         .select()
         .from(approvals)
-        .where(eq(approvals.proposalId, id))
+        .where(and(eq(approvals.proposalId, id), eq(approvals.kind, kind)))
         .orderBy(asc(approvals.memberId))
     ).map((row) => ({
       memberId: row.memberId as MemberId,
@@ -221,6 +248,39 @@ export class ConsortiumRows {
       );
   }
 
+  async requestCancellation(id: string, cancelHash?: Hex) {
+    await this.db
+      .update(proposals)
+      .set({
+        status: cancelHash ? "cancelling" : "cancelled",
+        cancelSafeTxHash: cancelHash ? bytes(cancelHash) : null,
+        cancelledLocally: cancelHash === undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(proposals.id, id));
+  }
+
+  async cancellationPrepared(id: string) {
+    await this.db
+      .update(proposals)
+      .set({ cancelExecutionPrepared: true })
+      .where(eq(proposals.id, id));
+  }
+
+  async withdraw(id: string, reason: string) {
+    const requestedAt = new Date();
+    await this.db
+      .update(proposals)
+      .set({
+        withdrawalRequestedAt: requestedAt,
+        withdrawalReason: reason,
+        updatedAt: requestedAt,
+      })
+      .where(
+        and(eq(proposals.id, id), isNull(proposals.withdrawalRequestedAt)),
+      );
+  }
+
   async record(
     id: string,
     state: {
@@ -228,6 +288,8 @@ export class ConsortiumRows {
       approvals: readonly Approval[];
       executed?: { txHash: Hex; blockNumber: bigint };
       executionFinalized: boolean;
+      cancelApprovals?: readonly Approval[];
+      cancelled?: { txHash: Hex; blockNumber: bigint };
       failedTxHash?: Hex;
     },
   ) {
@@ -237,21 +299,36 @@ export class ConsortiumRows {
         status: state.status,
         executedTxHash: state.executed ? bytes(state.executed.txHash) : null,
         executedBlock: state.executed?.blockNumber ?? null,
+        cancelExecutedTxHash: state.cancelled
+          ? bytes(state.cancelled.txHash)
+          : null,
+        cancelExecutedBlock: state.cancelled?.blockNumber ?? null,
         executionFinalized: state.executionFinalized,
         failedTxHash: state.failedTxHash ? bytes(state.failedTxHash) : null,
         updatedAt: new Date(),
       })
       .where(eq(proposals.id, id));
     await this.db.delete(approvals).where(eq(approvals.proposalId, id));
-    if (state.approvals.length > 0)
+    const evidence = [
+      ...state.approvals.map((approval) => ({
+        ...approval,
+        kind: "execute" as const,
+      })),
+      ...(state.cancelApprovals ?? []).map((approval) => ({
+        ...approval,
+        kind: "cancel" as const,
+      })),
+    ];
+    if (evidence.length)
       await this.db.insert(approvals).values(
-        state.approvals.map((item) => ({
+        evidence.map((approval) => ({
           proposalId: id,
-          memberId: item.memberId,
-          memberAddress: bytes(item.address),
-          txHash: bytes(item.txHash),
-          blockNumber: item.blockNumber,
-          approvedAt: item.approvedAt,
+          memberId: approval.memberId,
+          kind: approval.kind,
+          memberAddress: bytes(approval.address),
+          txHash: bytes(approval.txHash),
+          blockNumber: approval.blockNumber,
+          approvedAt: approval.approvedAt,
         })),
       );
   }

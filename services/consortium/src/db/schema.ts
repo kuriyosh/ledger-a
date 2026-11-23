@@ -55,6 +55,15 @@ export const proposals = consortium.table("proposals", {
   executedBlock: block("executed_block"),
   executionFinalized: boolean("execution_finalized").notNull().default(false),
   failedTxHash: bytes("failed_tx_hash"),
+  cancelSafeTxHash: bytes("cancel_safe_tx_hash"),
+  cancelExecutedTxHash: bytes("cancel_executed_tx_hash"),
+  cancelExecutedBlock: block("cancel_executed_block"),
+  cancelExecutionPrepared: boolean("cancel_execution_prepared")
+    .notNull()
+    .default(false),
+  cancelledLocally: boolean("cancelled_locally").notNull().default(false),
+  withdrawalRequestedAt: instant("withdrawal_requested_at"),
+  withdrawalReason: text("withdrawal_reason"),
   createdAt: instant("created_at").notNull().defaultNow(),
   updatedAt: instant("updated_at").notNull().defaultNow(),
 });
@@ -66,12 +75,15 @@ export const approvals = consortium.table(
       .notNull()
       .references(() => proposals.id),
     memberId: integer("member_id").notNull(),
+    kind: text("kind", { enum: ["execute", "cancel"] })
+      .notNull()
+      .default("execute"),
     memberAddress: bytes("member_address").notNull(),
     txHash: bytes("tx_hash").notNull(),
     blockNumber: block("block_number").notNull(),
     approvedAt: instant("approved_at").notNull(),
   },
-  (row) => [primaryKey({ columns: [row.proposalId, row.memberId] })],
+  (row) => [primaryKey({ columns: [row.proposalId, row.memberId, row.kind] })],
 );
 
 export const pendingActions = consortium.table("pending_actions", {
@@ -79,7 +91,9 @@ export const pendingActions = consortium.table("pending_actions", {
     .primaryKey()
     .references(() => proposals.id),
   memberId: integer("member_id").notNull(),
-  action: text("action", { enum: ["approve", "execute"] }).notNull(),
+  action: text("action", {
+    enum: ["approve", "execute", "cancel_approve", "cancel_execute"],
+  }).notNull(),
   txHash: bytes("tx_hash").notNull().unique(),
   rawTx: bytes("raw_tx").notNull(),
   firstBlock: block("first_block").notNull(),

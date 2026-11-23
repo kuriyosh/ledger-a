@@ -166,6 +166,15 @@ export function consortiumChain(
       await verifyAnchor(block);
       return overview;
     },
+    async finalizedNonce() {
+      const finalized = await client.getBlock({ blockTag: "finalized" });
+      return client.readContract({
+        ...safe,
+        functionName: "nonce",
+        blockHash: finalized.hash,
+        requireCanonical: true,
+      });
+    },
     async executionIsFinal(position: { blockNumber: bigint; blockHash: Hex }) {
       const finalized = await client.getBlock({ blockTag: "finalized" });
       return (
