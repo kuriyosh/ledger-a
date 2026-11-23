@@ -3,7 +3,8 @@ name: ledgera-chain
 services:
   op-reth:
     restart: unless-stopped
-    image: ${OP_RETH_IMAGE:-${OP_RETH_STOCK_IMAGE}}
+    image: ${OP_RETH_IMAGE}
+    pull_policy: never
     command:
       - node
       - --chain=/workspace/genesis.json
@@ -47,6 +48,7 @@ services:
     environment:
       OP_NODE_L1_ETH_RPC: ${L1_RPC_URL:?Set L1_RPC_URL in .env}
       OP_NODE_L1_BEACON: ${L1_BEACON_URL:?Set L1_BEACON_URL in .env}
+      OP_NODE_L1_TRUST_RPC: ${L1_TRUST_RPC:-false}
     volumes:
       - ../runtime/rollup.json:/workspace/rollup.json:ro
       - ../runtime/jwt.txt:/workspace/jwt.txt:ro

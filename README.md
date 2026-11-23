@@ -32,15 +32,17 @@ anvil を起動し、有効な署名付き取引がプロキシ経由で拒否�
 読み取り専用 RPC は `127.0.0.1:8545`、直接送信は `127.0.0.1:9545` を使う。
 `make anvil-down` で停止する。チェーンの状態は Docker ボリュームに保存される。
 
-## Sepolia で標準 OP Stack を起動する
+## Sepolia で DevNet を起動する
 
 `.env` に Sepolia の `L1_RPC_URL` と `L1_BEACON_URL` を設定する。
 `make keys` が表示する admin アドレスに Sepolia ETH を用意する。
 
 ```sh
 make fund-l1
+make chain-image
 make chain-deploy
 make chain-up
+make l2-bootstrap
 make status
 ```
 

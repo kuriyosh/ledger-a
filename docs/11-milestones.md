@@ -111,22 +111,22 @@ flowchart LR
 
 作業（前半: fork リポジトリ）。
 
-- [ ] `ethereum-optimism/optimism` を `kuriyosh/optimism` に fork し、tag `op-reth/v2.9.0` からブランチ `ledgera/op-reth-v2.9.0` を切る
-- [ ] 02 章 6.3 と 6.4 の変更箇所がこの tag でも同じ位置にあることを確認する
-- [ ] `rust/op-revm/src/ledgera.rs`、`error.rs`、`handler.rs` の変更
-- [ ] `op-revm` の単体テスト（02 章 6.5）
-- [ ] `rust/op-reth/crates/node/src/ledgera.rs` と `node.rs` の変更
-- [ ] `op-reth` の結合テスト（02 章 6.5）
-- [ ] fork の CI（2 クレートの `cargo test`）
+- [x] `ethereum-optimism/optimism` を `kuriyosh/optimism` に fork し、tag `op-reth/v2.9.0` からブランチ `ledgera/op-reth-v2.9.0` を切る
+- [x] 02 章 6.3 と 6.4 の変更箇所がこの tag でも同じ位置にあることを確認する
+- [x] `rust/op-revm/src/ledgera.rs`、`error.rs`、`handler.rs` の変更
+- [x] `op-revm` の単体テスト（02 章 6.5）
+- [x] `rust/op-reth/crates/node/src/ledgera.rs` と `node.rs` の変更
+- [x] `op-reth` の結合テスト（02 章 6.5）
+- [x] fork の CI（2 クレートの `cargo test`）
 
 作業（後半: このリポジトリ）。
 
-- [ ] `chain/scripts/build-op-reth.sh` と `make chain-image`
-- [ ] `chain/versions.env` に `OPTIMISM_FORK_COMMIT` と `OP_RETH_IMAGE` を入れる
-- [ ] `chain/scripts/bootstrap-l2.sh` を devnet に対応させる（拒否の確認、`deployments/devnet.json` の書き出し）
-- [ ] 改造版のイメージで `make chain-up`、`make l2-bootstrap`
-- [ ] `chain/compose/docker-compose.replica.yml`（検証ノード、対照ノード）、`chain/scripts/compare-heads.sh`、`compare-deposit.sh`
-- [ ] `make replica-up`、`replica-compare`、`control-up`、`control-compare`、`control-down`
+- [x] `chain/scripts/build-op-reth.sh` と `make chain-image`
+- [x] `chain/versions.env` に `OPTIMISM_FORK_COMMIT` と `OP_RETH_IMAGE` を入れる
+- [x] `chain/scripts/bootstrap-l2.sh` を devnet に対応させる（拒否の確認、`deployments/devnet.json` の書き出し）
+- [x] 改造版のイメージで `make chain-up`、`make l2-bootstrap`（ローカル Sepolia フォーク）
+- [x] `chain/compose/docker-compose.replica.yml`（検証ノード、対照ノード）、`chain/scripts/compare-heads.sh`、`compare-deposit.sh`
+- [x] `make replica-up`、`replica-compare`、`control-up`、`control-compare`、`control-down`
 
 受け入れ基準。L2 に取引を送る確認は `make chain-shell` の中で行う。
 
