@@ -2,8 +2,5 @@
 !package.json
 !pnpm-workspace.yaml
 !pnpm-lock.yaml
-!services/
-!services/rpc-proxy/
 !services/rpc-proxy/package.json
-!services/rpc-proxy/src/
-!services/rpc-proxy/src/**
+!services/rpc-proxy/src/**/*.ts

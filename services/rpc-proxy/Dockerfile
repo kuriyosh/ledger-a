@@ -8,5 +8,6 @@ RUN npm install -g "$(node -p 'require("./package.json").packageManager')" \
 
 COPY services/rpc-proxy/src/ services/rpc-proxy/src/
 WORKDIR /app/services/rpc-proxy
+ENV HOST=0.0.0.0
 USER node
 CMD ["node", "src/index.ts"]

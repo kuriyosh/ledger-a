@@ -8,8 +8,9 @@ KYC 済みアドレスだけが取引できる、金融向け Ethereum L2 の De
 
 ## 開発用の鍵と RPC
 
-Node.js 24 と pnpm を用意し、`make setup` を実行する。`.env.example` を
-`.env` にコピーし、開発専用のニーモニックを `LEDGERA_MNEMONIC` に設定する。
+Node.js 24.2 以降の 24 系と pnpm を用意し、`make setup` を実行する。
+`.env.example` を `.env` にコピーする。新しく生成したニーモニックを
+`LEDGERA_MNEMONIC` に設定する。
 `make keys` はアドレスを表示し、秘密鍵とサービス用シークレットを
 `.env.generated` に保存する。同じニーモニックで再実行すると、保存済みの
 シークレットを再利用する。
@@ -17,7 +18,7 @@ Node.js 24 と pnpm を用意し、`make setup` を実行する。`.env.example`
 読み取り専用 RPC を単独で起動するには、次を実行する。
 
 ```sh
-PORT=8545 UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 pnpm --filter @ledgera/rpc-proxy start
+UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 pnpm --filter @ledgera/rpc-proxy start
 ```
 
 op-node を使う場合は `UPSTREAM_ROLLUP_RPC_URLS` も指定する。

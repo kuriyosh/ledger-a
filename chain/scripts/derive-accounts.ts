@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -48,6 +49,13 @@ const secretNames = [
 
 export async function generateAccounts(mnemonic: string, output: string) {
   mnemonic = mnemonic.trim().split(/\s+/).join(" ");
+  if (
+    mnemonic === "test test test test test test test test test test test junk"
+  ) {
+    throw new Error(
+      "LEDGERA_MNEMONIC is the public Anvil default. Generate a new mnemonic",
+    );
+  }
   if (
     ![12, 24].includes(mnemonic.split(" ").length) ||
     !validateMnemonic(mnemonic, english)
@@ -93,6 +101,9 @@ export async function generateAccounts(mnemonic: string, output: string) {
         !(error instanceof Error && "code" in error && error.code === "EEXIST")
       )
         throw error;
+      if ((await stat(output)).mode & 0o077) {
+        throw new Error(`${output} must be accessible only to its owner`);
+      }
       const existing = parseEnv(await readFile(output, "utf8"));
       if (
         accountEnv.some(([name, value]) => existing[name] !== value) ||
@@ -109,6 +120,9 @@ export async function generateAccounts(mnemonic: string, output: string) {
   return accounts.map(({ name, address }) => ({ name, address }));
 }
 
+if (import.meta.main === undefined) {
+  throw new Error("Account generation requires Node.js 24.2 or later");
+}
 if (import.meta.main) {
   try {
     console.table(

@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { envSchema } from "../src/env.ts";
 import { createApp } from "../src/routes/rpc.ts";
 
 const app = createApp({
@@ -138,4 +139,43 @@ test("re-encodes requests before forwarding them, including duplicate method key
     "http://execution:8545",
     expect.objectContaining({ body: JSON.stringify(rpc("eth_blockNumber")) }),
   );
+});
+
+test("leaves /rollup disabled when its upstream is empty", async () => {
+  const env = envSchema.parse({
+    UPSTREAM_L2_RPC_URLS: "http://anvil:8545",
+    UPSTREAM_ROLLUP_RPC_URLS: "",
+  });
+  const anvil = createApp({
+    l2: env.UPSTREAM_L2_RPC_URLS,
+    rollup: env.UPSTREAM_ROLLUP_RPC_URLS,
+  });
+  const response = await anvil.request("/rollup", {
+    method: "POST",
+    body: JSON.stringify(rpc("optimism_syncStatus")),
+  });
+  expect(await response.json()).toMatchObject({
+    id: 1,
+    error: { code: -32601 },
+  });
+});
+
+test.each([
+  ["{", -32700],
+  ["[]", -32600],
+  ['{"method":"eth_blockNumber"}', -32600],
+  ['{"jsonrpc":"2.0","method":"eth_blockNumber","params":true}', -32600],
+])("rejects invalid RPC input %s", async (body, code) => {
+  const response = await app.request("/", { method: "POST", body });
+  expect(await response.json()).toMatchObject({ id: null, error: { code } });
+});
+
+test("reports a connection error when the upstream is unavailable", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+  );
+  const response = await post("/", rpc("eth_blockNumber"));
+  expect(response.status).toBe(502);
+  expect(await response.json()).toMatchObject({ error: { code: -32000 } });
 });
