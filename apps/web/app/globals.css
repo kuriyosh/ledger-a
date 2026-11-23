@@ -1,0 +1,298 @@
+:root {
+  color: #142437;
+  background: #f4f7fa;
+  font-family:
+    Geist, "Noto Sans JP", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+  font-synthesis: none;
+  line-height: 1.55;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid #1b73de;
+  outline-offset: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  top: -4rem;
+  left: 1rem;
+  z-index: 10;
+  padding: 0.55rem 0.9rem;
+  color: #fff;
+  background: #143253;
+}
+
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+.topbar {
+  color: #fff;
+  background: #132943;
+}
+
+.topbar-content,
+.role-nav-content,
+.workspace {
+  max-width: 100rem;
+  margin: 0 auto;
+  padding-inline: clamp(1rem, 3vw, 2.5rem);
+}
+
+.topbar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 1.28rem;
+  font-weight: 680;
+  text-decoration: none;
+}
+
+.brand-emblem {
+  display: grid;
+  gap: 0.2rem;
+  width: 1.6rem;
+  padding: 0.33rem 0.28rem;
+  border: 1px solid #9ac8f3;
+  border-radius: 0.33rem;
+}
+
+.brand-emblem i {
+  width: 100%;
+  height: 0.12rem;
+  border-radius: 0.18rem;
+  background: #b2d9ff;
+}
+
+.environment {
+  color: #c7d8e9;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.role-nav {
+  overflow-x: auto;
+  border-bottom: 1px solid #d9e2ed;
+  background: #fff;
+}
+
+.role-nav-content {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.role-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 3.45rem;
+  padding: 0.25rem 0.9rem 0;
+  border-bottom: 3px solid transparent;
+  color: #304762;
+  font-size: 0.95rem;
+  font-weight: 640;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.role-nav a[aria-current="page"] {
+  border-color: #1676c6;
+  color: #0c568f;
+  background: #edf6fd;
+}
+
+.role-nav a:hover {
+  background: #f2f7fc;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(19rem, 2fr);
+  align-items: start;
+  gap: 1.5rem;
+  padding-block: 1.75rem 3.5rem;
+}
+
+.role-workspace {
+  min-width: 0;
+}
+
+.role-picker,
+.chain-panel {
+  border: 1px solid #d9e2ed;
+  border-radius: 0.85rem;
+  background: #fff;
+}
+
+.role-picker {
+  padding: clamp(1.25rem, 3vw, 2.15rem);
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd {
+  margin: 0;
+}
+
+h1 {
+  color: #142b46;
+  font-size: clamp(1.65rem, 3vw, 2.1rem);
+}
+
+h2 {
+  font-size: 1.12rem;
+}
+
+h3 {
+  font-size: 1rem;
+}
+
+.section-label {
+  margin-bottom: 0.3rem;
+  color: #54677a;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 1.4rem;
+}
+
+.role-card {
+  display: grid;
+  align-content: center;
+  gap: 0.27rem;
+  min-height: 5rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid #dbe6f1;
+  border-radius: 0.55rem;
+  background: #f8fbfe;
+  text-decoration: none;
+}
+
+.role-card:hover {
+  border-color: #5899d0;
+  background: #edf6fd;
+}
+
+.role-card strong {
+  color: #173757;
+}
+
+.role-card span,
+.notice {
+  color: #4b6179;
+}
+
+.role-card span {
+  font-size: 0.9rem;
+}
+
+.chain-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.chain-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid #dbe6f1;
+}
+
+.connection {
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.3rem;
+  color: #0d584d;
+  background: #e7f6f1;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.connection-error {
+  color: #8d390e;
+  background: #fff0e4;
+}
+
+.chain-content {
+  padding: 1.1rem 1.2rem;
+}
+
+.network-list {
+  margin-top: 0.5rem;
+}
+
+.network-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.65rem;
+  border-bottom: 1px solid #e4ebf4;
+}
+
+.network-list div:last-child {
+  border-bottom: 0;
+}
+
+.network-list dt {
+  color: #435d76;
+  font-size: 0.9rem;
+}
+
+.network-list dd {
+  color: #15334f;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.network-list .metric {
+  color: #0d5996;
+  font-size: 1.32rem;
+}
+
+.notice {
+  margin-top: 1rem;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 51rem) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .chain-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 28rem) {
+  .role-grid {
+    grid-template-columns: 1fr;
+  }
+}
