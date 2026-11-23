@@ -196,6 +196,40 @@ services:
             if (!response.ok) process.exitCode = 1
           })
 
+  indexer:
+    restart: on-failure
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: indexer
+    user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
+    environment:
+      <<: *app-environment
+      PORT: 8640
+      L2_RPC_URL: http://rpc-proxy:8545
+      ROLLUP_RPC_URL: ${LEDGERA_ROLLUP_RPC_URL:-}
+      INDEXER_START_BLOCK: ${INDEXER_START_BLOCK:-0}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-1000}
+    volumes:
+      - ./deployments:/deployments:ro
+    ports:
+      - 127.0.0.1:8640:8640
+    networks: [app]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch("http://127.0.0.1:8640/healthz").then(response => {
+            if (!response.ok) process.exitCode = 1
+          })
+
 networks:
   app:
     name: ledgera

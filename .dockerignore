@@ -26,3 +26,7 @@
 !services/consortium/src/**/*.ts
 !services/consortium/src/db/migrations/**/*.sql
 !services/consortium/src/db/migrations/meta/_journal.json
+!services/indexer/package.json
+!services/indexer/src/**/*.ts
+!services/indexer/src/db/migrations/**/*.sql
+!services/indexer/src/db/migrations/meta/_journal.json

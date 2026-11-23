@@ -33,7 +33,9 @@ DB の作り直し。
 確定段階。
 
 - 5 秒ごとに op-node の `optimism_syncStatus` を呼び、`unsafe_l2`、`safe_l2`、`finalized_l2` のブロック番号を `chain_status` に保存する。
+- `unsafe_block` は観測した L2 の先端。 `safe_block` と `finalized_block` は取り込み済みの範囲に切り詰め、DB のブロックハッシュが L2 と一致することを確認する。
 - API は各ブロックの番号と比べて `unsafe`、`safe`、`finalized` を返す。
+- 確定済みのブロックを巻き戻す必要があるときは、行を削除せずに取り込みを止め、エラーを記録する。
 
 ### 2.2 復号
 
