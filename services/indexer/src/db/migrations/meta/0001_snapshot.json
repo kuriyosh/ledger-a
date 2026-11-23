@@ -1,0 +1,1414 @@
+{
+  "id": "4b268060-8de4-4b21-88fa-f2419f54b4f1",
+  "prevId": "dbe21657-08f8-4566-855b-e2c6c665de0d",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "indexer.balances_history": {
+      "name": "balances_history",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account": {
+          "name": "account",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "balance": {
+          "name": "balance",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "balances_history_block": {
+          "name": "balances_history_block",
+          "columns": [
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "balances_history_block_number_blocks_number_fk": {
+          "name": "balances_history_block_number_blocks_number_fk",
+          "tableFrom": "balances_history",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "balances_history_token_account_block_number_log_index_pk": {
+          "name": "balances_history_token_account_block_number_log_index_pk",
+          "columns": ["token", "account", "block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.blocks": {
+      "name": "blocks",
+      "schema": "indexer",
+      "columns": {
+        "number": {
+          "name": "number",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "hash": {
+          "name": "hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_hash": {
+          "name": "parent_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timestamp": {
+          "name": "timestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_count": {
+          "name": "tx_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.chain_status": {
+      "name": "chain_status",
+      "schema": "indexer",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "smallint",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "start_block": {
+          "name": "start_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "indexed_block": {
+          "name": "indexed_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "derived_block": {
+          "name": "derived_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unsafe_block": {
+          "name": "unsafe_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "safe_block": {
+          "name": "safe_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finalized_block": {
+          "name": "finalized_block",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "enforcement_enabled": {
+          "name": "enforcement_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "registry_version": {
+          "name": "registry_version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chain_status_singleton": {
+          "name": "chain_status_singleton",
+          "value": "\"indexer\".\"chain_status\".\"id\" = 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "indexer.logs": {
+      "name": "logs",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address": {
+          "name": "address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "topic0": {
+          "name": "topic0",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topic1": {
+          "name": "topic1",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topic2": {
+          "name": "topic2",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "topic3": {
+          "name": "topic3",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "data": {
+          "name": "data",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "logs_transaction": {
+          "name": "logs_transaction",
+          "columns": [
+            {
+              "expression": "tx_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "logs_block_number_blocks_number_fk": {
+          "name": "logs_block_number_blocks_number_fk",
+          "tableFrom": "logs",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "logs_tx_hash_transactions_hash_fk": {
+          "name": "logs_tx_hash_transactions_hash_fk",
+          "tableFrom": "logs",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "logs_block_number_log_index_pk": {
+          "name": "logs_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.receipt_commitments": {
+      "name": "receipt_commitments",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "args": {
+          "name": "args",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "receipt_commitments_block_number_blocks_number_fk": {
+          "name": "receipt_commitments_block_number_blocks_number_fk",
+          "tableFrom": "receipt_commitments",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "receipt_commitments_tx_hash_transactions_hash_fk": {
+          "name": "receipt_commitments_tx_hash_transactions_hash_fk",
+          "tableFrom": "receipt_commitments",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "receipt_commitments_block_number_log_index_pk": {
+          "name": "receipt_commitments_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.registry_account_events": {
+      "name": "registry_account_events",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account": {
+          "name": "account",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vasp_id": {
+          "name": "vasp_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valid_until": {
+          "name": "valid_until",
+          "type": "numeric(20, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor": {
+          "name": "actor",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "registry_account_history": {
+          "name": "registry_account_history",
+          "columns": [
+            {
+              "expression": "account",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "registry_account_events_block_number_blocks_number_fk": {
+          "name": "registry_account_events_block_number_blocks_number_fk",
+          "tableFrom": "registry_account_events",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "registry_account_events_tx_hash_transactions_hash_fk": {
+          "name": "registry_account_events_tx_hash_transactions_hash_fk",
+          "tableFrom": "registry_account_events",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "registry_account_events_block_number_log_index_pk": {
+          "name": "registry_account_events_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.registry_checkpoints": {
+      "name": "registry_checkpoints",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "enforcement_enabled": {
+          "name": "enforcement_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "registry_version": {
+          "name": "registry_version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "registry_checkpoints_block_number_blocks_number_fk": {
+          "name": "registry_checkpoints_block_number_blocks_number_fk",
+          "tableFrom": "registry_checkpoints",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.registry_vasp_events": {
+      "name": "registry_vasp_events",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "args": {
+          "name": "args",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vasp_id": {
+          "name": "vasp_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "registry_vasp_history": {
+          "name": "registry_vasp_history",
+          "columns": [
+            {
+              "expression": "vasp_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "registry_vasp_events_block_number_blocks_number_fk": {
+          "name": "registry_vasp_events_block_number_blocks_number_fk",
+          "tableFrom": "registry_vasp_events",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "registry_vasp_events_tx_hash_transactions_hash_fk": {
+          "name": "registry_vasp_events_tx_hash_transactions_hash_fk",
+          "tableFrom": "registry_vasp_events",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "registry_vasp_events_block_number_log_index_pk": {
+          "name": "registry_vasp_events_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.safe_events": {
+      "name": "safe_events",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "args": {
+          "name": "args",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "safe_tx_hash": {
+          "name": "safe_tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "safe_events_hash": {
+          "name": "safe_events_hash",
+          "columns": [
+            {
+              "expression": "safe_tx_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "safe_events_block_number_blocks_number_fk": {
+          "name": "safe_events_block_number_blocks_number_fk",
+          "tableFrom": "safe_events",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "safe_events_tx_hash_transactions_hash_fk": {
+          "name": "safe_events_tx_hash_transactions_hash_fk",
+          "tableFrom": "safe_events",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "safe_events_block_number_log_index_pk": {
+          "name": "safe_events_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.swaps": {
+      "name": "swaps",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "args": {
+          "name": "args",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker": {
+          "name": "maker",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker": {
+          "name": "taker",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "swaps_maker": {
+          "name": "swaps_maker",
+          "columns": [
+            {
+              "expression": "maker",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "swaps_taker": {
+          "name": "swaps_taker",
+          "columns": [
+            {
+              "expression": "taker",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "swaps_block_number_blocks_number_fk": {
+          "name": "swaps_block_number_blocks_number_fk",
+          "tableFrom": "swaps",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "swaps_tx_hash_transactions_hash_fk": {
+          "name": "swaps_tx_hash_transactions_hash_fk",
+          "tableFrom": "swaps",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "swaps_block_number_log_index_pk": {
+          "name": "swaps_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.token_admin_events": {
+      "name": "token_admin_events",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "args": {
+          "name": "args",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "token_admin_events_block_number_blocks_number_fk": {
+          "name": "token_admin_events_block_number_blocks_number_fk",
+          "tableFrom": "token_admin_events",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "token_admin_events_tx_hash_transactions_hash_fk": {
+          "name": "token_admin_events_tx_hash_transactions_hash_fk",
+          "tableFrom": "token_admin_events",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "token_admin_events_block_number_log_index_pk": {
+          "name": "token_admin_events_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.token_transfers": {
+      "name": "token_transfers",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_address": {
+          "name": "from_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_address": {
+          "name": "to_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "travel_rule_ref": {
+          "name": "travel_rule_ref",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "token_transfers_sender": {
+          "name": "token_transfers_sender",
+          "columns": [
+            {
+              "expression": "from_address",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "token_transfers_recipient": {
+          "name": "token_transfers_recipient",
+          "columns": [
+            {
+              "expression": "to_address",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "log_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "token_transfers_travel_rule": {
+          "name": "token_transfers_travel_rule",
+          "columns": [
+            {
+              "expression": "travel_rule_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "token_transfers_block_number_blocks_number_fk": {
+          "name": "token_transfers_block_number_blocks_number_fk",
+          "tableFrom": "token_transfers",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "token_transfers_tx_hash_transactions_hash_fk": {
+          "name": "token_transfers_tx_hash_transactions_hash_fk",
+          "tableFrom": "token_transfers",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "token_transfers_block_number_log_index_pk": {
+          "name": "token_transfers_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.transactions": {
+      "name": "transactions",
+      "schema": "indexer",
+      "columns": {
+        "hash": {
+          "name": "hash",
+          "type": "bytea",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_index": {
+          "name": "tx_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_address": {
+          "name": "from_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_address": {
+          "name": "to_address",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value": {
+          "name": "value",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nonce": {
+          "name": "nonce",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gas_limit": {
+          "name": "gas_limit",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gas_used": {
+          "name": "gas_used",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input": {
+          "name": "input",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decoded_call": {
+          "name": "decoded_call",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_detail": {
+          "name": "failure_detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mint": {
+          "name": "mint",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "transactions_position": {
+          "name": "transactions_position",
+          "columns": [
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tx_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_sender": {
+          "name": "transactions_sender",
+          "columns": [
+            {
+              "expression": "from_address",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_recipient": {
+          "name": "transactions_recipient",
+          "columns": [
+            {
+              "expression": "to_address",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "transactions_block_number_blocks_number_fk": {
+          "name": "transactions_block_number_blocks_number_fk",
+          "tableFrom": "transactions",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "indexer.travel_rule_attestations": {
+      "name": "travel_rule_attestations",
+      "schema": "indexer",
+      "columns": {
+        "block_number": {
+          "name": "block_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "args": {
+          "name": "args",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ref_id": {
+          "name": "ref_id",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "travel_rule_attestations_ref": {
+          "name": "travel_rule_attestations_ref",
+          "columns": [
+            {
+              "expression": "ref_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "travel_rule_attestations_block_number_blocks_number_fk": {
+          "name": "travel_rule_attestations_block_number_blocks_number_fk",
+          "tableFrom": "travel_rule_attestations",
+          "tableTo": "blocks",
+          "schemaTo": "indexer",
+          "columnsFrom": ["block_number"],
+          "columnsTo": ["number"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "travel_rule_attestations_tx_hash_transactions_hash_fk": {
+          "name": "travel_rule_attestations_tx_hash_transactions_hash_fk",
+          "tableFrom": "travel_rule_attestations",
+          "tableTo": "transactions",
+          "schemaTo": "indexer",
+          "columnsFrom": ["tx_hash"],
+          "columnsTo": ["hash"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "travel_rule_attestations_block_number_log_index_pk": {
+          "name": "travel_rule_attestations_block_number_log_index_pk",
+          "columns": ["block_number", "log_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

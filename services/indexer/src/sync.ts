@@ -7,7 +7,8 @@ type Chain = ReturnType<typeof indexerRpc>;
 type Store = Pick<
   IndexerStore,
   "tip" | "blockAt" | "rewind" | "append" | "updateFinality"
->;
+> &
+  Partial<Pick<IndexerStore, "backfill">>;
 
 export function indexerSync(
   store: Store,
@@ -56,6 +57,8 @@ export function indexerSync(
         nextFinality = 0;
       }
     }
+
+    if (store.backfill && !(await store.backfill())) return;
 
     const first = (indexed?.number ?? start - 1n) + 1n;
     const end = latest < first + 31n ? latest : first + 31n;

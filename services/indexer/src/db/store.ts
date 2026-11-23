@@ -2,11 +2,20 @@ import type { openDatabase } from "@ledgera/shared/db";
 import { desc, eq, gt, sql } from "drizzle-orm";
 import { bytesToHex, type Hex } from "viem";
 import type { ChainBlock, Finality } from "../rpc.ts";
+import {
+  type Derived,
+  indexDerived,
+  registryAtTip,
+  storedEntries,
+  verifyBalances,
+} from "./derived.ts";
 import { blocks, chainStatus, logs, transactions } from "./schema.ts";
 
 type Database = Awaited<ReturnType<typeof openDatabase>>["db"];
-type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
-type Query = Database | Transaction;
+export type IndexerTransaction = Parameters<
+  Parameters<Database["transaction"]>[0]
+>[0];
+type Query = Database | IndexerTransaction;
 export type Position = { number: bigint; hash: Hex };
 const bytes = (value: Hex) => Buffer.from(value.slice(2), "hex");
 const option = (value: Hex | null | undefined) =>
@@ -29,10 +38,12 @@ function same(left: Position | undefined, right: Position | undefined) {
 export class IndexerStore {
   private readonly db: Database;
   private readonly start: bigint;
+  private readonly derived?: Derived;
 
-  constructor(database: Database, start: bigint) {
+  constructor(database: Database, start: bigint, derived?: Derived) {
     this.db = database;
     this.start = start;
+    this.derived = derived;
   }
 
   async initialize() {
@@ -84,12 +95,52 @@ export class IndexerStore {
         .update(chainStatus)
         .set({
           indexedBlock: ancestor,
+          derivedBlock: sql`case when ${chainStatus.derivedBlock} > ${ancestor} then ${ancestor} else ${chainStatus.derivedBlock} end`,
+          ...(this.derived && (await registryAtTip(tx))),
           unsafeBlock: null,
           safeBlock: null,
         })
         .where(eq(chainStatus.id, 1));
       return true;
     });
+  }
+
+  async backfill() {
+    const derived = this.derived;
+    if (!derived) return true;
+    for (let remaining = 32; remaining > 0; --remaining) {
+      const caughtUp = await this.db.transaction(async (tx) => {
+        await tx.execute(chainLock);
+        const [status] = await tx
+          .select()
+          .from(chainStatus)
+          .where(eq(chainStatus.id, 1));
+        if (!status) throw new Error("Indexer chain status is missing");
+        const next = (status.derivedBlock ?? this.start - 1n) + 1n;
+        if (next > status.indexedBlock) return true;
+        const [row] = await tx
+          .select()
+          .from(blocks)
+          .where(eq(blocks.number, next));
+        if (!row) throw new Error("Indexed block is missing during derivation");
+        const block = {
+          number: row.number,
+          hash: bytesToHex(row.hash),
+          parentHash: bytesToHex(row.parentHash),
+        };
+        await indexDerived(
+          tx,
+          block,
+          await storedEntries(tx, next),
+          this.start,
+          derived,
+        );
+        if (next % 100n === 0n) await verifyBalances(tx, block, derived.state);
+        return next === status.indexedBlock;
+      });
+      if (caughtUp) return true;
+    }
+    return false;
   }
 
   async append(expected: Position | undefined, block: ChainBlock) {
@@ -101,6 +152,14 @@ export class IndexerStore {
         (expected && block.parentHash !== expected.hash)
       )
         throw new Error("Block does not continue the indexed chain");
+      if (this.derived) {
+        const [status] = await tx
+          .select({ height: chainStatus.derivedBlock })
+          .from(chainStatus)
+          .where(eq(chainStatus.id, 1));
+        if (!status || (status.height ?? this.start - 1n) !== block.number - 1n)
+          return false;
+      }
 
       await tx.insert(blocks).values({
         number: block.number,
@@ -148,6 +207,21 @@ export class IndexerStore {
         await tx.insert(transactions).values(entries.slice(from, from + 500));
       for (let from = 0; from < events.length; from += 500)
         await tx.insert(logs).values(events.slice(from, from + 500));
+
+      if (this.derived) {
+        await indexDerived(
+          tx,
+          block,
+          block.transactions.map((entry) => ({
+            hash: bytes(entry.hash),
+            transaction: { ...entry, logs: entry.receipt.logs },
+          })),
+          this.start,
+          this.derived,
+        );
+        if (block.number % 100n === 0n)
+          await verifyBalances(tx, block, this.derived.state);
+      }
 
       await tx
         .update(chainStatus)

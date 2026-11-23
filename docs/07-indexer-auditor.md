@@ -61,7 +61,8 @@ DB の作り直し。
 
 残高。
 
-- `Transfer` ごとに、送り手と受け手の新しい残高を `balances_history` に 1 行ずつ追加する。
+- `Transfer` ごとに、送り手と受け手の新しい残高を `balances_history` に追加する。ゼロアドレスは除く。同じアドレスへの送金は 1 行だけ保存する。
+- 開始位置が 0 より大きい場合は、各アドレスが初めて動いたブロックの親ブロックで残高を読む。開始位置より前の登録イベントは索引の対象外。
 - 任意のブロック時点の残高はそのブロック以前で最新の行。
 - 100 ブロックごとに、動きのあったアドレスの残高を `balanceOf` と比べる。ずれたらエラーログを出す。
 
@@ -147,23 +148,25 @@ DB の作り直し。
 | `block_number`、`log_index` | 主キー |
 | `tx_hash` | bytea |
 | `account` | bytea |
-| `vasp_id` | integer |
+| `vasp_id` | bigint |
 | `kind`、`status` | smallint |
-| `valid_until` | bigint |
+| `valid_until` | numeric(20,0) |
 | `version` | bigint |
 | `actor` | bytea |
 | `reason` | bytea |
 
-`registry_vasp_events`、`travel_rule_attestations`、`swaps`、`safe_events`、`receipt_commitments`、`token_admin_events` は、対応するイベントの引数に `block_number`、`log_index`、`tx_hash` を追加した形にする。
+`registry_vasp_events`、`travel_rule_attestations`、`swaps`、`safe_events`、`receipt_commitments`、`token_admin_events` は、`block_number`、`log_index`、`tx_hash`、イベント名を持つ。引数は `args`（jsonb）に保存する。検索用に VASP ID、参照 ID、当事者のアドレス、Safe 取引ハッシュを対応する表の列にも保存する。
 
 `chain_status`（1 行）
 
 | 列 | 型 |
 |---|---|
-| `indexed_block` | bigint |
+| `indexed_block`、`derived_block` | bigint |
 | `unsafe_block`、`safe_block`、`finalized_block` | bigint |
 | `enforcement_enabled` | boolean |
 | `registry_version` | bigint |
+
+`registry_checkpoints` は、チェーンの規則と Registry のバージョンをブロックごとに記録する。再編成時は分岐点まで残った最新の行から `chain_status` の値を復元する。
 
 保存期間は定めない。DevNet では全件を残す。バックアップは取らない。失ったときは L2 から取り込み直す（2.1）。
 
