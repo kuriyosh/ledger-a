@@ -9,6 +9,7 @@ import {
   gte,
   inArray,
   isNull,
+  lt,
   lte,
   ne,
   or,
@@ -24,6 +25,7 @@ import type {
 } from "../domain/admission.ts";
 import {
   commitments,
+  demoReorder,
   logEntries,
   rejections,
   relayRequests,
@@ -32,6 +34,9 @@ import {
 
 type Database = Awaited<ReturnType<typeof openDatabase>>["db"];
 type Entry = typeof logEntries.$inferSelect;
+type StoreTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+type DemoState = typeof demoReorder.$inferSelect;
+const demoId = 1;
 const receiptLock = sql`select pg_advisory_xact_lock(hashtext('ledgerA Gateway receipt log'))`;
 
 const toBuffer = (hex: Hex) => Buffer.from(hex.slice(2), "hex");
@@ -77,14 +82,88 @@ function logEntryJson(row: Entry) {
   };
 }
 
+async function demoState(
+  db: Database | StoreTransaction,
+): Promise<DemoState | undefined> {
+  const [state] = await db
+    .select()
+    .from(demoReorder)
+    .where(eq(demoReorder.id, demoId));
+  return state;
+}
+
+async function releaseHeld(
+  tx: StoreTransaction,
+  state: DemoState,
+  status: "completed" | "expired",
+) {
+  if (state.heldSeq !== null) {
+    await tx
+      .update(logEntries)
+      .set({ forwardStatus: "queued" })
+      .where(
+        and(
+          eq(logEntries.seq, state.heldSeq),
+          eq(logEntries.forwardStatus, "held_demo"),
+        ),
+      );
+  }
+  await tx
+    .update(demoReorder)
+    .set({ status })
+    .where(eq(demoReorder.id, demoId));
+}
+
+async function resolveDemo(tx: StoreTransaction, seq: bigint) {
+  const state = await demoState(tx);
+  if (state?.status === "held" && state.nextSeq === seq) {
+    await releaseHeld(tx, state, "completed");
+  }
+}
+
+async function takeDemoSlot(tx: StoreTransaction, record: AdmissionRecord) {
+  const state = await demoState(tx);
+  if (state?.status === "armed") {
+    await tx
+      .update(demoReorder)
+      .set({
+        status: "held",
+        heldSeq: record.seq,
+        heldUntil: new Date(Date.now() + 60_000),
+      })
+      .where(eq(demoReorder.id, demoId));
+    return "held_demo";
+  }
+  if (
+    state?.status === "held" &&
+    state.heldSeq !== null &&
+    state.nextSeq === null
+  ) {
+    const [held] = await tx
+      .select({ sender: logEntries.sender })
+      .from(logEntries)
+      .where(eq(logEntries.seq, state.heldSeq));
+    if (held && !held.sender.equals(toBuffer(record.sender))) {
+      await tx
+        .update(demoReorder)
+        .set({ nextSeq: record.seq })
+        .where(eq(demoReorder.id, demoId));
+    }
+  }
+  return "queued";
+}
+
 export class GatewayStore implements AdmissionStore {
   private readonly db: Database;
+  private readonly demoEnabled: boolean;
 
-  constructor(db: Database) {
+  constructor(db: Database, demoEnabled = false) {
     this.db = db;
+    this.demoEnabled = demoEnabled;
   }
 
   serialize<T>(action: (store: IntakeTransaction) => Promise<T>) {
+    const demoEnabled = this.demoEnabled;
     return this.db.transaction(async (tx) => {
       await tx.execute(receiptLock);
 
@@ -179,6 +258,10 @@ export class GatewayStore implements AdmissionStore {
             prevHash: toBuffer(record.prevHash),
             entryHash: toBuffer(record.entryHash),
             signature: toBuffer(record.signature),
+            forwardStatus:
+              demoEnabled && record.source === "relay"
+                ? await takeDemoSlot(tx, record)
+                : "queued",
           });
           if (commitment) {
             await tx.insert(commitments).values({
@@ -271,21 +354,100 @@ export class GatewayStore implements AdmissionStore {
     }));
   }
 
-  async queued() {
-    const [row] = await this.db
-      .select()
-      .from(logEntries)
-      .where(eq(logEntries.forwardStatus, "queued"))
-      .orderBy(asc(logEntries.seq))
-      .limit(1);
-    return (
-      row && {
-        seq: row.seq,
-        rawTx: bytesToHex(row.rawTx),
-        sender: getAddress(bytesToHex(row.sender)),
-        txHash: bytesToHex(row.txHash),
+  async armDemo() {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      const state = await demoState(tx);
+      if (state?.status === "armed" || state?.status === "held") return false;
+      const armed = {
+        status: "armed",
+        heldSeq: null,
+        nextSeq: null,
+        heldUntil: null,
+      } as const;
+      await tx
+        .insert(demoReorder)
+        .values({ id: demoId, ...armed })
+        .onConflictDoUpdate({ target: demoReorder.id, set: armed });
+      return true;
+    });
+  }
+
+  async demoState() {
+    const state = await demoState(this.db);
+    return {
+      status: state?.status ?? "idle",
+      heldSeq: state?.heldSeq?.toString() ?? null,
+      nextSeq: state?.nextSeq?.toString() ?? null,
+      heldUntil: state?.heldUntil?.toISOString() ?? null,
+    };
+  }
+
+  async disableDemo() {
+    await this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      const state = await demoState(tx);
+      if (state?.status === "armed" || state?.status === "held") {
+        await releaseHeld(tx, state, "expired");
       }
-    );
+    });
+  }
+
+  async queued(now = new Date()) {
+    async function select(
+      db: Database | StoreTransaction,
+      held?: { sender: Buffer; nonce: bigint },
+    ) {
+      const [row] = await db
+        .select()
+        .from(logEntries)
+        .where(
+          and(
+            eq(logEntries.forwardStatus, "queued"),
+            held &&
+              or(
+                ne(logEntries.sender, held.sender),
+                lt(logEntries.nonce, held.nonce),
+              ),
+          ),
+        )
+        .orderBy(asc(logEntries.seq))
+        .limit(1);
+      return (
+        row && {
+          seq: row.seq,
+          rawTx: bytesToHex(row.rawTx),
+          sender: getAddress(bytesToHex(row.sender)),
+          txHash: bytesToHex(row.txHash),
+        }
+      );
+    }
+    if (!this.demoEnabled) return select(this.db);
+    return this.db.transaction(async (tx) => {
+      await tx.execute(receiptLock);
+      const state = await demoState(tx);
+      if (
+        state?.status !== "held" ||
+        state.heldSeq === null ||
+        !state.heldUntil
+      )
+        return select(tx);
+      if (state.heldUntil <= now) {
+        await releaseHeld(tx, state, "expired");
+        return select(tx);
+      }
+      const [held] = await tx
+        .select({ sender: logEntries.sender, nonce: logEntries.nonce })
+        .from(logEntries)
+        .where(
+          and(
+            eq(logEntries.seq, state.heldSeq),
+            eq(logEntries.forwardStatus, "held_demo"),
+          ),
+        );
+      if (!held) await releaseHeld(tx, state, "expired");
+      return select(tx, held);
+    });
   }
 
   async forwardResult(seq: bigint) {
@@ -324,6 +486,7 @@ export class GatewayStore implements AdmissionStore {
         });
       if (!entry) return [];
       const results = [{ seq, status, error }];
+      if (this.demoEnabled) await resolveDemo(tx, seq);
       if (status === "forwarded") return results;
 
       const blocked = await tx
@@ -342,6 +505,10 @@ export class GatewayStore implements AdmissionStore {
           ),
         )
         .returning({ seq: logEntries.seq });
+      if (this.demoEnabled) {
+        for (const blockedEntry of blocked)
+          await resolveDemo(tx, blockedEntry.seq);
+      }
       return results.concat(
         blocked.map(({ seq }) => ({
           seq,
@@ -410,6 +577,8 @@ export class GatewayStore implements AdmissionStore {
             ),
           })
           .where(eq(logEntries.seq, match.seq));
+        if (this.demoEnabled && match.status !== "forwarded")
+          await resolveDemo(tx, match.seq);
       }
       return matches
         .filter((item) => item.status !== "forwarded")

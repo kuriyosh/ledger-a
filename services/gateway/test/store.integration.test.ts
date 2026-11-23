@@ -258,6 +258,71 @@ test.skipIf(!databaseUrl)(
         includedIndex: 0,
         entryHash: relay.entryHash,
       });
+
+      for (const row of [independent, system])
+        await store.setForwardResult(row.seq, "forwarded", null);
+      const demo = new GatewayStore(database.db, true);
+      expect(await demo.armDemo()).toBe(true);
+      expect(await demo.armDemo()).toBe(false);
+      const demoAdmission = createAdmission(
+        demo,
+        {
+          async senderState() {
+            return {
+              nonce: 0n,
+              confirmedNonce: 0n,
+              balance: 10_000_000n,
+              baseFee: 1n,
+              eligible: true,
+            };
+          },
+        },
+        alice,
+        policy,
+      );
+      function submitDemo(relayer: typeof bob, nonce: bigint) {
+        return demoAdmission.acceptRelay({
+          ...relayRequest,
+          sender: relayer.address,
+          operations: [
+            {
+              ...relayRequest.operations[0],
+              nonce,
+              digest: `0x${nonce.toString(16).padStart(64, "0")}`,
+            },
+          ],
+          sign: (nonce) =>
+            relayer.signTransaction({ ...tx, nonce: Number(nonce), value: 3n }),
+        });
+      }
+      const held = await submitDemo(bob, 6n);
+      const sameRelayer = await submitDemo(bob, 7n);
+      expect((await demo.forwardResult(held.seq))?.status).toBe("held_demo");
+      expect((await demo.forwardResult(sameRelayer.seq))?.status).toBe(
+        "queued",
+      );
+      expect(await demo.queued()).toBeUndefined();
+      const otherRelayer = await submitDemo(alice, 8n);
+      expect((await demo.demoState()).nextSeq).toBe(
+        otherRelayer.seq.toString(),
+      );
+
+      const restarted = new GatewayStore(database.db, true);
+      expect((await restarted.queued())?.seq).toBe(otherRelayer.seq);
+      await restarted.setForwardResult(otherRelayer.seq, "forwarded", null);
+      expect((await restarted.demoState()).status).toBe("completed");
+      expect((await restarted.queued())?.seq).toBe(held.seq);
+      await restarted.setForwardResult(held.seq, "forwarded", null);
+      expect((await restarted.queued())?.seq).toBe(sameRelayer.seq);
+      await restarted.setForwardResult(sameRelayer.seq, "forwarded", null);
+
+      expect(await restarted.armDemo()).toBe(true);
+      const expiring = await submitDemo(bob, 9n);
+      expect(await restarted.queued()).toBeUndefined();
+      expect((await restarted.queued(new Date(Date.now() + 61_000)))?.seq).toBe(
+        expiring.seq,
+      );
+      expect((await restarted.demoState()).status).toBe("expired");
     } finally {
       await database.close();
     }

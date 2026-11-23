@@ -14,6 +14,7 @@ import { GatewayStore } from "./db/store.ts";
 import { createAdmission } from "./domain/admission.ts";
 import { createRelayAuth } from "./domain/relay.ts";
 import { gatewayEnv } from "./env.ts";
+import { demoRoutes } from "./routes/demo.ts";
 import { gatewayApp } from "./routes/gateway.ts";
 import { relayRoutes } from "./routes/relay.ts";
 
@@ -59,7 +60,8 @@ if (configuredSigner.toLowerCase() !== signer.address.toLowerCase()) {
 
 const migrations = fileURLToPath(new URL("./db/migrations/", import.meta.url));
 const database = await openDatabase(env.DATABASE_URL, "gateway", migrations);
-const store = new GatewayStore(database.db);
+const store = new GatewayStore(database.db, env.DEMO_MODE);
+if (!env.DEMO_MODE) await store.disableDemo();
 const policy = {
   chainId: deployment.chainId,
   verifyingContract: deployment.contracts.receiptLog,
@@ -165,6 +167,9 @@ app.route(
     },
   }),
 );
+if (env.DEMO_MODE && env.ADMIN_TOKEN) {
+  app.route("/", demoRoutes(store, env.ADMIN_TOKEN));
+}
 startService(app, env, {
   onShutdown: () => controller.abort(),
   onClose: async () => {
