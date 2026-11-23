@@ -5,6 +5,9 @@ import { serviceApp, startService } from "@ledgera/shared/server";
 import { IndexerStore } from "./db/store.ts";
 import { decoder } from "./decode.ts";
 import { indexerEnv } from "./env.ts";
+import { indexerRoutes } from "./http.ts";
+import { chainQuery } from "./query.ts";
+import { registryQuery } from "./registry-query.ts";
 import { indexerRpc } from "./rpc.ts";
 import { chainState } from "./state.ts";
 import { indexerSync } from "./sync.ts";
@@ -37,8 +40,9 @@ if (env.INDEXER_START_BLOCK > 0n) {
 
 const migrations = fileURLToPath(new URL("./db/migrations/", import.meta.url));
 const database = await openDatabase(env.DATABASE_URL, "indexer", migrations);
+const decode = decoder(deployment.contracts);
 const store = new IndexerStore(database.db, env.INDEXER_START_BLOCK, {
-  decode: decoder(deployment.contracts),
+  decode,
   state,
   tokens: deployment.contracts,
 });
@@ -51,7 +55,14 @@ const indexer = indexerSync(
 );
 const controller = new AbortController();
 const worker = indexer.run(controller.signal);
-startService(serviceApp("indexer"), env, {
+const app = serviceApp("indexer");
+indexerRoutes(
+  app,
+  chainQuery(database.db, decode),
+  registryQuery(database.db, deployment, env.L2_RPC_URL, state),
+  deployment.contracts,
+);
+startService(app, env, {
   onShutdown: () => controller.abort(),
   onClose: async () => {
     await worker;
