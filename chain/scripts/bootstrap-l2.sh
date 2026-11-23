@@ -14,7 +14,7 @@ mkdir -p "$runtime"
 
 lock="$runtime/bootstrap.lock"
 if ! mkdir "$lock" 2>/dev/null; then
-  echo "An L2 bootstrap operation is already locked at $lock" >&2
+  echo "L2 bootstrap is locked at $lock. If no bootstrap is running, remove it with rmdir." >&2
   exit 1
 fi
 temp_dir=
@@ -38,7 +38,7 @@ if [[ "$mode" == anvil ]]; then
   chain_id=31337
   network=ledgera
   direct_rpc=http://anvil:8545
-  read_rpc=http://127.0.0.1:9545
+  read_rpc=http://127.0.0.1:8545
 else
   accounts=.env.generated
   chain_id=$(node --env-file-if-exists=.env -p 'process.env.L2_CHAIN_ID || ""')
@@ -47,13 +47,14 @@ else
   read_rpc=http://127.0.0.1:8545
 fi
 
-node chain/scripts/bootstrap-manifest.ts preflight "$mode" "$read_rpc" "$chain_id"
+existing_registry=$(node chain/scripts/bootstrap-manifest.ts preflight "$mode" "$read_rpc" "$chain_id")
 
 awk -F= '/^(ADMIN_PRIVATE_KEY|VASP_B_ADMIN_PRIVATE_KEY|VASP_B_TREASURY_PRIVATE_KEY|RELAYER_B_PRIVATE_KEY|ISSUER_PRIVATE_KEY|GATEWAY_ADDRESS|RELAYER_A_ADDRESS|VASP_A_ADMIN_ADDRESS|VASP_A_SIGNER_ADDRESS|VASP_B_SIGNER_ADDRESS|CONSORTIUM_[123]_ADDRESS)=/' \
   "$accounts" > "$temp_dir/accounts.env"
 
-docker run --rm --network "$network" --env-file "$temp_dir/accounts.env" \
-  --env "BOOTSTRAP_MODE=$mode" --env "L2_CHAIN_ID=$chain_id" \
+docker run --rm --network "$network" --user "$(id -u):$(id -g)" --env-file "$temp_dir/accounts.env" \
+  --env "HOME=/workspace/$runtime" --env "BOOTSTRAP_MODE=$mode" --env "L2_CHAIN_ID=$chain_id" \
+  --env "BOOTSTRAP_EXISTING_REGISTRY=$existing_registry" \
   --env "BOOTSTRAP_OUTPUT=/workspace/$temp_dir/addresses.json" \
   --mount "type=bind,source=$PWD,target=/workspace" --workdir /workspace \
   --entrypoint forge "$FOUNDRY_IMAGE" script --root contracts \

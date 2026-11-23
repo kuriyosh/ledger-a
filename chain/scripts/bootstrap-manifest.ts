@@ -1,16 +1,37 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { setTimeout } from "node:timers/promises";
 import {
   type Address,
   createPublicClient,
   getAddress,
   http,
+  type Log,
   parseAbi,
   parseAbiItem,
+  zeroAddress,
 } from "viem";
 
 const GAS_PRICE_ORACLE = "0x420000000000000000000000000000000000000F";
 const PROXY_ADMIN = "0x4200000000000000000000000000000000000018";
+const UNREGISTERED_DEV_ACCOUNT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+const KYC_REJECTION = "ledgera: sender not allowed";
+const LOG_WINDOW = 1000n;
+const ENFORCEMENT_EVENT = parseAbiItem(
+  "event EnforcementEnabled(uint64 version, address indexed actor)",
+);
+const CONSORTIUM_EVENT = parseAbiItem(
+  "event ConsortiumTransferred(address indexed previous, address indexed current)",
+);
+const PROXY_ADMIN_EVENT = parseAbiItem(
+  "event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)",
+);
 const GAS_PRICE_ABI = parseAbi([
   "function baseFeeScalar() view returns (uint32)",
   "function blobBaseFeeScalar() view returns (uint32)",
@@ -57,54 +78,68 @@ async function existingManifest(path: string) {
   }
 }
 
+async function findLog(
+  head: bigint,
+  read: (range: { fromBlock: bigint; toBlock: bigint }) => Promise<Log[]>,
+  previous?: number,
+) {
+  if (previous !== undefined) {
+    const block = BigInt(previous);
+    const [log] = await read({ fromBlock: block, toBlock: block });
+    if (log) return log;
+  }
+  for (let fromBlock = 0n; fromBlock <= head; fromBlock += LOG_WINDOW) {
+    const end = fromBlock + LOG_WINDOW - 1n;
+    const [log] = await read({ fromBlock, toBlock: end < head ? end : head });
+    if (log) return log;
+  }
+}
+
 async function findBootstrapBlocks(
   client: Client,
   mode: Mode,
   registry: Address,
   safe: Address,
+  head: bigint,
   previous?: { enforcementBlock: number; auditStartBlock: number },
 ): Promise<{ enforcementBlock: number; auditStartBlock: number }> {
-  const enforcementRange = previous
-    ? {
-        fromBlock: BigInt(previous.enforcementBlock),
-        toBlock: BigInt(previous.enforcementBlock),
-      }
-    : { fromBlock: 0n };
-  const finalizationRange = previous
-    ? {
-        fromBlock: BigInt(previous.auditStartBlock - 1),
-        toBlock: BigInt(previous.auditStartBlock - 1),
-      }
-    : { fromBlock: 0n };
-  const [enforcement] = await client.getLogs({
-    address: registry,
-    event: parseAbiItem(
-      "event EnforcementEnabled(uint64 version, address indexed actor)",
-    ),
-    ...enforcementRange,
-  });
-  const [finalization] =
-    mode === "anvil"
-      ? await client.getLogs({
+  const [enforcement, finalization] = await Promise.all([
+    findLog(
+      head,
+      (range) =>
+        client.getLogs({
           address: registry,
-          event: parseAbiItem(
-            "event ConsortiumTransferred(address indexed previous, address indexed current)",
-          ),
-          args: { current: safe },
-          ...finalizationRange,
-        })
-      : await client.getLogs({
-          address: PROXY_ADMIN,
-          event: parseAbiItem(
-            "event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)",
-          ),
-          args: { newOwner: safe },
-          ...finalizationRange,
-        });
-  if (enforcement?.blockNumber == null || finalization?.blockNumber == null) {
-    if (previous) return findBootstrapBlocks(client, mode, registry, safe);
+          event: ENFORCEMENT_EVENT,
+          ...range,
+        }),
+      previous?.enforcementBlock,
+    ),
+    findLog(
+      head,
+      (range) =>
+        mode === "anvil"
+          ? client.getLogs<typeof CONSORTIUM_EVENT>({
+              address: registry,
+              event: CONSORTIUM_EVENT,
+              args: { current: safe },
+              ...range,
+            })
+          : client.getLogs<typeof PROXY_ADMIN_EVENT>({
+              address: PROXY_ADMIN,
+              event: PROXY_ADMIN_EVENT,
+              args: { newOwner: safe },
+              ...range,
+            }),
+      previous ? previous.auditStartBlock - 1 : undefined,
+    ),
+  ]);
+  if (
+    enforcement?.blockNumber == null ||
+    enforcement.transactionHash == null ||
+    finalization?.blockNumber == null ||
+    finalization.blockNumber < enforcement.blockNumber
+  )
     throw new Error("Bootstrap transactions were not confirmed");
-  }
   if (mode === "devnet") {
     const receipt = await client.request({
       method: "eth_getTransactionReceipt",
@@ -119,6 +154,21 @@ async function findBootstrapBlocks(
     enforcementBlock: Number(enforcement.blockNumber),
     auditStartBlock: Number(finalization.blockNumber) + 1,
   };
+}
+
+async function requireSenderRejection(client: Client) {
+  try {
+    await client.estimateGas({
+      account: UNREGISTERED_DEV_ACCOUNT,
+      to: UNREGISTERED_DEV_ACCOUNT,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes(KYC_REJECTION)) return;
+    throw new Error("Unable to confirm KYC rejection in the execution layer", {
+      cause: error,
+    });
+  }
+  throw new Error("The execution layer accepted an unregistered sender");
 }
 
 async function writeManifest(
@@ -166,8 +216,10 @@ async function writeManifest(
     mode,
     contracts.kycRegistry,
     contracts.consortiumSafe,
+    head,
     previous,
   );
+  if (mode === "devnet") await requireSenderRejection(client);
   const result = {
     environment: mode,
     chainId,
@@ -183,6 +235,7 @@ async function writeManifest(
     await writeFile(temporary, `${JSON.stringify(result, null, 2)}\n`, {
       mode: 0o600,
     });
+    await chmod(temporary, 0o644);
     await rename(temporary, path);
   } finally {
     await rm(temporary, { force: true });
@@ -202,12 +255,13 @@ async function main() {
     throw new Error("The bootstrap RPC belongs to a different chain");
 
   if (action === "preflight") {
+    const existing = await existingManifest(`deployments/${mode}.json`);
     if (mode === "devnet") {
-      const existing = await existingManifest("deployments/devnet.json");
       if (existing?.chainId !== chainId || !existing.l1)
         throw new Error("Run make chain-deploy first");
       await waitForFees(client);
     }
+    console.log(getAddress(existing?.contracts?.kycRegistry ?? zeroAddress));
   } else if (action === "write" && source) {
     await writeManifest(client, mode, chainId, source);
   } else {

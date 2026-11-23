@@ -3,12 +3,11 @@ pragma solidity 0.8.28;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC2771Forwarder} from "@openzeppelin/contracts/metatx/ERC2771Forwarder.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {GnosisSafeL2} from "@safe-global/safe-contracts/GnosisSafeL2.sol";
-import {GnosisSafeProxy} from "@safe-global/safe-contracts/proxies/GnosisSafeProxy.sol";
 import {Script} from "forge-std/Script.sol";
 
+import {InitializedSafeProxy} from "./InitializedSafeProxy.sol";
 import {AtomicSwap} from "../src/AtomicSwap.sol";
 import {DepositProbe} from "../src/DepositProbe.sol";
 import {KycRegistry} from "../src/KycRegistry.sol";
@@ -22,12 +21,6 @@ interface IProxyAdmin {
     function upgradeAndCall(address proxy, address implementation, bytes calldata data) external payable;
     function owner() external view returns (address);
     function transferOwnership(address newOwner) external;
-}
-
-contract InitializedSafeProxy is GnosisSafeProxy {
-    constructor(address singleton, bytes memory initializer) GnosisSafeProxy(singleton) {
-        Address.functionDelegateCall(singleton, initializer);
-    }
 }
 
 contract Bootstrap is Script {
@@ -51,6 +44,11 @@ contract Bootstrap is Script {
     error FundingFailed(address account);
     error ConflictingAccount(address account);
     error WrongRegistryImplementation(address actual);
+    error ChangedRegistryAddress(address existing, address computed);
+    error MissingDeployment(address expected);
+    error InvalidBootstrapConfiguration(address target);
+
+    bool private sealedDeployment;
 
     struct Roles {
         uint256 adminKey;
@@ -93,16 +91,21 @@ contract Bootstrap is Script {
 
         Roles memory roles = _loadRoles();
         address registryAddress = _registryAddress(anvil, roles.admin);
-        bool enforce = _isEnforced(anvil, registryAddress);
-        if (!enforce) _fund(roles);
+        address existing = vm.envOr("BOOTSTRAP_EXISTING_REGISTRY", address(0));
+        if (anvil && existing != registryAddress && _isEnforced(true, existing)) {
+            revert ChangedRegistryAddress(existing, registryAddress);
+        }
+        sealedDeployment = _isEnforced(anvil, registryAddress);
+        if (!sealedDeployment) _fund(roles);
 
         vm.startBroadcast(roles.adminKey);
         Deployment memory deployment = _deployAll(anvil, roles, registryAddress);
-        if (!enforce) _initializeContracts(deployment, roles);
+        if (!sealedDeployment) _initializeContracts(deployment, roles);
         vm.stopBroadcast();
 
-        if (!enforce) _initializeTreasury(deployment, roles);
+        if (!sealedDeployment) _initializeTreasury(deployment, roles);
         _finalize(deployment, roles, anvil);
+        _verifyConfiguration(deployment, roles, anvil);
         _writeAddresses(deployment);
     }
 
@@ -372,6 +375,35 @@ contract Bootstrap is Script {
         vm.stopBroadcast();
     }
 
+    function _verifyConfiguration(Deployment memory deployment, Roles memory roles, bool anvil) private view {
+        address safe = address(deployment.safe);
+        address[] memory owners = deployment.safe.getOwners();
+        if (owners.length != 3 || deployment.safe.getThreshold() != 2) revert InvalidBootstrapConfiguration(safe);
+        for (uint256 i; i < roles.safeOwners.length; ++i) {
+            if (!deployment.safe.isOwner(roles.safeOwners[i])) revert InvalidBootstrapConfiguration(safe);
+        }
+        if (deployment.registry.consortium() != safe || !deployment.registry.enforcementEnabled()) {
+            revert InvalidBootstrapConfiguration(address(deployment.registry));
+        }
+        if (!anvil && PROXY_ADMIN.owner() != safe) revert InvalidBootstrapConfiguration(address(PROXY_ADMIN));
+        if (deployment.receiptLog.owner() != safe) {
+            revert InvalidBootstrapConfiguration(address(deployment.receiptLog));
+        }
+        if (deployment.travelRule.owner() != roles.issuer) {
+            revert InvalidBootstrapConfiguration(address(deployment.travelRule));
+        }
+        if (deployment.swap.owner() != roles.admin) revert InvalidBootstrapConfiguration(address(deployment.swap));
+        _verifyToken(deployment, deployment.tJPY, roles.issuer);
+        _verifyToken(deployment, deployment.tUSD, roles.issuer);
+    }
+
+    function _verifyToken(Deployment memory deployment, LedgerToken token, address issuer) private view {
+        if (
+            token.owner() != issuer || !token.isAgent(issuer) || !deployment.travelRule.isBoundToken(address(token))
+                || !deployment.swap.isSupportedToken(address(token))
+        ) revert InvalidBootstrapConfiguration(address(token));
+    }
+
     function _address(string memory name, bytes memory init) private view returns (address) {
         return vm.computeCreate2Address(keccak256(bytes(name)), keccak256(init), CREATE2_DEPLOYER);
     }
@@ -379,6 +411,7 @@ contract Bootstrap is Script {
     function _deploy(string memory name, bytes memory init) private returns (address deployed) {
         deployed = _address(name, init);
         if (deployed.code.length != 0) return deployed;
+        if (sealedDeployment) revert MissingDeployment(deployed);
 
         bytes32 salt = keccak256(bytes(name));
         (bool success,) = CREATE2_DEPLOYER.call(abi.encodePacked(salt, init));
