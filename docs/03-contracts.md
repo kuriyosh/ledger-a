@@ -426,7 +426,7 @@ interface ITravelRuleCompliance {
     ) external;                                   // 登録済みトークンだけ
     function isUsed(bytes32 refId) external view returns (bool);
     function hashAttestation(TravelRuleAttestation calldata attestation) external view returns (bytes32); // EIP-712 digest
-    function bindToken(address token) external;   // 所有者だけ
+    function bindToken(address token) external;   // 所有者だけ。コードを持つアドレスを指定する
     function isBoundToken(address token) external view returns (bool);
 }
 ```
@@ -468,7 +468,7 @@ event TravelRuleAttestationConsumed(
 
 ### 4.4 テスト
 
-- 各フィールドを 1 つずつ変えた承認が `AttestationMismatch` になる。
+- 取引と照合するフィールドを 1 つずつ変えた承認が `AttestationMismatch` になる。
 - 期限切れ、再利用、別 VASP の鍵での署名が拒否される。
 - トークン以外からの `consume` が拒否される。
 - TypeScript（`packages/shared`）で作った署名を Solidity が受け入れる。
