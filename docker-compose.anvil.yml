@@ -22,7 +22,7 @@ services:
       - anvil-data:/state
     ports:
       - 127.0.0.1:9545:8545
-    networks: [app]
+    networks: [chain]
 
   rpc-proxy:
     build:
@@ -32,7 +32,7 @@ services:
       UPSTREAM_L2_RPC_URLS: http://anvil:8545
     ports:
       - 127.0.0.1:8545:8545
-    networks: [app]
+    networks: [chain, app]
     depends_on:
       - anvil
     healthcheck:
@@ -54,6 +54,8 @@ services:
       retries: 15
 
 networks:
+  chain:
+    name: ledgera-chain
   app:
     name: ledgera
 

@@ -4,3 +4,17 @@
 !pnpm-lock.yaml
 !services/rpc-proxy/package.json
 !services/rpc-proxy/src/**/*.ts
+!packages/abis/package.json
+!packages/abis/src/*.ts
+!packages/config/package.json
+!packages/config/src/*.ts
+!packages/shared/package.json
+!packages/shared/src/*.ts
+!services/auditor/package.json
+!services/auditor/src/**/*.ts
+!services/auditor/src/db/migrations/**/*.sql
+!services/auditor/src/db/migrations/meta/_journal.json
+!services/gateway/package.json
+!services/gateway/src/**/*.ts
+!services/gateway/src/db/migrations/**/*.sql
+!services/gateway/src/db/migrations/meta/_journal.json

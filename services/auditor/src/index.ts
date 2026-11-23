@@ -1,0 +1,38 @@
+import { fileURLToPath } from "node:url";
+import { readDeployment } from "@ledgera/config";
+import { openDatabase } from "@ledgera/shared/db";
+import { startService } from "@ledgera/shared/server";
+import { AuditStore } from "./db/store.ts";
+import { auditorEnv } from "./env.ts";
+import { auditorApp } from "./http.ts";
+import { createAuditRunner } from "./run.ts";
+import { auditSource, gatewaySource } from "./sources.ts";
+
+const env = auditorEnv.parse(process.env);
+const deployment = await readDeployment(env.DEPLOYMENTS_FILE);
+const source = auditSource(deployment, env.AUDIT_RPC_URL);
+if ((await source.chainId()) !== deployment.chainId) {
+  throw new Error("Audit RPC chain ID does not match the deployment");
+}
+const migrations = fileURLToPath(new URL("./db/migrations/", import.meta.url));
+const database = await openDatabase(env.DATABASE_URL, "auditor", migrations);
+const store = new AuditStore(database.db);
+const controller = new AbortController();
+const runner = createAuditRunner({
+  source,
+  gateway: gatewaySource(env.GATEWAY_URL),
+  store,
+  startBlock: BigInt(deployment.auditStartBlock),
+  intervalMs: env.AUDIT_INTERVAL_SEC * 1000,
+  inclusionDeadlineMs: BigInt(env.INCLUSION_DEADLINE_SEC) * 1000n,
+  timeToleranceMs: BigInt(env.TIME_TOLERANCE_SEC) * 1000n,
+  signal: controller.signal,
+});
+const polling = runner.poll();
+startService(auditorApp(store, runner.run), env, {
+  onShutdown: () => controller.abort(),
+  onClose: async () => {
+    await polling;
+    await database.close();
+  },
+});

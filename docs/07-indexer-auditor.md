@@ -277,14 +277,14 @@ C5 の判定。
 - 期限は「受付時刻 + `INCLUSION_DEADLINE_SEC`（120 秒）」。監査先ノードの最新ブロックの時刻が期限を超えても未取り込みなら「未採用」とする。
 - 時計ではなく、監査先ノードのブロック時刻で測る。監査先が遅れているノードでも、誤って違反にしない。
 - 未採用のエントリには「除外の確認」を行う。確認できれば「正当な除外」、できなければ `NOT_INCLUDED`。
-- 期限の後に取り込まれても、違反の記録は消さない。取り込み位置を追記する。
+- 期限の後に取り込まれても、違反の記録は残す。取り込み位置を追記する。
 
 除外の確認。監査ツールが、エントリの署名済み取引（`rawTx`）と L2 の状態だけで行う。Gateway が申告した理由（`forwardError`）は使わない。
 
 1. `keccak256(rawTx)` が Receipt の `txHash` と一致することを確かめる。一致しなければ確認できないものとして扱う。
 2. `rawTx` から `gas`、`maxFeePerGas`、`value` を取り出す。
 3. 判定区間のブロックを順に調べる。判定区間は、受付時刻より前の最後のブロックから、時刻が期限を超えた最初のブロックまで。
-4. いずれかのブロックの終了時点で、下の表のどちらかが成り立てば正当な除外とする。
+4. 取り込みより前のブロックの終了時点で、下の表のどちらかが成り立てば正当な除外とする。未取り込みの場合は判定区間全体を調べる。
 
 | 理由 | 確認する内容 |
 |---|---|
@@ -310,13 +310,15 @@ C5 の判定。
 ### 3.3 実行
 
 - 10 秒ごとに、前回の続きから差分を検査する。
-- `POST /v1/fifo/run` で通番 1 から全件を検査し直す。
+- `POST /v1/fifo/run` で、保存済みの Receipt と現在の公開ログを通番 1 から照合する。同じ通番の内容が食い違えば、両方の Receipt を証拠として残す。公開ログから欠けた分も記録する。
+- 同じ違反は ID と初回の検出時刻を引き継ぐ。C5 の判定は、区間終端のブロックハッシュが一致する間は保存済みの結果を使う。
 - 進行位置（検査済みの通番、ブロック番号、ブロックハッシュ）は DB に持つ。
 
 再編成への対応。
 
 - 検査済みの最後のブロックのハッシュを、監査先ノードの同じ高さのハッシュと比べる。違えば、一致する高さまで遡る。
 - それより上のブロックに基づく位置、検査結果、違反、除外を消して検査し直す。
+- 監査先の高さが過去の進行位置より低く、その高さのハッシュが一致する場合は進行位置を保持する。
 
 集計区間。
 
@@ -327,7 +329,7 @@ C5 の判定。
 CLI。
 
 ```
-pnpm --filter @ledgera/auditor fifo --from 1 --json
+pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 ```
 
 違反が 1 件でもあれば終了コード 1。
@@ -359,7 +361,7 @@ pnpm --filter @ledgera/auditor fifo --from 1 --json
 {
   "violations": [
     {
-      "id": 1,
+      "id": "1",
       "check": "C4",
       "type": "ORDER_VIOLATION",
       "detectedAt": "2026-11-19T03:20:10Z",
@@ -380,8 +382,10 @@ pnpm --filter @ledgera/auditor fifo --from 1 --json
 | 表 | 列 |
 |---|---|
 | `audit_state` | `last_seq`、`last_block`、`last_block_hash`、`updated_at` |
-| `fifo_entries` | `seq`（主キー）、`tx_hash`、`received_at_ms`、`forward_status`（表示用）、`pos_block`、`pos_index`、`checks`（jsonb） |
-| `violations` | `id`、`check_code`、`type`、`seq_a`、`seq_b`、`tx_hash`、`block_number`、`detail`、`evidence`（jsonb）、`detected_at` |
+| `audit_blocks` | ブロック番号、ハッシュ、監査に使う取引とコミット |
+| `fifo_entries` | `seq`（主キー）、`tx_hash`、`received_at_ms`、`forward_status`（表示用）、`pos_block`、`pos_index`、`receipt`、`position`、`checks`（jsonb） |
+| `inclusion_decisions` | 通番、取引ハッシュ、期限と判定区間の終端ハッシュ、除外の証拠 |
+| `violations` | `id`、`check_code`、`type`、`identity`、`observation_id`、`seq_a`、`seq_b`、`tx_hash`、`block_number`、`detail`、`evidence`（jsonb）、`detected_at` |
 | `exclusions` | `seq`（主キー）、`tx_hash`、`reason`、`verified_block`、`evidence`（jsonb）、`detected_at` |
 | `disclosures` | `id`、`address`、`vasp_id`、`vasp_request_id`、`reason`、`status`、`created_at` |
 

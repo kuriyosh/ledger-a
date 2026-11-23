@@ -30,7 +30,9 @@ anvil を起動し、有効な署名付き取引がプロキシ経由で拒否�
 `make setup` の後に `make anvil-up` を実行する。
 コントラクトのアドレスと監査開始ブロックは `deployments/anvil.json` に出力する。
 読み取り専用 RPC は `127.0.0.1:8545`、直接送信は `127.0.0.1:9545` を使う。
-`make anvil-down` で停止する。チェーンの状態は Docker ボリュームに保存される。
+Gateway は `127.0.0.1:8600`、Auditor は `127.0.0.1:8650` で起動する。
+`make audit` で全件を検査する。
+`make anvil-down` で停止する。チェーンと PostgreSQL の状態は Docker ボリュームに保存される。
 
 ## Sepolia で DevNet を起動する
 
@@ -43,9 +45,11 @@ make chain-image
 make chain-deploy
 make chain-up
 make l2-bootstrap
+make app-up
 make status
 ```
 
+`make app-up` は `.env` の `POSTGRES_PASSWORD` を使う。
 ホストからは `http://127.0.0.1:8545` の読み取り専用 RPC に接続する。
 L2 に直接送信する場合は `make chain-shell` を開く。
 停止するには `make chain-down` を実行する。

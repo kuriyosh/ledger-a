@@ -1,0 +1,103 @@
+name: ledgera-app-${LEDGERA_APP_MODE:-devnet}
+
+x-app-environment: &app-environment
+  DATABASE_URL: ${LEDGERA_DATABASE_URL:?Run make app-up}
+  DEPLOYMENTS_FILE: /deployments/${LEDGERA_APP_MODE:-devnet}.json
+
+x-app-healthcheck: &app-healthcheck
+  interval: 3s
+  timeout: 2s
+  retries: 15
+
+services:
+  postgres:
+    image: postgres:17@sha256:223efeb196329b55b3b9a13db144956411dbc18e727e59f681c3e0aede6475cf
+    environment:
+      POSTGRES_USER: ledgera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ledgera
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [app]
+    healthcheck:
+      <<: *app-healthcheck
+      test: [CMD, pg_isready, -U, ledgera, -d, ledgera]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: gateway
+    user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
+    environment:
+      <<: *app-environment
+      SEQUENCER_RPC_URLS: ${SEQUENCER_RPC_URLS:?Run make app-up}
+      GATEWAY_PRIVATE_KEY: ${GATEWAY_PRIVATE_KEY:?Run make keys}
+      RELAYER_KEYS: '{"1":"${RELAYER_A_PRIVATE_KEY:?Run make keys}","2":"${RELAYER_B_PRIVATE_KEY:?Run make keys}"}'
+      VASP_API_KEYS: '{"1":"${VASP_A_GATEWAY_API_KEY:?Run make keys}","2":"${VASP_B_GATEWAY_API_KEY:?Run make keys}"}'
+      COMMIT_INTERVAL_SEC: ${COMMIT_INTERVAL_SEC:-30}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run make keys}
+    volumes:
+      - ./deployments:/deployments:ro
+    ports:
+      - 127.0.0.1:8600:8600
+    networks: [app, chain]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:8600/healthz').then(r => { if (!r.ok) process.exitCode = 1 })",
+        ]
+
+  auditor:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: auditor
+    user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
+    environment:
+      <<: *app-environment
+      AUDIT_RPC_URL: ${AUDIT_RPC_URL:-http://rpc-proxy:8545}
+      GATEWAY_URL: http://gateway:8600
+      INCLUSION_DEADLINE_SEC: ${INCLUSION_DEADLINE_SEC:-120}
+      TIME_TOLERANCE_SEC: ${TIME_TOLERANCE_SEC:-5}
+      AUDIT_INTERVAL_SEC: ${AUDIT_INTERVAL_SEC:-10}
+    volumes:
+      - ./deployments:/deployments:ro
+    ports:
+      - 127.0.0.1:8650:8650
+    networks: [app]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:8650/healthz').then(r => { if (!r.ok) process.exitCode = 1 })",
+        ]
+
+networks:
+  app:
+    name: ledgera
+    external: true
+  chain:
+    name: ledgera-chain
+    external: true
+
+volumes:
+  postgres-data:

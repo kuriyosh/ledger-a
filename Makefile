@@ -90,6 +90,23 @@ status:
 fund-l1:
 	$(CHAIN_NODE) chain/scripts/fund-l1.ts
 
+APP_MODE ?= devnet
+APP_COMPOSE = bash chain/scripts/app-compose.sh $(APP_MODE)
+
+.PHONY: app-up app-down app-logs audit
+
+app-up:
+	$(APP_COMPOSE) up -d --build --wait
+
+app-down:
+	$(APP_COMPOSE) down
+
+app-logs:
+	$(APP_COMPOSE) logs --follow
+
+audit:
+	@pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
+
 ANVIL_COMPOSE = docker compose --env-file chain/versions.env -f docker-compose.anvil.yml
 
 .PHONY: anvil-up anvil-down l2-bootstrap
@@ -97,8 +114,10 @@ ANVIL_COMPOSE = docker compose --env-file chain/versions.env -f docker-compose.a
 anvil-up:
 	$(ANVIL_COMPOSE) up -d --build --wait
 	BOOTSTRAP_MODE=anvil bash chain/scripts/bootstrap-l2.sh
+	$(MAKE) app-up APP_MODE=anvil
 
 anvil-down:
+	$(MAKE) app-down APP_MODE=anvil
 	$(ANVIL_COMPOSE) down
 
 l2-bootstrap:

@@ -36,7 +36,7 @@ if [[ "$mode" == anvil ]]; then
   fi
   accounts="$runtime/.env.generated"
   chain_id=31337
-  network=ledgera
+  network=ledgera-chain
   direct_rpc=http://anvil:8545
   read_rpc=http://127.0.0.1:8545
 else

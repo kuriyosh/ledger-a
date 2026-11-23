@@ -125,6 +125,8 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 
 ## 6. anvil モード
 
+Anvil と DevNet はホストのポートと Docker ネットワーク名を共有する。どちらか一方を起動する。
+
 ```
 make setup
 make anvil-up
@@ -135,8 +137,9 @@ make anvil-up
 1. `anvil --chain-id 31337 --order fifo --block-time 2` と rpc-proxy を起動する。rpc-proxy の転送先は anvil。
 2. 固定のテスト用ニーモニックで `chain/runtime/anvil/.env.generated` を作る。
 3. `Bootstrap.s.sol` を `BOOTSTRAP_MODE=anvil` で実行する。`deployments/anvil.json` ができる。
+4. `make app-up APP_MODE=anvil` でアプリを起動する。PostgreSQL のパスワードが未設定なら、ローカル試験用の既定値を使う。
 
-アプリ層を起動するときは、`SEQUENCER_RPC_URLS` を anvil に、`L2_RPC_URL` を rpc-proxy に向ける。デモ用の初期データは `make demo-seed` で作る。
+Anvil モードでは Gateway の転送先は `http://anvil:8545`。Auditor の読み取り先は `http://rpc-proxy:8545`。デモ用の初期データは `make demo-seed` で作る。
 
 - anvil の直接 RPC は `127.0.0.1:9545` に出す。読み取り専用 RPC は `127.0.0.1:8545` に出す。結合テストが再編成（`evm_revert`）と、Gateway を通さない送信を使うため。
 - 結合テストはサービスを Vitest の中で起動する。rpc-proxy を通さず、anvil に直接つなぐ。
