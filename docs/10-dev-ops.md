@@ -196,6 +196,7 @@ rpc-proxy の設定。
 
 | 環境変数 | 既定 | 説明 |
 |---|---|---|
+| `HOST` | 127.0.0.1 | コンテナ内では 0.0.0.0 |
 | `PORT` | 8545 | |
 | `UPSTREAM_L2_RPC_URLS` | - | op-reth の URL。冗長化構成ではカンマ区切りで 3 つ |
 | `UPSTREAM_ROLLUP_RPC_URLS` | - | op-node の URL。`UPSTREAM_L2_RPC_URLS` と同じ順。anvil モードでは空 |

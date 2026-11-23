@@ -1,0 +1,13 @@
+{
+  "name": "@ledgera/rpc-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.11",
+    "hono": "4.13.21",
+    "zod": "4.6.7"
+  }
+}

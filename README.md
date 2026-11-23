@@ -4,7 +4,26 @@ KYC 済みアドレスだけが取引できる、金融向け Ethereum L2 の De
 
 - 基盤: OP Stack（実行クライアントは op-reth の改造版）
 - L1: Ethereum Sepolia
-- 状態: 設計完了、実装未着手
+- 状態: M0（チェーン起動の確認）
+
+## 開発用の鍵と RPC
+
+Node.js 24.2 以降の 24 系と pnpm を用意し、`make setup` を実行する。
+`.env.example` を `.env` にコピーする。新しく生成したニーモニックを
+`LEDGERA_MNEMONIC` に設定する。
+`make keys` はアドレスを表示し、秘密鍵とサービス用シークレットを
+`.env.generated` に保存する。同じニーモニックで再実行すると、保存済みの
+シークレットを再利用する。
+
+読み取り専用 RPC を単独で起動するには、次を実行する。
+
+```sh
+UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 pnpm --filter @ledgera/rpc-proxy start
+```
+
+op-node を使う場合は `UPSTREAM_ROLLUP_RPC_URLS` も指定する。
+`make test` で単体テストを実行する。`make test-integration` は Docker で
+anvil を起動し、有効な署名付き取引がプロキシ経由で拒否されることを確認する。
 
 ## デモで見せること
 

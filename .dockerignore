@@ -1,0 +1,6 @@
+**
+!package.json
+!pnpm-workspace.yaml
+!pnpm-lock.yaml
+!services/rpc-proxy/package.json
+!services/rpc-proxy/src/**/*.ts
