@@ -13,7 +13,7 @@
 | V5 | L1 へのデプロイに要る Sepolia ETH の量。上流の README は 2〜3 ETH と書いている | 実測 | M0 | 01 章 5.4 の数字を直す | 未確認 |
 | V6 | priority fee が同じ取引が、devnet の op-reth で到着順に並ぶ | 100 件を送って監査 | M6 | 02 章 7.3 の順序固定を必須にする | 未確認 |
 | V7 | 失敗 Deposit のレシートが `status = 0` で返る。viem で L1 のログから L2 の取引ハッシュを求められる | devnet | M0、M2 | L2 側は送信者と nonce で探す | Sepolia のローカルフォークでは、revert する Deposit のレシートが status 0。viem で L1 ログから L2 ハッシュを算出できた |
-| V8 | `LedgerForwarder.execute` の上書きで、呼び出し先の revert データを返せる | forge test | M1 | OZ を継承せず、最小の Forwarder を自作する | 未確認 |
+| V8 | `LedgerForwarder.execute` の上書きで、呼び出し先の revert データを返せる | forge test | M1 | OZ を継承せず、最小の Forwarder を自作する | Foundry で `execute` と `executeAll` が呼び出し先のカスタムエラーを返すことを確認 |
 | V9 | op-batcher の投稿間隔ごとの費用。`OP_BATCHER_INBOX_ADDRESS` の要否 | 実測 | M0 | `BATCHER_MAX_CHANNEL_DURATION` の既定を直す | v1.18.1 は rollup 設定から投稿先を取得する。費用は要確認 |
 | V10 | 固定するバージョンの genesis に Safe v1.3.0（`SafeL2`）がある | `cast code` | M0 | `Bootstrap.s.sol` でデプロイする | Sepolia のローカルフォーク向け genesis で SafeL2 の VERSION() が 1.3.0 |
 | V11 | op-conductor のヘルスチェックの値と起動後の手順、op-node の静的ピアの設定、op-batcher の複数接続先、切替にかかる時間。必須項目と RPC の既定ポートはソースで確認済み | 公式手順との照合と実測 | M7 | 02 章 11 節を直す | 未確認 |

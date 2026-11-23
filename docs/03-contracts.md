@@ -535,6 +535,8 @@ struct ForwardRequestData {
   - 呼び出し先と関数を問わない。`approve` のように移転を伴わない呼び出しも、署名者が停止、遮断、期限切れなら実行されない。
   - `request.from` が署名者と一致することは、続く OZ の検証が確かめる。一致しなければ `ERC2771ForwarderInvalidSigner` で revert する。
   - revert するので、署名者の nonce は消費されない。
+- `verify` は OZ の検証に加え、署名者の発信資格と `request.value == 0` を確認する。
+- すべての実行入口で `request.value` と送信する ETH は 0 に限る。
 - `execute`: OZ の実装は、呼び出し先が失敗すると理由を捨てて `FailedCall()` で revert する。上書きして、呼び出し先の revert データをそのまま返す。失敗理由（`AccountNotEligible` など）を、`eth_call`、`eth_estimateGas`、トレースの最上位で取れるようにするため。
   - `_execute(request, true)` が false を返した直後に、`returndatacopy` で直前の呼び出しの戻りデータを取り出して revert する。
 - `executeAll`: 各リクエストを `_execute(request, true)` で順に実行する。1 件でも失敗したら、その revert データで全体を revert する。OZ の `executeBatch` は呼び出し先の失敗で全体を止めないので使わない。
