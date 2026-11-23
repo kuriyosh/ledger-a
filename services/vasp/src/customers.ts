@@ -41,6 +41,10 @@ export function customerService(
         {
           txHash: pending.txHash,
           pendingSince: pending.createdAt.toISOString(),
+          pendingSeconds: Math.max(
+            0,
+            Math.floor((Date.now() - pending.createdAt.getTime()) / 1000),
+          ),
         },
       );
     let outcome: RegistryResult | undefined;
@@ -115,6 +119,7 @@ export function customerService(
             "Registry request did not advance",
             null,
             {
+              ...(error instanceof ServiceError ? error.details : {}),
               code:
                 error instanceof ServiceError ? error.code : "INTERNAL_ERROR",
             },

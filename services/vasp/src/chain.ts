@@ -21,6 +21,7 @@ import type {
   RegistryRequest,
   RegistryResult,
 } from "./db/store.ts";
+import { finalizedReplacement } from "./finalized-nonce.ts";
 
 const registrationPriorityFee = 1n;
 const registrationFeeCap = 100_000_000_000n;
@@ -67,18 +68,43 @@ function gatewayUnavailable() {
 }
 
 export function registryGateway(gatewayUrl: string, requestHttp = fetch) {
-  async function request(path: string, init?: RequestInit) {
+  async function request(
+    path: string,
+    init?: RequestInit,
+    allowMissing = false,
+  ) {
     try {
       const result = await requestHttp(new URL(path, gatewayUrl), {
         ...init,
         signal: AbortSignal.timeout(18_000),
       });
+      if (allowMissing && result.status === 404) return undefined;
       if (!result.ok) throw gatewayUnavailable();
       return await result.json();
     } catch {
       throw gatewayUnavailable();
     }
   }
+  async function statusOf(hash: Hex) {
+    const body = await request(`/v1/receipts/${hash}`, undefined, true);
+    if (body === undefined) return "missing" as const;
+    const stored = gatewayReceipt.safeParse(body);
+    if (!stored.success || stored.data.txHash !== hash)
+      throw gatewayUnavailable();
+    const log = z
+      .object({
+        entries: z.array(
+          z.object({ txHash: hexHash, forwardStatus: z.string() }),
+        ),
+      })
+      .safeParse(await request(`/v1/log?fromSeq=${stored.data.seq}&limit=1`));
+    const match = log.success && log.data.entries[0];
+    if (!match || match.txHash !== hash) throw gatewayUnavailable();
+    return match.forwardStatus === "rejected"
+      ? ("rejected" as const)
+      : ("accepted" as const);
+  }
+
   return {
     async submit(
       pending: RegistryRequest,
@@ -106,29 +132,21 @@ export function registryGateway(gatewayUrl: string, requestHttp = fetch) {
         return "accepted";
       }
       const detail = response.data.error.data;
-      if (detail?.reason === "NONCE_TOO_LOW") return "nonce_used";
-      if (detail?.reason && definiteRejection.has(detail.reason))
-        return "rejected";
-      if (detail?.receipt?.txHash === pending.txHash) return "accepted";
-      if (detail?.reason === "DUPLICATE_TX") {
-        const stored = gatewayReceipt.safeParse(
-          await request(`/v1/receipts/${pending.txHash}`),
-        );
-        if (!stored.success || stored.data.txHash !== pending.txHash)
-          throw gatewayUnavailable();
-        const log = z
-          .object({
-            entries: z.array(
-              z.object({ txHash: hexHash, forwardStatus: z.string() }),
-            ),
-          })
-          .safeParse(
-            await request(`/v1/log?fromSeq=${stored.data.seq}&limit=1`),
-          );
-        const match = log.success && log.data.entries[0];
-        if (!match || match.txHash !== pending.txHash)
-          throw gatewayUnavailable();
-        return match.forwardStatus === "rejected" ? "rejected" : "accepted";
+      const reason = detail?.reason;
+      if (
+        detail?.receipt?.txHash === pending.txHash &&
+        reason !== "FORWARD_REJECTED"
+      )
+        return "accepted";
+      if (reason === "NONCE_TOO_LOW") return "nonce_used";
+      if (
+        reason === "DUPLICATE_TX" ||
+        (reason && definiteRejection.has(reason))
+      ) {
+        const recorded = await statusOf(pending.txHash);
+        if (recorded !== "missing") return recorded;
+        if (reason !== "DUPLICATE_TX" && reason !== "FORWARD_REJECTED")
+          return "rejected";
       }
       throw gatewayUnavailable();
     },
@@ -173,40 +191,45 @@ export function registryChain(
       });
     },
     async build(action: RegistryAction, address: Address, validUntil: Date) {
-      if (action !== "register") {
-        const account = await client.readContract({
-          address: registry,
-          abi: kycRegistryAbi,
-          functionName: "getAccount",
-          args: [address],
-        });
-        if (account.status === (action === "suspend" ? 2 : 1)) return undefined;
-      }
-      let data: Hex;
-      switch (action) {
-        case "register":
-          data = encodeFunctionData({
+      try {
+        if (action !== "register") {
+          const account = await client.readContract({
+            address: registry,
             abi: kycRegistryAbi,
-            functionName: "registerAccount",
-            args: [address, 1, BigInt(Math.floor(validUntil.getTime() / 1000))],
-          });
-          break;
-        case "suspend":
-          data = encodeFunctionData({
-            abi: kycRegistryAbi,
-            functionName: "suspendAccount",
-            args: [address, zeroHash],
-          });
-          break;
-        case "reinstate":
-          data = encodeFunctionData({
-            abi: kycRegistryAbi,
-            functionName: "reinstateAccount",
+            functionName: "getAccount",
             args: [address],
           });
-          break;
-      }
-      try {
+          if (account.status === (action === "suspend" ? 2 : 1))
+            return undefined;
+        }
+        let data: Hex;
+        switch (action) {
+          case "register":
+            data = encodeFunctionData({
+              abi: kycRegistryAbi,
+              functionName: "registerAccount",
+              args: [
+                address,
+                1,
+                BigInt(Math.floor(validUntil.getTime() / 1000)),
+              ],
+            });
+            break;
+          case "suspend":
+            data = encodeFunctionData({
+              abi: kycRegistryAbi,
+              functionName: "suspendAccount",
+              args: [address, zeroHash],
+            });
+            break;
+          case "reinstate":
+            data = encodeFunctionData({
+              abi: kycRegistryAbi,
+              functionName: "reinstateAccount",
+              args: [address],
+            });
+            break;
+        }
         const block = await client.getBlock({ blockTag: "latest" });
         const [nonce, gas] = await Promise.all([
           client.getTransactionCount({
@@ -252,48 +275,37 @@ export function registryChain(
       }
     },
     async replaced(request: RegistryRequest) {
-      const expected = parseTransaction(
+      const nonce = parseTransaction(
         request.rawTx as TransactionSerialized,
       ).nonce;
-      if (expected === undefined)
+      if (nonce === undefined)
         throw new Error("Stored Registry transaction has no nonce");
-      const latest = await client.getBlock({ blockTag: "latest" });
-      const count = (hash: Hex) =>
-        client.getTransactionCount({
-          address: admin.address,
-          blockHash: hash,
-          requireCanonical: true,
-        });
-      if ((await count(latest.hash)) <= expected) return false;
-
-      // Some RPC nodes retain block bodies after pruning historical account state.
-      const from = request.firstBlock ?? BigInt(deployment.auditStartBlock);
-      const sender = admin.address.toLowerCase();
-      for (let to = latest.number; to >= from; to -= 8n) {
-        const numbers = Array.from(
-          { length: 8 },
-          (_, offset) => to - BigInt(offset),
-        ).filter((number) => number >= from);
-        const blocks = await Promise.all(
-          numbers.map((blockNumber) =>
-            client.getBlock({ blockNumber, includeTransactions: true }),
-          ),
-        );
-        const consumed = blocks
-          .flatMap((block) => block.transactions)
-          .find(
-            (transaction) =>
-              transaction.from.toLowerCase() === sender &&
-              transaction.nonce === expected,
-          );
-        if (consumed) {
-          const current = await client.getBlock({ blockNumber: latest.number });
-          return (
-            current.hash === latest.hash && consumed.hash !== request.txHash
-          );
-        }
-      }
-      return false;
+      return finalizedReplacement(
+        {
+          finalized: () =>
+            client.getBlock({
+              blockTag: "finalized",
+              includeTransactions: true,
+            }),
+          body: (blockHash) =>
+            client.getBlock({ blockHash, includeTransactions: true }),
+          async hashAt(blockNumber) {
+            return (await client.getBlock({ blockNumber })).hash;
+          },
+          countAt: (blockHash) =>
+            client.getTransactionCount({
+              address: admin.address,
+              blockHash,
+              requireCanonical: true,
+            }),
+        },
+        {
+          sender: admin.address,
+          nonce,
+          txHash: request.txHash,
+          firstBlock: request.firstBlock ?? BigInt(deployment.auditStartBlock),
+        },
+      );
     },
     async wait(hash: Hex) {
       return result(

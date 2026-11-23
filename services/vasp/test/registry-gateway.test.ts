@@ -25,9 +25,11 @@ test("reports nonce consumption separately from a known Gateway rejection", asyn
     response({ error: { data: { reason: "NONCE_TOO_LOW" } } }),
   );
   await expect(gateway.submit(intent)).resolves.toBe("nonce_used");
-  send.mockResolvedValueOnce(
-    response({ error: { data: { reason: "SENDER_NOT_ALLOWED" } } }),
-  );
+  send
+    .mockResolvedValueOnce(
+      response({ error: { data: { reason: "SENDER_NOT_ALLOWED" } } }),
+    )
+    .mockResolvedValueOnce(Response.json({}, { status: 404 }));
   await expect(gateway.submit(intent)).resolves.toBe("rejected");
 });
 
@@ -62,4 +64,24 @@ test("preserves uncertainty if successful response identifies a different transa
   await expect(gateway.submit(intent)).rejects.toMatchObject({
     code: "GATEWAY_UNAVAILABLE",
   });
+});
+
+test("checks the archive before treating a state-dependent retry failure as definitive", async () => {
+  const send = vi.fn<typeof fetch>();
+  const gateway = registryGateway("http://localhost:8600", send);
+  send.mockResolvedValueOnce(
+    response({ error: { data: { reason: "MAX_FEE_TOO_LOW", receipt } } }),
+  );
+  await expect(gateway.submit(intent)).resolves.toBe("accepted");
+  send
+    .mockResolvedValueOnce(
+      response({ error: { data: { reason: "MAX_FEE_TOO_LOW" } } }),
+    )
+    .mockResolvedValueOnce(response(receipt))
+    .mockResolvedValueOnce(
+      response({
+        entries: [{ txHash: intent.txHash, forwardStatus: "forwarded" }],
+      }),
+    );
+  await expect(gateway.submit(intent)).resolves.toBe("accepted");
 });
