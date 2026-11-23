@@ -253,8 +253,11 @@ export function decoder(contracts: Deployment["contracts"]) {
             logIndex: log.logIndex,
           },
         ];
-      } catch {
-        return [];
+      } catch (error) {
+        throw new Error(
+          `Could not decode ${source}.${item.name} at log ${log.logIndex}`,
+          { cause: error },
+        );
       }
     });
     const displayed = call && {

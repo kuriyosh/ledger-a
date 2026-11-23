@@ -5,17 +5,18 @@ import type { ChainBlock, Finality } from "../rpc.ts";
 import {
   type Derived,
   indexDerived,
+  prepareDerived,
   registryAtTip,
   storedEntries,
   verifyBalances,
 } from "./derived.ts";
 import { blocks, chainStatus, logs, transactions } from "./schema.ts";
 
-type Database = Awaited<ReturnType<typeof openDatabase>>["db"];
+export type IndexerDatabase = Awaited<ReturnType<typeof openDatabase>>["db"];
 export type IndexerTransaction = Parameters<
-  Parameters<Database["transaction"]>[0]
+  Parameters<IndexerDatabase["transaction"]>[0]
 >[0];
-type Query = Database | IndexerTransaction;
+type Query = IndexerDatabase | IndexerTransaction;
 export type Position = { number: bigint; hash: Hex };
 const bytes = (value: Hex) => Buffer.from(value.slice(2), "hex");
 const option = (value: Hex | null | undefined) =>
@@ -36,11 +37,11 @@ function same(left: Position | undefined, right: Position | undefined) {
 }
 
 export class IndexerStore {
-  private readonly db: Database;
+  private readonly db: IndexerDatabase;
   private readonly start: bigint;
   private readonly derived?: Derived;
 
-  constructor(database: Database, start: bigint, derived?: Derived) {
+  constructor(database: IndexerDatabase, start: bigint, derived?: Derived) {
     this.db = database;
     this.start = start;
     this.derived = derived;
@@ -96,7 +97,7 @@ export class IndexerStore {
         .set({
           indexedBlock: ancestor,
           derivedBlock: sql`case when ${chainStatus.derivedBlock} > ${ancestor} then ${ancestor} else ${chainStatus.derivedBlock} end`,
-          ...(this.derived && (await registryAtTip(tx))),
+          ...(this.derived && (await registryAtTip(tx, ancestor))),
           unsafeBlock: null,
           safeBlock: null,
         })
@@ -109,42 +110,78 @@ export class IndexerStore {
     const derived = this.derived;
     if (!derived) return true;
     for (let remaining = 32; remaining > 0; --remaining) {
-      const caughtUp = await this.db.transaction(async (tx) => {
+      const snapshot = await this.db.transaction(
+        async (tx) => {
+          const [status] = await tx
+            .select()
+            .from(chainStatus)
+            .where(eq(chainStatus.id, 1));
+          if (!status) throw new Error("Indexer chain status is missing");
+          const next = (status.derivedBlock ?? this.start - 1n) + 1n;
+          if (next > status.indexedBlock) return undefined;
+          const [row] = await tx
+            .select()
+            .from(blocks)
+            .where(eq(blocks.number, next));
+          if (!row) throw new Error("Raw block is missing during backfill");
+          return { next, row, status, raw: await storedEntries(tx, next) };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
+      if (!snapshot) return true;
+      const { next, row, status, raw } = snapshot;
+      const block = {
+        number: row.number,
+        hash: bytesToHex(row.hash),
+        parentHash: bytesToHex(row.parentHash),
+      };
+      const prepared = await prepareDerived(
+        this.db,
+        block,
+        raw,
+        this.start,
+        derived,
+      );
+      const saved = await this.db.transaction(async (tx) => {
         await tx.execute(chainLock);
-        const [status] = await tx
+        const [current] = await tx
           .select()
           .from(chainStatus)
           .where(eq(chainStatus.id, 1));
-        if (!status) throw new Error("Indexer chain status is missing");
-        const next = (status.derivedBlock ?? this.start - 1n) + 1n;
-        if (next > status.indexedBlock) return true;
-        const [row] = await tx
-          .select()
+        const [canonical] = await tx
+          .select({ hash: blocks.hash })
           .from(blocks)
           .where(eq(blocks.number, next));
-        if (!row) throw new Error("Indexed block is missing during derivation");
-        const block = {
-          number: row.number,
-          hash: bytesToHex(row.hash),
-          parentHash: bytesToHex(row.parentHash),
-        };
-        await indexDerived(
-          tx,
-          block,
-          await storedEntries(tx, next),
-          this.start,
-          derived,
-        );
-        if (next % 100n === 0n) await verifyBalances(tx, block, derived.state);
-        return next === status.indexedBlock;
+        if (
+          !canonical?.hash.equals(row.hash) ||
+          current?.derivedBlock !== status.derivedBlock
+        )
+          return false;
+        await indexDerived(tx, block, prepared, this.start, derived);
+        return true;
       });
-      if (caughtUp) return true;
+      if (!saved) return false;
+      await this.verify(block);
+      if (next === status.indexedBlock) return true;
     }
     return false;
   }
 
   async append(expected: Position | undefined, block: ChainBlock) {
-    return this.db.transaction(async (tx) => {
+    const derived = this.derived;
+    const prepared =
+      derived &&
+      (await prepareDerived(
+        this.db,
+        block,
+        block.transactions.map((entry) => ({
+          hash: bytes(entry.hash),
+          transaction: { ...entry, logs: entry.receipt.logs },
+        })),
+        this.start,
+        derived,
+      ));
+    const saved = await this.db.transaction(async (tx) => {
       await tx.execute(chainLock);
       if (!same(await tip(tx), expected)) return false;
       if (
@@ -208,20 +245,8 @@ export class IndexerStore {
       for (let from = 0; from < events.length; from += 500)
         await tx.insert(logs).values(events.slice(from, from + 500));
 
-      if (this.derived) {
-        await indexDerived(
-          tx,
-          block,
-          block.transactions.map((entry) => ({
-            hash: bytes(entry.hash),
-            transaction: { ...entry, logs: entry.receipt.logs },
-          })),
-          this.start,
-          this.derived,
-        );
-        if (block.number % 100n === 0n)
-          await verifyBalances(tx, block, this.derived.state);
-      }
+      if (derived && prepared)
+        await indexDerived(tx, block, prepared, this.start, derived);
 
       await tx
         .update(chainStatus)
@@ -229,6 +254,13 @@ export class IndexerStore {
         .where(eq(chainStatus.id, 1));
       return true;
     });
+    if (saved) await this.verify(block);
+    return saved;
+  }
+
+  private async verify(block: { number: bigint; hash: Hex; parentHash: Hex }) {
+    if (this.derived && block.number % 100n === 0n)
+      await verifyBalances(this.db, block, this.derived.state);
   }
 
   async updateFinality(finality: Finality, expected: Position | undefined) {

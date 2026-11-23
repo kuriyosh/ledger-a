@@ -20,11 +20,26 @@ const rpc = indexerRpc(
 if ((await rpc.chainId()) !== deployment.chainId)
   throw new Error("Indexer L2 chain ID does not match the deployment");
 
+const state = chainState(env.L2_RPC_URL, deployment.contracts);
+if (env.INDEXER_START_BLOCK > 0n) {
+  const parent = env.INDEXER_START_BLOCK - 1n;
+  if (parent <= (await rpc.latest())) {
+    try {
+      await state.registry((await rpc.header(parent)).hash);
+    } catch (error) {
+      throw new Error(
+        "Partial indexing requires historical L2 state at the start block",
+        { cause: error },
+      );
+    }
+  }
+}
+
 const migrations = fileURLToPath(new URL("./db/migrations/", import.meta.url));
 const database = await openDatabase(env.DATABASE_URL, "indexer", migrations);
 const store = new IndexerStore(database.db, env.INDEXER_START_BLOCK, {
   decode: decoder(deployment.contracts),
-  state: chainState(env.L2_RPC_URL, deployment.contracts),
+  state,
   tokens: deployment.contracts,
 });
 await store.initialize();

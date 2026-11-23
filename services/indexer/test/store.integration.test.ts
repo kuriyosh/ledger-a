@@ -43,8 +43,12 @@ type ChainLog = ChainBlock["transactions"][number]["receipt"]["logs"][number];
 
 function event(
   abi: "token" | "registry",
-  name: "Transfer" | "TravelRuleTransfer" | "EnforcementEnabled",
-  topicArgs: Record<string, Address>,
+  name:
+    | "Transfer"
+    | "TravelRuleTransfer"
+    | "EnforcementEnabled"
+    | "VaspEndpointChanged",
+  topicArgs: Record<string, Address | number>,
   data: Hex,
 ) {
   const topics = encodeEventTopics({
@@ -155,6 +159,12 @@ test.skipIf(!databaseUrl)(
               { actor: sender },
               encodeAbiParameters([{ type: "uint64" }], [8n]),
             ),
+            event(
+              "registry",
+              "VaspEndpointChanged",
+              { vaspId: 1 },
+              encodeAbiParameters([{ type: "string" }], ["http://vasp-a"]),
+            ),
           ]),
         ),
       ).resolves.toBe(true);
@@ -175,7 +185,7 @@ test.skipIf(!databaseUrl)(
       expect(initial).toMatchObject({
         derivedBlock: 1n,
         enforcementEnabled: true,
-        registryVersion: 8n,
+        registryVersion: 9n,
       });
       expect(
         (await database.db.select().from(balancesHistory))

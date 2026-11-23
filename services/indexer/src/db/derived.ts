@@ -1,10 +1,11 @@
 import { logService } from "@ledgera/shared/server";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lte } from "drizzle-orm";
 import { type Address, bytesToHex, type Hex, zeroAddress } from "viem";
 import { type DecodableTransaction, type decoder, isToken } from "../decode.ts";
 import type { chainState } from "../state.ts";
 import {
   balancesHistory,
+  blocks,
   chainStatus,
   logs,
   receiptCommitments,
@@ -18,7 +19,7 @@ import {
   transactions,
   travelRuleAttestations,
 } from "./schema.ts";
-import type { IndexerTransaction } from "./store.ts";
+import type { IndexerDatabase, IndexerTransaction } from "./store.ts";
 
 type Block = { number: bigint; hash: Hex; parentHash: Hex };
 type Entry = {
@@ -52,20 +53,28 @@ const safeKinds = new Set([
   "ExecutionFailure",
 ]);
 
-export async function registryAtTip(tx: IndexerTransaction) {
+export async function registryAtTip(
+  tx: Pick<IndexerDatabase, "select">,
+  height?: bigint,
+) {
   const [checkpoint] = await tx
     .select({
       enforcementEnabled: registryCheckpoints.enforcementEnabled,
       registryVersion: registryCheckpoints.registryVersion,
     })
     .from(registryCheckpoints)
+    .where(
+      height === undefined
+        ? undefined
+        : lte(registryCheckpoints.blockNumber, height),
+    )
     .orderBy(desc(registryCheckpoints.blockNumber))
     .limit(1);
   return checkpoint ?? zero;
 }
 
 export async function storedEntries(
-  tx: IndexerTransaction,
+  tx: Pick<IndexerDatabase, "select">,
   number: bigint,
 ): Promise<Entry[]> {
   const entries = await tx
@@ -104,17 +113,83 @@ export async function storedEntries(
   }));
 }
 
-export async function indexDerived(
-  tx: IndexerTransaction,
+const balanceKey = (token: Address, account: Address) =>
+  `${token.toLowerCase()}:${account.toLowerCase()}`;
+
+async function storedBalance(
+  db: Pick<IndexerDatabase, "select">,
+  token: Address,
+  account: Address,
+  before: bigint,
+) {
+  const [row] = await db
+    .select({ balance: balancesHistory.balance })
+    .from(balancesHistory)
+    .where(
+      and(
+        eq(balancesHistory.token, bytes(token)),
+        eq(balancesHistory.account, bytes(account)),
+        lte(balancesHistory.blockNumber, before),
+      ),
+    )
+    .orderBy(desc(balancesHistory.blockNumber), desc(balancesHistory.logIndex))
+    .limit(1);
+  return row?.balance;
+}
+
+export async function prepareDerived(
+  db: IndexerDatabase,
   block: Block,
-  entries: Entry[],
+  raw: Entry[],
   start: bigint,
   derived: Derived,
 ) {
+  const entries = raw.map(({ hash, transaction }) => ({
+    hash,
+    decoded: derived.decode(transaction),
+  }));
+  const initialBalances = new Map<string, bigint>();
+  if (start === 0n) return { entries, initialBalances, registry: undefined };
+
+  const touched = new Map<string, { token: Address; account: Address }>();
+  for (const { decoded } of entries)
+    for (const event of decoded.events) {
+      if (!isToken(event.contract) || event.name !== "Transfer") continue;
+      const token = derived.tokens[event.contract];
+      for (const account of [event.args.from, event.args.to] as Address[])
+        if (account !== zeroAddress)
+          touched.set(balanceKey(token, account), { token, account });
+    }
+  const accounts = [...touched];
+  for (let from = 0; from < accounts.length; from += 12) {
+    await Promise.all(
+      accounts.slice(from, from + 12).map(async ([key, { token, account }]) => {
+        if (
+          (await storedBalance(db, token, account, block.number - 1n)) ===
+          undefined
+        )
+          initialBalances.set(
+            key,
+            await derived.state.balance(token, account, block.parentHash),
+          );
+      }),
+    );
+  }
   const registry =
-    block.number === start && start > 0n
+    block.number === start
       ? await derived.state.registry(block.parentHash)
-      : { ...(await registryAtTip(tx)) };
+      : undefined;
+  return { entries, initialBalances, registry };
+}
+
+export async function indexDerived(
+  tx: IndexerTransaction,
+  block: Block,
+  prepared: Awaited<ReturnType<typeof prepareDerived>>,
+  start: bigint,
+  derived: Derived,
+) {
+  const registry = { ...(prepared.registry ?? (await registryAtTip(tx))) };
   let registryChanged = block.number === start;
   const running = new Map<string, bigint>();
   const balanceRows: (typeof balancesHistory.$inferInsert)[] = [];
@@ -126,32 +201,21 @@ export async function indexDerived(
     logIndex: number,
   ) {
     if (account === zeroAddress) return;
-    const key = `${token.toLowerCase()}:${account.toLowerCase()}`;
-    let prior = running.get(key);
-    if (prior === undefined) {
-      const [last] = await tx
-        .select({ balance: balancesHistory.balance })
-        .from(balancesHistory)
-        .where(
-          and(
-            eq(balancesHistory.token, bytes(token)),
-            eq(balancesHistory.account, bytes(account)),
-          ),
-        )
-        .orderBy(
-          desc(balancesHistory.blockNumber),
-          desc(balancesHistory.logIndex),
-        )
-        .limit(1);
-      prior =
-        last?.balance ??
-        (start === 0n
-          ? 0n
-          : await derived.state.balance(token, account, block.parentHash));
-    }
+    const key = balanceKey(token, account);
+    const prior =
+      running.get(key) ??
+      (await storedBalance(tx, token, account, block.number - 1n)) ??
+      prepared.initialBalances.get(key) ??
+      (start === 0n ? 0n : undefined);
+    if (prior === undefined)
+      throw new Error(
+        "The branch changed while preparing initial token balances",
+      );
     const balance = prior + delta;
     if (balance < 0n)
-      throw new Error("Transfer would make the indexed balance negative");
+      throw new Error(
+        `Negative indexed balance for ${token} and ${account} at block ${block.number}`,
+      );
     running.set(key, balance);
     balanceRows.push({
       token: bytes(token),
@@ -162,8 +226,7 @@ export async function indexDerived(
     });
   }
 
-  for (const { hash, transaction } of entries) {
-    const decoded = derived.decode(transaction);
+  for (const { hash, decoded } of prepared.entries) {
     await tx
       .update(transactions)
       .set({ decodedCall: decoded.call ?? null, kind: decoded.kind })
@@ -212,6 +275,7 @@ export async function indexDerived(
           await tx.insert(tokenAdminEvents).values({ ...record, token });
         }
       } else if (contract === "kycRegistry") {
+        // These Registry events advance the version without including it in the log.
         if (
           name === "ConsortiumTransferred" ||
           name === "VaspEndpointChanged"
@@ -279,25 +343,72 @@ export async function indexDerived(
 }
 
 export async function verifyBalances(
-  tx: IndexerTransaction,
+  db: IndexerDatabase,
   block: Block,
   state: Derived["state"],
 ) {
-  const accounts = await tx
-    .selectDistinctOn([balancesHistory.token, balancesHistory.account], {
-      token: balancesHistory.token,
-      account: balancesHistory.account,
-      balance: balancesHistory.balance,
-    })
-    .from(balancesHistory)
-    .where(gt(balancesHistory.blockNumber, block.number - 100n))
-    .orderBy(
-      asc(balancesHistory.token),
-      asc(balancesHistory.account),
-      desc(balancesHistory.blockNumber),
-      desc(balancesHistory.logIndex),
+  const snapshot = await db.transaction(
+    async (tx) => {
+      const [indexed] = await tx
+        .select({ hash: blocks.hash })
+        .from(blocks)
+        .where(eq(blocks.number, block.number));
+      if (!indexed || bytesToHex(indexed.hash) !== block.hash) return;
+      const accounts = await tx
+        .selectDistinctOn([balancesHistory.token, balancesHistory.account], {
+          token: balancesHistory.token,
+          account: balancesHistory.account,
+          balance: balancesHistory.balance,
+        })
+        .from(balancesHistory)
+        .where(
+          and(
+            gt(balancesHistory.blockNumber, block.number - 100n),
+            lte(balancesHistory.blockNumber, block.number),
+          ),
+        )
+        .orderBy(
+          asc(balancesHistory.token),
+          asc(balancesHistory.account),
+          desc(balancesHistory.blockNumber),
+          desc(balancesHistory.logIndex),
+        );
+      return { accounts, registry: await registryAtTip(tx, block.number) };
+    },
+    { isolationLevel: "repeatable read", accessMode: "read only" },
+  );
+  if (!snapshot) return;
+  const { accounts, registry } = snapshot;
+  try {
+    const observed = await state.registry(block.hash);
+    if (
+      observed.enforcementEnabled !== registry.enforcementEnabled ||
+      observed.registryVersion !== registry.registryVersion
+    )
+      logService(
+        "indexer",
+        "error",
+        "Indexed Registry state differs from L2",
+        null,
+        {
+          blockNumber: block.number.toString(),
+          indexed: registry.registryVersion.toString(),
+          observed: observed.registryVersion.toString(),
+        },
+      );
+  } catch (error) {
+    logService(
+      "indexer",
+      "error",
+      "Could not verify indexed Registry state",
+      null,
+      {
+        blockNumber: block.number.toString(),
+        reason: error instanceof Error ? error.name : "Unknown error",
+      },
     );
-  for (const row of accounts) {
+  }
+  async function verify(row: (typeof accounts)[number]) {
     const token = bytesToHex(row.token);
     const account = bytesToHex(row.account);
     try {
@@ -331,4 +442,6 @@ export async function verifyBalances(
       );
     }
   }
+  for (let from = 0; from < accounts.length; from += 12)
+    await Promise.all(accounts.slice(from, from + 12).map(verify));
 }
