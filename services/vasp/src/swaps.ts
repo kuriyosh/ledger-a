@@ -28,7 +28,10 @@ function view(row: Swap) {
 }
 
 export function swapService(
-  store: SwapStore,
+  store: Pick<
+    SwapStore,
+    "submit" | "get" | "list" | "recordExpired" | "pending" | "update"
+  >,
   wallets: Pick<TransferStore, "signer">,
   chain: Chain,
   gateway: Gateway,
@@ -54,7 +57,7 @@ export function swapService(
     async function confirm(
       receipt: NonNullable<Awaited<ReturnType<typeof lookup>>>,
     ) {
-      if (!(await tracked(receipt))) return false;
+      if (!(await tracked(receipt))) return;
       await store.update(row, {
         status: receipt.filled ? "confirmed" : "failed",
         txHash: transferBytes(receipt.transactionHash),
@@ -62,14 +65,15 @@ export function swapService(
         blockHash: transferBytes(receipt.blockHash),
         errorCode: receipt.filled ? null : "SWAP_EFFECT_MISSING",
       });
-      return true;
     }
 
     const receipt = row.txHash
       ? await lookup(bytesToHex(row.txHash))
       : undefined;
-    if (receipt?.status === "success" && receipt.filled)
-      return confirm(receipt);
+    if (receipt?.status === "success" && receipt.filled) {
+      await confirm(receipt);
+      return "observed";
+    }
 
     if (
       receipt?.status === "reverted" &&
@@ -82,7 +86,7 @@ export function swapService(
         blockHash: transferBytes(receipt.blockHash),
         errorCode: row.simulationError ?? "REVERTED",
       });
-      return false;
+      return "observed";
     }
 
     const state = await chain.finalizedRequest(
@@ -91,15 +95,12 @@ export function swapService(
       row.forwardFirstBlock,
     );
     if (state?.status === "expired") {
-      const absent =
-        row.simulationError === "FORWARD_REJECTED"
-          ? row.simulationError
-          : "FORWARD_REQUEST_EXPIRED";
+      const absent = row.simulationError ?? "FORWARD_REQUEST_EXPIRED";
       await store.update(row, {
         status: "failed",
         errorCode: row.errorCode ?? absent,
       });
-      return true;
+      return "observed";
     }
     if (state?.status === "consumed") {
       const actual =
@@ -107,9 +108,11 @@ export function swapService(
           ? receipt
           : await lookup(state.hash);
       if (actual?.status === "success" && actual.blockHash === state.blockHash)
-        return confirm(actual);
+        await confirm(actual);
+      return "observed";
     }
-    return false;
+    const used = await chain.nonce(fill.from);
+    return used > row.forwardNonce ? "observed" : "open";
   }
 
   async function process(
@@ -136,6 +139,7 @@ export function swapService(
         signer,
         row.quote,
         bytesToHex(row.makerSignature),
+        row.allowExpired,
       );
       const retained = await store.update(row, {
         forwardRequests: plan.requests,
@@ -152,13 +156,14 @@ export function swapService(
     let result: Awaited<ReturnType<Gateway["forward"]>> | undefined = fresh
       ? undefined
       : await gateway.find(requests, first);
-    if (!result && !fresh && (await settle(row, tracked))) return;
+    if (!result && !fresh && (await settle(row, tracked)) !== "open") return;
     result ??= await gateway.forward(requests, demo);
     if (result.status === "rejected" && !result.receipt)
       result = (await gateway.find(requests, first)) ?? result;
     if (result.status === "unavailable") return;
     if (result.status === "rejected" && !result.receipt) {
-      await store.update(row, { status: "failed", errorCode: result.code });
+      if (row.simulationError !== result.code)
+        await store.update(row, { simulationError: result.code });
       return;
     }
     const recorded = result.status === "accepted" ? result : result.receipt;

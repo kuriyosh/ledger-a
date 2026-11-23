@@ -207,6 +207,12 @@ export function vaspApp(
   });
   app.post("/v1/me/swaps", async (context) => {
     const customer = await session(context.req.header("Authorization"));
+    if (!demoMode && (!customer.address || customer.kycStatus !== "approved"))
+      throw new ServiceError(
+        "KYC_REQUIRED",
+        "An approved customer wallet is required",
+        403,
+      );
     const input = parse(
       swapInput,
       await context.req.json().catch(() => undefined),

@@ -40,6 +40,16 @@ export function transferChain(
 ) {
   const contracts = deployment.contracts;
   const tokens = { tJPY: contracts.tJPY, tUSD: contracts.tUSD };
+  function nonce(address: Address, blockHash?: Hex) {
+    return client.readContract({
+      address: contracts.ledgerForwarder,
+      abi: ledgerForwarderAbi,
+      functionName: "nonces",
+      args: [address],
+      ...(blockHash && { blockHash, requireCanonical: true }),
+    });
+  }
+
   async function sign(
     signer: LocalAccount,
     calls: ReadonlyArray<{ to: Address; gas: bigint; data: Hex }>,
@@ -49,14 +59,7 @@ export function transferChain(
       client.getBlock({ blockTag: "latest" }),
       client.getBlock({ blockTag: "finalized" }),
     ]);
-    const nonce = await client.readContract({
-      address: contracts.ledgerForwarder,
-      abi: ledgerForwarderAbi,
-      functionName: "nonces",
-      args: [signer.address],
-      blockHash: head.hash,
-      requireCanonical: true,
-    });
+    const firstNonce = await nonce(signer.address, head.hash);
     const domain = {
       chainId: deployment.chainId,
       verifyingContract: contracts.ledgerForwarder,
@@ -69,7 +72,7 @@ export function transferChain(
           value: 0n,
           gas,
           deadline,
-          nonce: nonce + BigInt(index),
+          nonce: firstNonce + BigInt(index),
           data,
         };
         const signature = await signForwardRequest(signer, domain, request);
@@ -85,7 +88,7 @@ export function transferChain(
       }),
     );
     return {
-      nonce,
+      nonce: firstNonce,
       firstBlock:
         deployment.environment === "anvil"
           ? BigInt(deployment.auditStartBlock)
@@ -159,6 +162,7 @@ export function transferChain(
       return { ...metadata, request };
     },
     sign,
+    nonce,
     async finalizedRequest(
       request: ForwardPayload,
       nonce: bigint,

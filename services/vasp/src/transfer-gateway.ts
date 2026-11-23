@@ -66,6 +66,8 @@ export function matchesForwardCall(data: Hex, request: ForwardCommands) {
       decoded.functionName !== "executeBatch"
     )
       return false;
+    if (Array.isArray(request) && decoded.functionName !== "executeAll")
+      return false;
     const operations =
       decoded.functionName === "execute" ? [decoded.args[0]] : decoded.args[0];
     const match = (

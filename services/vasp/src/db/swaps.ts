@@ -133,7 +133,12 @@ export class SwapStore {
         );
       const [updated] = await tx
         .update(swaps)
-        .set({ status: "submitted", allowExpired, updatedAt: new Date() })
+        .set({
+          status: "submitted",
+          allowExpired,
+          errorCode: null,
+          updatedAt: new Date(),
+        })
         .where(eq(swaps.id, id))
         .returning();
       return updated;

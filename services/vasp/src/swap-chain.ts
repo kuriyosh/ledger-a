@@ -23,35 +23,45 @@ export function swapChain(
   deployment: Deployment,
   transfers: Pick<
     ReturnType<typeof transferChain>,
-    "sign" | "finalizedRequest"
+    "sign" | "nonce" | "finalizedRequest"
   >,
 ) {
   const address = deployment.contracts.atomicSwap;
   const domain = { chainId: deployment.chainId, verifyingContract: address };
 
   return {
-    plan(signer: LocalAccount, wire: QuoteWire, signature: Hex) {
+    plan(
+      signer: LocalAccount,
+      wire: QuoteWire,
+      signature: Hex,
+      allowExpired: boolean,
+    ) {
       const quote = quoteTyped(wire);
-      return transfers.sign(signer, [
-        {
-          to: quote.takerToken,
-          gas: 100_000n,
-          data: encodeFunctionData({
-            abi: ledgerTokenAbi,
-            functionName: "approve",
-            args: [address, quote.takerAmount],
-          }),
-        },
-        {
-          to: address,
-          gas: 500_000n,
-          data: encodeFunctionData({
-            abi: atomicSwapAbi,
-            functionName: "fill",
-            args: [quote, signature],
-          }),
-        },
-      ]);
+      const deadline = allowExpired ? undefined : wire.expiry;
+      return transfers.sign(
+        signer,
+        [
+          {
+            to: quote.takerToken,
+            gas: 100_000n,
+            data: encodeFunctionData({
+              abi: ledgerTokenAbi,
+              functionName: "approve",
+              args: [address, quote.takerAmount],
+            }),
+          },
+          {
+            to: address,
+            gas: 500_000n,
+            data: encodeFunctionData({
+              abi: atomicSwapAbi,
+              functionName: "fill",
+              args: [quote, signature],
+            }),
+          },
+        ],
+        deadline,
+      );
     },
     async fills(blockHash: Hex) {
       const records = await client.getLogs({
@@ -99,6 +109,7 @@ export function swapChain(
           throw error;
       }
     },
+    nonce: transfers.nonce,
     finalizedRequest: transfers.finalizedRequest,
   };
 }
