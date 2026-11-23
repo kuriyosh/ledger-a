@@ -46,6 +46,7 @@ export class AlertStore {
     return this.db
       .select({
         id: transfers.id,
+        revision: transfers.revision,
         customerId: transfers.customerId,
         amount: transfers.amount,
         token: transfers.token,
@@ -57,7 +58,13 @@ export class AlertStore {
         givenName: customers.givenName,
       })
       .from(transfers)
-      .leftJoin(amlChecked, eq(amlChecked.transferId, transfers.id))
+      .leftJoin(
+        amlChecked,
+        and(
+          eq(amlChecked.transferId, transfers.id),
+          eq(amlChecked.revision, transfers.revision),
+        ),
+      )
       .innerJoin(customers, eq(customers.id, transfers.customerId))
       .innerJoin(wallets, eq(wallets.customerId, transfers.customerId))
       .where(
@@ -79,6 +86,7 @@ export class AlertStore {
   ) {
     const {
       id: transferId,
+      revision,
       blockNumber,
       blockHash,
       address,
@@ -92,13 +100,19 @@ export class AlertStore {
         .select({ id: transfers.id })
         .from(transfers)
         .where(
-          and(eq(transfers.id, transferId), eq(transfers.status, "confirmed")),
+          and(
+            eq(transfers.id, transferId),
+            eq(transfers.status, "confirmed"),
+            eq(transfers.revision, revision),
+            eq(transfers.blockHash, blockHash),
+            eq(transfers.blockNumber, blockNumber),
+          ),
         )
         .for("update");
       if (!current) return;
       const [marked] = await tx
         .insert(amlChecked)
-        .values({ transferId })
+        .values({ transferId, revision })
         .onConflictDoNothing()
         .returning();
       if (!marked || !findings.length) return;
@@ -106,6 +120,7 @@ export class AlertStore {
         findings.map((rule) => ({
           id: `a_${randomUUID().replaceAll("-", "")}`,
           transferId,
+          transferRevision: revision,
           customerId,
           blockNumber,
           blockHash,

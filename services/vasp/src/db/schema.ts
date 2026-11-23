@@ -10,6 +10,7 @@ import {
   numeric,
   pgSequence,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -272,11 +273,16 @@ export const disclosureRequests = pgTable(
   (row) => [index("disclosures_created").on(row.createdAt, row.id)],
 );
 
-export const amlChecked = pgTable("aml_checked_transfers", {
-  transferId: text("transfer_id")
-    .primaryKey()
-    .references(() => transfers.id),
-});
+export const amlChecked = pgTable(
+  "aml_checked_transfers",
+  {
+    transferId: text("transfer_id")
+      .notNull()
+      .references(() => transfers.id),
+    revision: integer("revision").notNull(),
+  },
+  (row) => [primaryKey({ columns: [row.transferId, row.revision] })],
+);
 
 export const alerts = pgTable(
   "alerts",
@@ -288,6 +294,7 @@ export const alerts = pgTable(
     transferId: text("transfer_id")
       .notNull()
       .references(() => transfers.id),
+    transferRevision: integer("transfer_revision").notNull(),
     address: bytes("address").notNull(),
     rule: text("rule", { enum: ["LARGE_AMOUNT", "WATCHLIST"] }).notNull(),
     detail: jsonb("detail")
@@ -308,7 +315,11 @@ export const alerts = pgTable(
     updatedAt: instant("updated_at").notNull().defaultNow(),
   },
   (row) => [
-    uniqueIndex("alerts_transfer_rule").on(row.transferId, row.rule),
+    uniqueIndex("alerts_transfer_rule").on(
+      row.transferId,
+      row.transferRevision,
+      row.rule,
+    ),
     index("alerts_status").on(row.status, row.id),
   ],
 );

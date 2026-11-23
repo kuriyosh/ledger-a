@@ -1,5 +1,5 @@
 {
-  "id": "c2e2ac9e-d2c1-4362-93b0-95cf7b09201c",
+  "id": "7944eb56-0ded-4d0f-923b-f3ad83364cf3",
   "prevId": "d75eba85-efb0-4968-a25f-49160a63064f",
   "version": "7",
   "dialect": "postgresql",
@@ -23,6 +23,12 @@
         "transfer_id": {
           "name": "transfer_id",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "transfer_revision": {
+          "name": "transfer_revision",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
@@ -126,6 +132,12 @@
               "nulls": "last"
             },
             {
+              "expression": "transfer_revision",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "rule",
               "isExpression": false,
               "asc": true,
@@ -198,7 +210,13 @@
         "transfer_id": {
           "name": "transfer_id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         }
       },
@@ -214,7 +232,12 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "aml_checked_transfers_transfer_id_revision_pk": {
+          "name": "aml_checked_transfers_transfer_id_revision_pk",
+          "columns": ["transfer_id", "revision"]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

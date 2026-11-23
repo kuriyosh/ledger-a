@@ -2,6 +2,7 @@ CREATE TABLE "alerts" (
 	"id" text PRIMARY KEY NOT NULL,
 	"customer_id" text NOT NULL,
 	"transfer_id" text NOT NULL,
+	"transfer_revision" integer NOT NULL,
 	"address" "bytea" NOT NULL,
 	"rule" text NOT NULL,
 	"detail" jsonb NOT NULL,
@@ -20,11 +21,13 @@ CREATE TABLE "alerts" (
 );
 --> statement-breakpoint
 CREATE TABLE "aml_checked_transfers" (
-	"transfer_id" text PRIMARY KEY NOT NULL
+	"transfer_id" text NOT NULL,
+	"revision" integer NOT NULL,
+	CONSTRAINT "aml_checked_transfers_transfer_id_revision_pk" PRIMARY KEY("transfer_id","revision")
 );
 --> statement-breakpoint
 ALTER TABLE "alerts" ADD CONSTRAINT "alerts_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "alerts" ADD CONSTRAINT "alerts_transfer_id_transfers_id_fk" FOREIGN KEY ("transfer_id") REFERENCES "transfers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "aml_checked_transfers" ADD CONSTRAINT "aml_checked_transfers_transfer_id_transfers_id_fk" FOREIGN KEY ("transfer_id") REFERENCES "transfers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "alerts_transfer_rule" ON "alerts" USING btree ("transfer_id","rule");--> statement-breakpoint
+CREATE UNIQUE INDEX "alerts_transfer_rule" ON "alerts" USING btree ("transfer_id","transfer_revision","rule");--> statement-breakpoint
 CREATE INDEX "alerts_status" ON "alerts" USING btree ("status","id");

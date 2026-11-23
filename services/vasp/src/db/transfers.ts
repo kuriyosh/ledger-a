@@ -413,7 +413,11 @@ export class TransferStore {
         );
       await tx
         .update(transfers)
-        .set({ status: "reorged", updatedAt: new Date() })
+        .set({
+          status: "reorged",
+          revision: sql`${transfers.revision} + 1`,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(transfers.direction, "in"),

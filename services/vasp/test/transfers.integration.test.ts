@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { openDatabase } from "@ledgera/shared/db";
 import { type Address, type Hex, zeroHash } from "viem";
 import { expect, test } from "vitest";
+import { AlertStore } from "../src/db/alerts.ts";
 import { VaspStore } from "../src/db/store.ts";
 import { TransferStore, transferBytes } from "../src/db/transfers.ts";
 import { createWalletVault } from "../src/wallet-vault.ts";
@@ -93,6 +94,17 @@ test.skipIf(!url)(
         (item) => item.direction === "in",
       );
       expect(prior?.status).toBe("confirmed");
+      const alerts = new AlertStore(database.db);
+      const [candidate] = await alerts.candidates(undefined, 10);
+      if (!candidate) throw new Error("Expected confirmed deposit to evaluate");
+      await Promise.all([
+        alerts.evaluated(candidate, "tUSD", ["LARGE_AMOUNT"]),
+        alerts.evaluated(candidate, "tUSD", ["LARGE_AMOUNT"]),
+      ]);
+      const [alert] = await alerts.list(10);
+      expect(await alerts.list(10)).toHaveLength(1);
+      await alerts.prepare(alert.id, 1_800_000_000);
+      await alerts.attach(alert.id, "p_fixture");
 
       await store.rewind(9n);
       expect(await store.get(owner.id, accepted.value.id)).toMatchObject({
@@ -109,6 +121,15 @@ test.skipIf(!url)(
         { number: 10n, hash: replacement, parentHash: zeroHash },
         [event],
       );
+      expect(await alerts.alert(alert.id)).toMatchObject({
+        status: "invalidated",
+        proposalId: "p_fixture",
+      });
+      const [other] = await alerts.candidates(undefined, 10);
+      if (!other)
+        throw new Error("Expected the replacement deposit to be evaluated");
+      expect(other.id).not.toBe(candidate.id);
+      await alerts.evaluated(other, "tUSD", ["LARGE_AMOUNT"]);
       const inbound = (await store.list(owner.id, 10)).filter(
         (item) => item.direction === "in",
       );
@@ -128,6 +149,19 @@ test.skipIf(!url)(
         status: "confirmed",
         blockHash: transferBytes(firstHash),
       });
+      await alerts.evaluated(candidate, "tUSD", ["LARGE_AMOUNT"]);
+      expect(await alerts.list(10)).toHaveLength(2);
+      const [reappeared] = await alerts.candidates(undefined, 10);
+      if (!reappeared)
+        throw new Error("Expected canonical evidence to be checked again");
+      expect(reappeared.id).toBe(candidate.id);
+      expect(reappeared.revision).toBeGreaterThan(candidate.revision);
+      await alerts.evaluated(reappeared, "tUSD", ["LARGE_AMOUNT"]);
+      expect((await alerts.list(10)).map((row) => row.status).sort()).toEqual([
+        "invalidated",
+        "invalidated",
+        "open",
+      ]);
       await store.saveBlock(
         { number: 4n, hash: firstHash, parentHash: zeroHash },
         [],
