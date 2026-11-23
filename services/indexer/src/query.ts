@@ -1,11 +1,23 @@
 import { ServiceError } from "@ledgera/shared/errors";
-import { and, asc, desc, eq, exists, lt, or, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  lt,
+  lte,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { type Address, bytesToHex, type Hex } from "viem";
 import {
   blocks,
   chainStatus,
   logs,
   receiptCommitments,
+  type registryAccountEvents,
   safeEvents,
   swaps,
   tokenTransfers,
@@ -46,8 +58,14 @@ export async function readStatus(db: Reader) {
 
 export function beforePosition(
   cursor: Cursor | undefined,
-  field: typeof transactions.blockNumber | typeof tokenTransfers.blockNumber,
-  index: typeof transactions.txIndex | typeof tokenTransfers.logIndex,
+  field:
+    | typeof transactions.blockNumber
+    | typeof tokenTransfers.blockNumber
+    | typeof registryAccountEvents.blockNumber,
+  index:
+    | typeof transactions.txIndex
+    | typeof tokenTransfers.logIndex
+    | typeof registryAccountEvents.logIndex,
 ) {
   if (!cursor) return undefined;
   return cursor.index === undefined
@@ -224,6 +242,10 @@ export function chainQuery(
           .where(
             and(
               address,
+              lte(
+                transactions.blockNumber,
+                state.derivedBlock ?? state.startBlock - 1n,
+              ),
               input.kind ? eq(transactions.kind, input.kind) : undefined,
               beforePosition(
                 input.before,
@@ -240,7 +262,11 @@ export function chainQuery(
           (row) => txView(row.transaction, row.timestamp, state),
           ({ transaction: row }) => `${row.blockNumber}:${row.txIndex}`,
         );
-        return { transactions: page.items, nextBefore: page.nextBefore };
+        return {
+          transactions: page.items,
+          nextBefore: page.nextBefore,
+          blockNumber: state.derivedBlock?.toString() ?? null,
+        };
       });
     },
     transaction(hash: Hex) {

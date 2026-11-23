@@ -67,6 +67,8 @@ const accountFilters = z.object({
     .optional(),
   status: accountStatus.optional(),
   registeredFromBlock: height.optional(),
+  limit,
+  after: address.optional(),
 });
 
 function parse<T>(schema: z.ZodType<T>, value: unknown) {
@@ -111,7 +113,13 @@ export function indexerRoutes(
     c.json(await registry.accounts(parse(accountFilters, c.req.query()))),
   );
   app.get("/v1/registry/accounts/:address", async (c) =>
-    c.json(await registry.account(parse(address, c.req.param("address")))),
+    c.json(
+      await registry.account(
+        parse(address, c.req.param("address")),
+        undefined,
+        parse(page, c.req.query()),
+      ),
+    ),
   );
   app.get("/v1/registry/accounts/:address/at", async (c) =>
     c.json(

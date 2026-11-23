@@ -10,7 +10,13 @@ import {
   registryVaspEvents,
 } from "./db/schema.ts";
 import type { IndexerDatabase, IndexerTransaction } from "./db/store.ts";
-import { bytes, position, readStatus } from "./query.ts";
+import {
+  beforePosition,
+  bytes,
+  type Cursor,
+  position,
+  readStatus,
+} from "./query.ts";
 import type { chainState } from "./state.ts";
 
 type Account = typeof registryAccountEvents.$inferSelect;
@@ -18,6 +24,8 @@ type Filters = {
   vaspId?: number;
   status?: number;
   registeredFromBlock?: bigint;
+  limit: number;
+  after?: Address;
 };
 const empty = {
   vaspId: 0,
@@ -82,13 +90,25 @@ export function registryQuery(
     return { at, hash: bytesToHex(row.hash), partial: status.startBlock > 0n };
   }
 
+  async function historical<T>(request: () => Promise<T>) {
+    try {
+      return await request();
+    } catch {
+      throw new ServiceError(
+        "L2_STATE_UNAVAILABLE",
+        "Historical L2 state unavailable",
+        503,
+      );
+    }
+  }
+
   async function contractOptions(block: Awaited<ReturnType<typeof anchor>>) {
     const options = {
       address: contracts.kycRegistry,
       blockHash: block.hash,
       requireCanonical: true,
     } as const;
-    const code = await client.getCode(options);
+    const code = await historical(() => client.getCode(options));
     return code && code !== "0x"
       ? { ...options, abi: kycRegistryAbi }
       : undefined;
@@ -103,11 +123,13 @@ export function registryQuery(
     if (block.partial) {
       const options = await contractOptions(block);
       if (options) {
-        const row = await client.readContract({
-          ...options,
-          functionName: "getAccount",
-          args: [address],
-        });
+        const row = await historical(() =>
+          client.readContract({
+            ...options,
+            functionName: "getAccount",
+            args: [address],
+          }),
+        );
         return {
           ...row,
           address,
@@ -120,71 +142,119 @@ export function registryQuery(
   }
 
   return {
-    async accounts(filters: Filters) {
-      const range = filters.registeredFromBlock;
-      const { rows } = await db.execute<
-        Account & { registeredBlock: string | null }
-      >(sql`
-        with history as (
-          select *, lag(status) over (
-            partition by account order by block_number, log_index
-          ) as previous_status
-          from indexer.registry_account_events
-        ), registrations as (
-          select account, max(block_number) as registered_block
-          from history
-          where status = 1 and (previous_status is null or previous_status = 4)
-          group by account
-        ), latest as (
-          select distinct on (account) * from history
-          order by account, block_number desc, log_index desc
-        )
-        select entry.account, entry.vasp_id as "vaspId", entry.kind, entry.status,
-          entry.valid_until as "validUntil", entry.version, entry.actor, entry.reason,
-          entry.block_number as "blockNumber", entry.log_index as "logIndex", entry.tx_hash as "txHash",
-          registrations.registered_block as "registeredBlock"
-        from latest as entry
-        left join registrations using (account)
-        where true
-          ${filters.vaspId === undefined ? sql`` : sql`and entry.vasp_id = ${filters.vaspId}`}
-          ${filters.status === undefined ? sql`` : sql`and entry.status = ${filters.status}`}
-          ${range === undefined ? sql`` : sql`and registrations.registered_block >= ${range.toString()}`}
-        order by entry.account
-      `);
-      return {
-        accounts: rows.map((row) => ({
-          ...accountView(row),
-          registeredFromBlock: row.registeredBlock,
-        })),
-      };
-    },
-    async account(address: Address, at?: bigint) {
-      const data = await snapshot(async (tx) => {
-        const block = await anchor(tx, at);
-        const query = tx
-          .select()
-          .from(registryAccountEvents)
-          .where(
-            and(
-              eq(registryAccountEvents.account, bytes(address)),
-              lte(registryAccountEvents.blockNumber, block.at),
-            ),
+    accounts(filters: Filters) {
+      return snapshot(async (tx) => {
+        const block = await anchor(tx);
+        const range = filters.registeredFromBlock;
+        const { rows } = await tx.execute<
+          Account & { registeredBlock: string | null }
+        >(sql`
+          with history as (
+            select e.*, t.decoded_call, lag(e.status) over (
+              partition by e.account order by e.block_number, e.log_index
+            ) as previous_status
+            from indexer.registry_account_events e
+            join indexer.transactions t on e.tx_hash = t.hash
+            where e.block_number <= ${block.at.toString()}
+          ), registrations as (
+            select account, max(block_number) as registered_block
+            from history
+            where status = 1 and (
+              previous_status in (0, 4) or (
+                previous_status is null and (
+                  not ${block.partial} or decoded_call->>'function' in ('registerAccount', 'registerOperatorAccount')
+                )
+              )
+            )
+            group by account
+          ), latest as (
+            select distinct on (account) * from history
+            order by account, block_number desc, log_index desc
           )
-          .orderBy(
-            desc(registryAccountEvents.blockNumber),
-            desc(registryAccountEvents.logIndex),
-          );
+          select entry.account, entry.vasp_id as "vaspId", entry.kind, entry.status,
+            entry.valid_until as "validUntil", entry.version, entry.actor, entry.reason,
+            entry.block_number as "blockNumber", entry.log_index as "logIndex", entry.tx_hash as "txHash",
+            registrations.registered_block as "registeredBlock"
+          from latest as entry
+          left join registrations using (account)
+          where true
+            ${filters.vaspId === undefined ? sql`` : sql`and entry.vasp_id = ${filters.vaspId}`}
+            ${filters.status === undefined ? sql`` : sql`and entry.status = ${filters.status}`}
+            ${range === undefined ? sql`` : sql`and registrations.registered_block >= ${range.toString()}`}
+            ${filters.after === undefined ? sql`` : sql`and entry.account > ${bytes(filters.after)}`}
+          order by entry.account
+          limit ${filters.limit + 1}
+        `);
+        const visible = rows.slice(0, filters.limit);
+        const last = visible.at(-1);
         return {
-          block,
-          rows: await (at === undefined ? query : query.limit(1)),
+          accounts: visible.map((row) => ({
+            ...accountView(row),
+            registeredFromBlock: row.registeredBlock,
+          })),
+          blockNumber: block.at.toString(),
+          partial: block.partial,
+          nextAfter:
+            rows.length > filters.limit && last
+              ? bytesToHex(last.account)
+              : null,
         };
       });
-      const current = await accountAt(address, data.block, data.rows[0]);
+    },
+    async account(
+      address: Address,
+      at?: bigint,
+      history?: { limit: number; before?: Cursor },
+    ) {
+      const data = await snapshot(async (tx) => {
+        const block = await anchor(tx, at);
+        const positions = and(
+          eq(registryAccountEvents.account, bytes(address)),
+          lte(registryAccountEvents.blockNumber, block.at),
+        );
+        const ordering = [
+          desc(registryAccountEvents.blockNumber),
+          desc(registryAccountEvents.logIndex),
+        ];
+        const [known] = await tx
+          .select()
+          .from(registryAccountEvents)
+          .where(positions)
+          .orderBy(...ordering)
+          .limit(1);
+        const rows = history
+          ? await tx
+              .select()
+              .from(registryAccountEvents)
+              .where(
+                and(
+                  positions,
+                  beforePosition(
+                    history.before,
+                    registryAccountEvents.blockNumber,
+                    registryAccountEvents.logIndex,
+                  ),
+                ),
+              )
+              .orderBy(...ordering)
+              .limit(history.limit + 1)
+          : [];
+        return { block, known, rows };
+      });
+      const current = await accountAt(address, data.block, data.known);
+      const visible = history ? data.rows.slice(0, history.limit) : [];
+      const last = visible.at(-1);
       return {
         address,
         blockNumber: data.block.at.toString(),
         account: current,
-        ...(at === undefined && { history: data.rows.map(accountView) }),
+        ...(history && {
+          history: visible.map(accountView),
+          nextBefore:
+            data.rows.length > history.limit && last
+              ? `${last.blockNumber}:${last.logIndex}`
+              : null,
+        }),
       };
     },
     async vasps() {
@@ -282,7 +352,7 @@ export function registryQuery(
         const amount =
           row?.balance ??
           (block.partial
-            ? await state.balance(token, account, block.hash)
+            ? await historical(() => state.balance(token, account, block.hash))
             : 0n);
         return amount.toString();
       }

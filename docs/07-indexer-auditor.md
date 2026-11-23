@@ -180,8 +180,8 @@ DB の作り直し。
 | `/v1/blocks?limit=&before=` | ブロックの一覧 |
 | `/v1/txs?limit=&before=&address=&kind=` | 取引の一覧 |
 | `/v1/txs/:hash` | 取引の詳細 |
-| `/v1/registry/accounts?vaspId=&status=&registeredFromBlock=` | アカウントの現在の状態の一覧。`registeredFromBlock` を指定すると、そのブロック以降に登録されたアカウントだけを返す |
-| `/v1/registry/accounts/:address` | 現在の状態と変更履歴 |
+| `/v1/registry/accounts?vaspId=&status=&registeredFromBlock=&limit=&after=` | アカウントの現在の状態の一覧。`registeredFromBlock` を指定すると、そのブロック以降に登録されたアカウントだけを返す |
+| `/v1/registry/accounts/:address?limit=&before=` | 現在の状態と変更履歴 |
 | `/v1/registry/accounts/:address/at?block=` | 指定ブロック時点の状態 |
 | `/v1/registry/vasps` | VASP の一覧 |
 | `/v1/accounts/:address/transfers?token=&limit=&before=` | 移転の履歴 |
@@ -191,7 +191,9 @@ DB の作り直し。
 | `/v1/safe/:safeTxHash` | 承認と実行のイベント |
 | `/v1/receipt-commitments` | 受付ログのコミットの一覧 |
 
-一覧の `limit` は 1〜100。次のページを取得するときは、応答の `nextBefore` を `before` に渡す。取引と移転のカーソルは、ブロック内の位置も含む。
+`limit` の範囲は 1〜100。取引、移転、アカウント履歴の続きは、応答の `nextBefore` を `before` に渡す。登録簿一覧の続きは `nextAfter` を `after` に渡す。
+
+途中のブロックから取り込んだ環境では、登録簿一覧は `partial: true` を返す。開始位置より前にしかイベントがないアカウントは一覧に含まれない。指定ブロックの状態を RPC から補う処理が失敗した場合は 503 を返す。
 
 `/v1/txs/:hash` の例。
 
