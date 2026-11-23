@@ -133,12 +133,12 @@ make anvil-up
 `make anvil-up` の内容。
 
 1. `anvil --chain-id 31337 --order fifo --block-time 2` と rpc-proxy を起動する。rpc-proxy の転送先は anvil。
-2. 固定のテスト用ニーモニックで `.env.generated` を作る。
+2. 固定のテスト用ニーモニックで `chain/runtime/anvil/.env.generated` を作る。
 3. `Bootstrap.s.sol` を `BOOTSTRAP_MODE=anvil` で実行する。`deployments/anvil.json` ができる。
 4. アプリ層を起動する。`SEQUENCER_RPC_URLS` は anvil、`L2_RPC_URL` は rpc-proxy を指す。
 5. `make demo-seed` を実行する。
 
-- anvil のポートはホストに出す。結合テストが再編成（`evm_revert`）と、Gateway を通さない送信を使うため。
+- anvil の直接 RPC は `127.0.0.1:9545` に出す。読み取り専用 RPC は `127.0.0.1:8545` に出す。結合テストが再編成（`evm_revert`）と、Gateway を通さない送信を使うため。
 - 結合テストはサービスを Vitest の中で起動する。rpc-proxy を通さず、anvil に直接つなぐ。
 
 ## 7. Compose の構成

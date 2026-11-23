@@ -724,8 +724,7 @@ DevNet では `gateway` と `gatewaySigner` は同じアドレス（01 章の in
 ### 8.1 構成
 
 - OP Stack の genesis に入っている Safe v1.3.0 を使う。`SafeL2` の実装は `0xfb1bffC9d739B8D520DaF37dF666da4C687191EA`。
-- プロキシファクトリは genesis に入っていない。`safe-contracts` v1.3.0 を Foundry の依存に入れ、`GnosisSafeProxy` を直接デプロイする。
-- デプロイ後に `setup` を呼ぶ。
+- `GnosisSafeProxy` を継承するプロキシを CREATE2 で配置する。コンストラクタから Safe 実装の `setup` を呼び、同じ取引で所有者としきい値を設定する。
 
   ```solidity
   setup(owners /* consortium-1..3 */, 2, address(0), "", address(0), address(0), 0, payable(address(0)));

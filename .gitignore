@@ -7,6 +7,7 @@ coverage/
 /chain/.deployer/
 /chain/runtime/
 /deployments/*.json
+/deployments/*.tmp
 /contracts/cache/
 /contracts/out/
 /contracts/broadcast/
