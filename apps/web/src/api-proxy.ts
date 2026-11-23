@@ -100,7 +100,7 @@ function services(env: Environment): Record<string, Service> {
         {
           method: "GET",
           path: new RegExp(
-            `^/v1/(?:log(?:/head)?|commitments|receipts/${id})$`,
+            `^/v1/(?:log(?:/head)?|status|commitments|receipts/${id})$`,
           ),
         },
         { method: "POST", path: /^\/v1\/receipts\/lookup$/ },

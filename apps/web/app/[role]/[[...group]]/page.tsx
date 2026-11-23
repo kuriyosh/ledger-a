@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { Consortium, VaspAdmin } from "../../../src/management";
 import { roles } from "../../../src/roles";
+import { Wallet } from "../../../src/wallet";
 
 export default async function RolePage({
   params,
@@ -10,6 +12,23 @@ export default async function RolePage({
   const path = `/${[role, ...(group ?? [])].join("/")}`;
   const selected = roles.find((item) => item.path === path);
   if (!selected) notFound();
+  if (role === "user")
+    return (
+      <Wallet
+        key={path}
+        bank={path === "/user/a" ? "a" : "b"}
+        demo={process.env.DEMO_MODE === "true"}
+      />
+    );
+  if (role === "vasp")
+    return (
+      <VaspAdmin
+        key={path}
+        bank={path === "/vasp/a" ? "a" : "b"}
+        demo={process.env.DEMO_MODE === "true"}
+      />
+    );
+  if (role === "consortium") return <Consortium />;
   return (
     <section className="role-picker">
       <p className="section-label">{selected.section}</p>

@@ -17,7 +17,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         <a className="skip-link" href="#role-workspace">
           役割の画面へ
         </a>
-        <Dashboard mode={process.env.LEDGERA_APP_MODE ?? "devnet"}>
+        <Dashboard
+          mode={process.env.LEDGERA_APP_MODE ?? "devnet"}
+          demo={process.env.DEMO_MODE === "true"}
+          batcher={process.env.BATCHER_ADDRESS}
+        >
           {children}
         </Dashboard>
       </body>
