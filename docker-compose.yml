@@ -301,6 +301,7 @@ services:
     environment:
       LEDGERA_APP_MODE: ${LEDGERA_APP_MODE:-devnet}
       DEMO_MODE: ${DEMO_MODE:-false}
+      WEB_ALLOWED_ORIGIN: ${WEB_ALLOWED_ORIGIN:-}
       VASP_A_URL: http://vasp-a:8621
       VASP_B_URL: http://vasp-b:8622
       VASP_A_ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Run make keys}

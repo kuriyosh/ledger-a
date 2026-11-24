@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { api } from "./api";
+import { browserKey } from "./browser";
 import { ErrorNotice, jsonPost, Section } from "./ui";
 
 const actions = [
@@ -69,7 +70,7 @@ export function EnforcementDemo({ enabled }: { enabled: boolean }) {
   });
   const deposit = useMutation({
     mutationFn: () => {
-      key.current ??= sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
+      key.current ??= sessionStorage.getItem(storageKey) ?? browserKey();
       sessionStorage.setItem(storageKey, key.current);
       return api<Deposit>(
         "demo",
@@ -106,10 +107,7 @@ export function EnforcementDemo({ enabled }: { enabled: boolean }) {
       ),
     onSuccess: (result, input) => {
       setHistory((old) =>
-        [{ id: crypto.randomUUID(), label: input.label, result }, ...old].slice(
-          0,
-          20,
-        ),
+        [{ id: browserKey(), label: input.label, result }, ...old].slice(0, 20),
       );
       return refresh();
     },

@@ -113,3 +113,43 @@ test("rejects unsafe segments before constructing the upstream URL", async () =>
   expect(result.status).toBe(404);
   expect(sent).not.toHaveBeenCalled();
 });
+
+test("accepts writes from the configured LAN origin", async () => {
+  const origin = "http://192.168.100.30:18374";
+  const path = ["v1", "session"];
+  const send = vi.fn(async () => Response.json({ token: "fixture" }));
+  const response = await proxyApi(
+    new Request("http://0.0.0.0:3000/api/vasp-a/v1/session", {
+      method: "POST",
+      headers: { Host: "192.168.100.30:18374", Origin: origin },
+    }),
+    "vasp-a",
+    path,
+    { WEB_ALLOWED_ORIGIN: origin },
+    send,
+  );
+  expect(response.status).toBe(200);
+  expect(send).toHaveBeenCalledOnce();
+});
+
+test("rejects a mismatched port or missing or mismatched origin on LAN writes", async () => {
+  const config = { WEB_ALLOWED_ORIGIN: "http://192.168.100.30:18374" };
+  const send = vi.fn<typeof fetch>();
+  for (const [host, origin] of [
+    ["192.168.100.30:18375", "http://192.168.100.30:18375"],
+    ["192.168.100.30:18374", "http://unrelated.invalid"],
+    ["192.168.100.30:18374", null],
+  ] as const) {
+    const headers = new Headers({ Host: host });
+    if (origin) headers.set("Origin", origin);
+    const response = await proxyApi(
+      request("/api/vasp-a/v1/session", { method: "POST", headers }),
+      "vasp-a",
+      ["v1", "session"],
+      config,
+      send,
+    );
+    expect(response.status).toBe(403);
+  }
+  expect(send).not.toHaveBeenCalled();
+});

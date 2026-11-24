@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { ApiError, api } from "./api";
+import { copyText } from "./browser";
 import {
   baseAmount,
   displayAmount,
@@ -500,6 +501,7 @@ function Account({
     enabled: ready,
     refetchInterval: 2_000,
   });
+  const [showFullAddress, setShowFullAddress] = useState(false);
   const busy = Boolean(
     transfers.data?.transfers.some(
       (row) =>
@@ -546,14 +548,18 @@ function Account({
             </div>
             <div className="button-row address-row">
               <code title={me.data.address}>
-                {shortAddress(me.data.address)}
+                {showFullAddress
+                  ? me.data.address
+                  : shortAddress(me.data.address)}
               </code>
               <button
                 type="button"
                 className="secondary"
-                onClick={() =>
-                  navigator.clipboard.writeText(me.data?.address ?? "")
-                }
+                onClick={async () => {
+                  if (me.data?.address && !(await copyText(me.data.address))) {
+                    setShowFullAddress(true);
+                  }
+                }}
               >
                 アドレスをコピー
               </button>
