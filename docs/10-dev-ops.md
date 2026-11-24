@@ -5,13 +5,32 @@
 | ツール | 用途 |
 |---|---|
 | mise 2026.7.10 以降 | タスクの実行と開発ツールのバージョン管理 |
-| Docker、Docker Compose 2.24.4 以降 | チェーンとサービスの起動 |
+| Docker、Docker Compose 2.24.4 以降、Docker Buildx | チェーンとサービスの起動。op-reth イメージのビルド |
 | Bash、Git、curl、OpenSSL | セットアップと運用スクリプト |
 | Rust（fork の `rust/rust-toolchain.toml` のバージョン） | チェーン改造を開発する人だけ |
 
 リポジトリのルートで `mise trust` と `mise install` を実行する。Node.js、pnpm、Foundry、jq、ripgrep は `mise.toml` の指定に従って入る。
 
 op-deployer は、`chain/scripts/deploy-l1.sh` が `mise.toml` で指定したバージョンを取得する。
+
+### 1.1 Windows（WSL2）
+
+Windows では WSL2 の Linux 上で動かす。タスクと運用スクリプトは Bash で書いてあり、Windows ネイティブの mise では動かない。
+
+| 順 | 操作 |
+|---:|---|
+| 1 | PowerShell で `wsl --install` を実行し、Ubuntu を入れる |
+| 2 | Docker を用意する。Docker Desktop なら WSL integration で対象のディストリを有効にする。WSL 内に Docker Engine を入れるなら、`docker-buildx-plugin` も入れ、`/etc/wsl.conf` の `[boot]` に `systemd=true` を書く |
+| 3 | WSL 内に Linux 版の mise を入れる（`curl https://mise.run \| sh`）。`~/.bashrc` に `eval "$(mise activate bash)"` を書く |
+| 4 | WSL 内の Git で、WSL のホーム配下に clone する |
+| 5 | `chain-image` を使う場合は、WSL に割り当てるメモリを増やす |
+
+- clone 先を `/mnt/c` 配下にしない。ファイルの読み書きが遅い。ファイルの所有者も `id -u` と一致しない。コンテナはホストの UID で動く。
+- 改行は `.gitattributes` で LF に固定している。CRLF のスクリプトは Bash が `$'\r': command not found` で止まる。`.gitattributes` を含まないコミットを Windows の Git で取り出した作業ツリーは CRLF になっている。WSL 内で clone し直す。
+- WSL2 が使えるメモリは、既定で Windows の物理メモリの半分。`chain-image` は op-reth を Rust でフルビルドする。メモリが足りないとビルドが止まる。`%UserProfile%\.wslconfig` の `[wsl2]` に `memory=` と `swap=` を書き、`wsl --shutdown` で反映する。
+- `http://localhost:3000` は Windows のブラウザから開ける。WSL の localhost 転送が既定で有効なため。
+- LAN 公開（7.1）の追加ファイルには、Windows の LAN アドレスを指定する。Windows ファイアウォールで受信ポートを開ける。
+- WSL 内の Docker Engine で LAN 公開する場合は、`.wslconfig` の `[wsl2]` に `networkingMode=mirrored` も書く。NAT モードでは WSL から Windows の LAN アドレスで待ち受けられない。
 
 ## 2. 動作モード
 
