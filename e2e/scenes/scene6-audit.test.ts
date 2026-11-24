@@ -159,14 +159,15 @@ test.skipIf(process.env.LEDGERA_E2E !== "1")(
       C5: 0,
     });
 
-    const trace = await api<{
-      registry: { vaspId: number };
-      transfers: { txHash: string }[];
-    }>("auditor", `/v1/trace/${lee.address}`);
+    const trace = await waitFor(async () => {
+      const result = await api<{
+        registry: { vaspId: number };
+        transfers: { txHash: string }[];
+      }>("auditor", `/v1/trace/${lee.address}`);
+      if (result.transfers.some(({ txHash }) => txHash === right.txHash))
+        return result;
+    }, "The audited transfer did not appear in the index");
     expect(trace.registry.vaspId).toBe(2);
-    expect(trace.transfers).toContainEqual(
-      expect.objectContaining({ txHash: right.txHash }),
-    );
     expect(JSON.stringify(trace)).not.toContain(lee.givenName);
     const reason = `デモの開示確認 ${run.emailSuffix}`;
     const disclosure = await post<Disclosure>("auditor", "/v1/disclosures", {
