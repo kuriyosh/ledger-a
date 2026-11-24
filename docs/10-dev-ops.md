@@ -292,7 +292,7 @@ fork リポジトリの CI は、変更した 2 クレートの `cargo test` だ
 | 費用 | 頻度 |
 |---|---|
 | L1 へのデプロイ | 環境を作るたびに 1 回。必要量は M0 で実測する |
-| Batch の投稿 | チェーンが動いている間、`BATCHER_MAX_CHANNEL_DURATION` ごと |
+| Batch の投稿 | チェーンの稼働中。間隔は `BATCHER_MAX_CHANNEL_DURATION` と投稿の余裕で変わる |
 | Deposit のデモ | 1 回あたり 0.001 ETH とガス代 |
 
 公開 Sepolia での実測（2026 年 11 月 24 日）。L1 の配備と fee scalar の設定は 0.055029498826308127 ETH。
