@@ -229,8 +229,8 @@
 | 仕掛けの状態 | 待機中、保留中、完了 | demo-tools の `GET /v1/demo/state` |
 | 現在のデモ回 | 回の番号、開始時刻、開始通番、開始ブロック | demo-tools の `GET /v1/demo/runs/current` |
 
-- Sequencer の停止（場面 7）は画面から行わない。`make ha-kill-leader` を端末で実行する。
-- 新しいデモ回も画面から作らない。`make demo-seed` を端末で実行する。
+- Sequencer の停止（場面 7）は画面から行わない。`mise run ha-kill-leader` を端末で実行する。
+- 新しいデモ回も画面から作らない。`mise run demo-seed` を端末で実行する。
 
 ## 10. demo-tools
 
@@ -248,7 +248,7 @@
 | POST | `/v1/issuer/mint` | 発行体の鍵でトークンを発行する |
 | POST | `/v1/demo/reorder-next` | Gateway の `POST /admin/demo/reorder-next` を呼ぶ |
 | GET | `/v1/demo/state` | Gateway の `GET /admin/demo/state` を呼ぶ |
-| POST | `/v1/demo/runs` | 新しいデモ回を作る。`make demo-seed` が呼ぶ |
+| POST | `/v1/demo/runs` | 新しいデモ回を作る。`mise run demo-seed` が呼ぶ |
 | GET | `/v1/demo/runs/current` | 現在のデモ回 |
 
 外部者の照会と操作、発行、デモ回の開始には `Authorization: Bearer` で `GATEWAY_ADMIN_TOKEN` を送る。

@@ -423,7 +423,7 @@ JSON-RPC（`POST /rpc`）で受けるメソッド。
 |---|---|
 | 単体 | 形式検査の各拒否コード。`entryHash` と署名が `ReceiptLog.hashReceipt`、`verifyReceipt` と一致する |
 | 単体 | 連鎖: `prevHash(n) == entryHash(n - 1)`、`prevHash(1) == genesisHash` |
-| 結合（`make e2e-fifo APP_MODE=anvil`） | 5 送信者から同時に 100 件送る。ブロック内の順が通番順と一致する |
+| 結合（`APP_MODE=anvil mise run e2e-fifo`） | 5 送信者から同時に 100 件送る。ブロック内の順が通番順と一致する |
 | 結合（anvil） | nonce の飛び、重複、残高不足、未登録の送信者が拒否される |
 | 結合（anvil） | 代理送信: 許可外の呼び出し先、他社の署名者、回数超過が拒否される |
 | 結合（anvil） | `submitOnRevert` で失敗取引が L2 に入り、Receipt が発行される |

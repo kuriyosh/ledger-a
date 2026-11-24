@@ -1,0 +1,231 @@
+min_version = "2026.7.10"
+
+[vars]
+node_version = "24.22.3"
+pnpm_version = "12.23.0"
+foundry_version = "1.10.0"
+ha_control = "bash chain/scripts/compose.sh ha run -T --rm --no-deps ha-control node --input-type=module -"
+
+[tools]
+node = "{{ vars.node_version }}"
+pnpm = "{{ vars.pnpm_version }}"
+foundry = "{{ vars.foundry_version }}"
+jq = "1.8.2"
+ripgrep = "15.2.0"
+
+[env]
+NODE_IMAGE = "node:{{ vars.node_version }}-bookworm-slim"
+PNPM_VERSION = "{{ vars.pnpm_version }}"
+FOUNDRY_IMAGE = "ghcr.io/foundry-rs/foundry:v{{ vars.foundry_version }}"
+FOUNDRY_SOLC = "0.8.28"
+POSTGRES_IMAGE = "postgres:17@sha256:223efeb196329b55b3b9a13db144956411dbc18e727e59f681c3e0aede6475cf"
+OP_NODE_IMAGE = "us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.20.2"
+OP_BATCHER_IMAGE = "us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:v1.18.1"
+OP_CONDUCTOR_IMAGE = "us-docker.pkg.dev/oplabs-tools-artifacts/images/op-conductor:v0.9.6"
+OP_RETH_STOCK_IMAGE = "us-docker.pkg.dev/oplabs-tools-artifacts/images/op-reth:v2.9.0"
+OP_DEPLOYER_VERSION = "v0.9.0"
+OP_DEPLOYER_SHA256_DARWIN_AMD64 = "19b25487888a2a2b57cd4c87e7ac430371e818f19d8ca3c69033900a768a2c65"
+OP_DEPLOYER_SHA256_DARWIN_ARM64 = "692a64d2c670cfcb568be27de339e52368acb33efa0d94f8477bf2fc5f227b24"
+OP_DEPLOYER_SHA256_LINUX_AMD64 = "0607b2a7f1544bfe6220b8eea975a341538ba3873abe6b1c566118ca30638bcc"
+OP_DEPLOYER_SHA256_LINUX_ARM64 = "cdb28c95c9807512631404e21b5c75cf28c6e70c7c96aa6fbe5f2c96c1ea1216"
+OPTIMISM_FORK_REPO = "https://github.com/kuriyosh/optimism.git"
+OPTIMISM_FORK_COMMIT = "5eb01bea9da7a33707bf4b90ca679b51c597eee8"
+OP_RETH_IMAGE = "ledgera/op-reth:{{ env.OPTIMISM_FORK_COMMIT | truncate(length=12, end='') }}"
+
+[tasks.setup]
+description = "Install dependencies and generate contract ABIs"
+run = [
+  "pnpm install --frozen-lockfile",
+  "git submodule update --init --depth 1",
+  "mise run generate-abis",
+]
+
+[tasks.generate-abis]
+description = "Compile contracts and export the TypeScript ABIs"
+run = [
+  "forge build --root contracts src lib/safe-contracts/contracts/GnosisSafeL2.sol lib/safe-contracts/contracts/proxies/GnosisSafeProxy.sol",
+  "pnpm --filter @ledgera/abis generate",
+]
+
+[tasks.keys]
+description = "Derive DevNet keys and service credentials"
+run = "node --env-file-if-exists=.env chain/scripts/derive-accounts.ts"
+
+[tasks.audit-keys]
+description = "Generate the auditor admin credential"
+run = "node chain/scripts/derive-accounts.ts --auditor-token"
+
+[tasks.lint]
+run = ["pnpm lint", "forge fmt --check --root contracts"]
+
+[tasks.fmt]
+run = ["pnpm fmt", "forge fmt --root contracts"]
+
+[tasks.test]
+run = "pnpm test"
+
+[tasks.test-contracts]
+run = "forge test --root contracts"
+
+[tasks.test-integration]
+run = "pnpm test:integration"
+
+[tasks.chain-image]
+run = "bash chain/scripts/build-op-reth.sh"
+
+[tasks.replica-up]
+run = [
+  "bash chain/scripts/check-op-reth-image.sh op-reth-replica bash chain/scripts/compose.sh replica",
+  "bash chain/scripts/compose.sh replica up -d --wait op-node-replica",
+]
+
+[tasks.replica-down]
+run = "bash chain/scripts/compose.sh replica down"
+
+[tasks.replica-reset]
+run = "bash chain/scripts/compose.sh replica down --volumes"
+
+[tasks.replica-compare]
+run = "bash chain/scripts/compare-heads.sh"
+
+[tasks.control-up]
+depends = ["replica-up"]
+run = "bash chain/scripts/compose.sh control up -d --wait op-node-control"
+
+[tasks.control-down]
+run = "bash chain/scripts/compose.sh control down --volumes"
+
+[tasks.control-compare]
+description = "Compare a Deposit hash on the sequencer, replica, and control node"
+raw_args = true
+run = "bash chain/scripts/compare-deposit.sh"
+
+[tasks.chain-deploy]
+run = "bash chain/scripts/deploy-l1.sh"
+
+[tasks.chain-up]
+run = '''
+set -eu
+running=$(bash chain/scripts/compose.sh chain ps --status running --services)
+if printf '%s\n' "$running" | rg -q '^op-node-[123]$'; then
+  echo "Use mise run ha-down before starting the single sequencer" >&2
+  exit 1
+fi
+test -s chain/runtime/genesis.json
+test -s chain/runtime/rollup.json
+test -s chain/runtime/jwt.txt
+bash chain/scripts/check-op-reth-image.sh op-reth bash chain/scripts/compose.sh chain
+bash chain/scripts/compose.sh chain up -d --build --wait
+'''
+
+[tasks.ha-up]
+run = '''
+set -eu
+test -s chain/runtime/genesis.json
+test -s chain/runtime/rollup.json
+test -s chain/runtime/jwt.txt
+running=$(bash chain/scripts/compose.sh chain ps --status running --services)
+if printf '%s\n' "$running" | rg -qx 'op-node'; then
+  echo "Use mise run chain-down before starting the sequencer cluster" >&2
+  exit 1
+fi
+bash chain/scripts/ha-peers.sh
+bash chain/scripts/check-op-reth-image.sh op-reth-1 bash chain/scripts/compose.sh ha
+bash chain/scripts/compose.sh ha up -d --build rpc-proxy op-conductor-1 op-conductor-2 op-conductor-3
+{{ vars.ha_control }} init < chain/scripts/ha-control.mjs
+bash chain/scripts/compose.sh ha up -d --wait op-batcher
+rm -f chain/runtime/ha/stopped-sequencer
+'''
+
+[tasks.ha-down]
+run = "bash chain/scripts/compose.sh ha down"
+
+[tasks.ha-kill-leader]
+run = '''
+set -eu
+test ! -e chain/runtime/ha/stopped-sequencer || { echo "Use mise run ha-restore first" >&2; exit 1; }
+leader=$({{ vars.ha_control }} leader < chain/scripts/ha-control.mjs)
+case "$leader" in 1|2|3) ;; *) exit 1 ;; esac
+printf '%s\n' "$leader" > chain/runtime/ha/stopped-sequencer
+bash chain/scripts/compose.sh ha stop "op-node-$leader"
+bash chain/scripts/compose.sh ha stop "op-reth-$leader"
+'''
+
+[tasks.ha-restore]
+run = '''
+set -eu
+leader=$(cat chain/runtime/ha/stopped-sequencer)
+case "$leader" in 1|2|3) ;; *) exit 1 ;; esac
+bash chain/scripts/compose.sh ha up -d "op-reth-$leader" "op-node-$leader" "op-conductor-$leader"
+{{ vars.ha_control }} restore "$leader" < chain/scripts/ha-control.mjs
+rm chain/runtime/ha/stopped-sequencer
+'''
+
+[tasks.chain-down]
+run = "bash chain/scripts/compose.sh chain down"
+
+[tasks.chain-logs]
+run = "bash chain/scripts/compose.sh chain logs --follow"
+
+[tasks.chain-shell]
+run = "bash chain/scripts/compose.sh chain run --rm --no-deps chain-shell"
+
+[tasks.status]
+run = [
+  "bash chain/scripts/compose.sh chain ps --all",
+  "node --env-file-if-exists=.env --env-file=.env.generated chain/scripts/status.ts",
+]
+
+[tasks.fund-l1]
+run = "node --env-file-if-exists=.env --env-file=.env.generated chain/scripts/fund-l1.ts"
+
+[tasks.app-up]
+run = 'bash chain/scripts/app-compose.sh "${APP_MODE:-devnet}" up -d --build --wait'
+
+[tasks.app-down]
+run = 'bash chain/scripts/app-compose.sh "${APP_MODE:-devnet}" down'
+
+[tasks.app-logs]
+run = 'bash chain/scripts/app-compose.sh "${APP_MODE:-devnet}" logs --follow'
+
+[tasks.demo-seed]
+run = 'bash chain/scripts/app-compose.sh "${APP_MODE:-devnet}" exec -T demo-tools node src/seed.ts'
+
+[tasks.e2e]
+run = '''
+set -eu
+export APP_MODE=${APP_MODE:-devnet}
+mise run demo-seed
+LEDGERA_E2E=1 pnpm exec vitest run --no-file-parallelism e2e/scenes
+bash chain/scripts/app-compose.sh "$APP_MODE" exec -T postgres psql -v ON_ERROR_STOP=1 -U ledgera -d ledgera < e2e/check-privacy.sql
+'''
+
+[tasks.e2e-fifo]
+run = 'LEDGERA_FIFO_E2E=1 APP_MODE="${APP_MODE:-devnet}" pnpm exec vitest run e2e/fifo.test.ts'
+
+[tasks.audit]
+run = "pnpm --silent --filter @ledgera/auditor fifo --from 1 --json"
+
+[tasks.anvil-up]
+run = [
+  "bash chain/scripts/compose.sh anvil up -d --build --wait",
+  "BOOTSTRAP_MODE=anvil bash chain/scripts/bootstrap-l2.sh",
+  "APP_MODE=anvil mise run app-up",
+]
+
+[tasks.e2e-anvil-finalize]
+run = "bash chain/scripts/compose.sh anvil exec -T anvil cast rpc --rpc-url http://127.0.0.1:8545 anvil_mine 0x80 0x0"
+
+[tasks.anvil-down]
+run = ["APP_MODE=anvil mise run app-down", "bash chain/scripts/compose.sh anvil down"]
+
+[tasks.l2-bootstrap]
+run = "BOOTSTRAP_MODE=devnet bash chain/scripts/bootstrap-l2.sh"
+
+[tasks.l2-bootstrap-ha]
+run = '''
+set -eu
+leader=$({{ vars.ha_control }} leader < chain/scripts/ha-control.mjs)
+case "$leader" in 1|2|3) ;; *) exit 1 ;; esac
+BOOTSTRAP_MODE=devnet BOOTSTRAP_SEQUENCER_RPC="http://op-reth-$leader:8545" bash chain/scripts/bootstrap-l2.sh
+'''

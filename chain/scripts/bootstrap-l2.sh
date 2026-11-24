@@ -2,7 +2,6 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
-source chain/versions.env
 
 mode=${BOOTSTRAP_MODE:?Set BOOTSTRAP_MODE}
 case "$mode" in
@@ -36,9 +35,9 @@ if [[ "$mode" == anvil ]]; then
   fi
   accounts="$runtime/.env.generated"
   chain_id=31337
-  network=ledgera-chain
+  network=${BOOTSTRAP_NETWORK:-ledgera-chain}
   direct_rpc=http://anvil:8545
-  read_rpc=http://127.0.0.1:8545
+  read_rpc=${BOOTSTRAP_READ_RPC:-http://127.0.0.1:8545}
 else
   accounts=.env.generated
   chain_id=$(node --env-file-if-exists=.env -p 'process.env.L2_CHAIN_ID || ""')
@@ -54,7 +53,7 @@ awk -F= '/^(ADMIN_PRIVATE_KEY|VASP_B_ADMIN_PRIVATE_KEY|VASP_B_TREASURY_PRIVATE_K
 
 docker run --rm --network "$network" --user "$(id -u):$(id -g)" --env-file "$temp_dir/accounts.env" \
   --env "HOME=/workspace/$runtime" --env "BOOTSTRAP_MODE=$mode" --env "L2_CHAIN_ID=$chain_id" \
-  --env "BOOTSTRAP_EXISTING_REGISTRY=$existing_registry" \
+  --env FOUNDRY_SOLC --env "BOOTSTRAP_EXISTING_REGISTRY=$existing_registry" \
   --env "BOOTSTRAP_OUTPUT=/workspace/$temp_dir/addresses.json" \
   --mount "type=bind,source=$PWD,target=/workspace" --workdir /workspace \
   --entrypoint forge "$FOUNDRY_IMAGE" script --root contracts \

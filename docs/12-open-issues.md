@@ -25,7 +25,7 @@
 | V17 | anvil の `--order fifo` で、結合テストの順序が安定する | 結合テストを繰り返す | M3 | 自動採掘を止め、ブロックを明示的に進める | 同じ Anvil で 100 件の試験を 2 回行い、各回で通番順と取り込み順が一致。監査の違反と除外は 0 件 |
 | V18 | Sepolia へのデプロイでも `fundDevAccounts` が L2 の genesis に反映される | `cast balance` | M0 | admin が L1 から Deposit して原資にする | 公開 Sepolia の DevNet で開発用アカウント 0 の genesis 残高が 10,000 ETH |
 | V19 | `deployOverrides` と `setGasConfigEcotone(0, 0)` の後、L2 の L1 データ手数料が 0 になる。`GasPriceOracle` の fee scalar と、レシートの `l1Fee` が 0 | devnet で `cast` | M0 | Gateway の残高検査と、外部者の取引に必要な残高（08 章 10.1）に、L1 データ手数料を加える | 公開 Sepolia の DevNet で L1 と L2 の両 fee scalar が 0。L2 の取引レシートの l1Fee も 0 |
-| V20 | 対照ノード（標準の op-reth）が、未登録アドレスの Deposit を含むブロックを導出する。その Deposit のレシートが成功になる | `make control-compare` | M2 | 標準イメージの Sequencer で別の devnet を立て、同じ `to`、`data`、`gasLimit` の Deposit を送って比べる | 公開 Sepolia で未登録者から送った 1 件の Deposit を比較。改造版の Sequencer と検証ノードは status 0、カウンタ 0、ブロックハッシュが一致。標準版は同じ親ブロックから status 1、カウンタ 1 |
+| V20 | 対照ノード（標準の op-reth）が、未登録アドレスの Deposit を含むブロックを導出する。その Deposit のレシートが成功になる | `mise run control-compare` | M2 | 標準イメージの Sequencer で別の devnet を立て、同じ `to`、`data`、`gasLimit` の Deposit を送って比べる | 公開 Sepolia で未登録者から送った 1 件の Deposit を比較。改造版の Sequencer と検証ノードは status 0、カウンタ 0、ブロックハッシュが一致。標準版は同じ親ブロックから status 1、カウンタ 1 |
 | V21 | 残高 0.001 ETH、`maxFeePerGas` 3 gwei の外部者の取引が、op-reth の標準の検証を通り、規則のエラーで拒否される | devnet で `cast send` | M2 | `ATTACKER_MAX_FEE_PER_GAS_WEI` を下げるか、Deposit の mint を増やす | ローカル Sepolia フォークで、同じ 0.001 ETH、3 gwei、gas 200,000 の取引を比較。未登録者は規則で拒否し、登録者はブロックに取り込んだ |
 
 ## 2. 既知の制約

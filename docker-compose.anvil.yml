@@ -28,6 +28,9 @@ services:
     build:
       context: .
       dockerfile: services/rpc-proxy/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:?Run via mise}
+        PNPM_VERSION: ${PNPM_VERSION:?Run via mise}
     environment:
       UPSTREAM_L2_RPC_URLS: http://anvil:8545
     ports:

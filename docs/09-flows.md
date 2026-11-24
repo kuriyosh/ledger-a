@@ -15,8 +15,8 @@
 | VASP B の自己勘定 | VASP B | 初期化で tUSD と tJPY を持つ。交換の相手方 |
 | 外部者 | なし | Sepolia に 0.05 ETH を持つ。Registry に登録しない |
 
-- 事前の登録は `make demo-seed` が行う（[10-dev-ops.md](10-dev-ops.md)）。
-- `make demo-seed` は実行のたびに新しいデモ回を作る。外部者以外の登場人物は、回ごとに新しいアドレスになる（9 節）。
+- 事前の登録は `mise run demo-seed` が行う（[10-dev-ops.md](10-dev-ops.md)）。
+- `mise run demo-seed` は実行のたびに新しいデモ回を作る。外部者以外の登場人物は、回ごとに新しいアドレスになる（9 節）。
 
 場面の一覧。
 
@@ -343,11 +343,11 @@ VASP B が承認したら監査者画面へ戻る。開示の状態は 2 秒ご�
 | 手順 | 場所 | 操作 | 結果 |
 |---:|---|---|---|
 | 1 | チェーン表示 | ネットワークのタブを開く | Sequencer 3 台とリーダーが出ている |
-| 2 | 端末 | `make ha-kill-leader` | リーダーの op-node と op-reth が止まる |
+| 2 | 端末 | `mise run ha-kill-leader` | リーダーの op-node と op-reth が止まる |
 | 3 | チェーン表示 | 待つ | 30 秒以内にリーダーが替わり、ブロック高が進み始める |
 | 4 | ユーザー A | 佐藤さんが鈴木さんに 1,000 tJPY を送る | 完了する。通番は連続している |
 | 5 | 監査者 | 到着順の監査を見る | 切替による違反が増えていない |
-| 6 | 端末 | `make ha-restore` | 止めた組がフォロワーとして追いつく |
+| 6 | 端末 | `mise run ha-restore` | 止めた組がフォロワーとして追いつく |
 
 ```mermaid
 sequenceDiagram
@@ -375,7 +375,7 @@ sequenceDiagram
 
 ## 9. デモの再演
 
-チェーンを作り直さずに、場面 1 から再演できる。前の回の Safe 取引が `finalized` になってから、`make demo-seed` で新しい回を作る。
+チェーンを作り直さずに、場面 1 から再演できる。前の回の Safe 取引が `finalized` になってから、`mise run demo-seed` で新しい回を作る。
 
 前の回から残るものと、その扱い。
 
@@ -389,7 +389,7 @@ sequenceDiagram
 | VASP B の自己勘定の残高 | 場面 2 のたびに tUSD が 10,000 減る | 初期残高は 1,000,000 tUSD。100 回ぶんある |
 | Safe の nonce、Registry のバージョン | 回を重ねるごとに進む | 確認点は前後の差で見る |
 
-`make demo-seed` が行うこと（[08-web.md](08-web.md) の 10.1）。
+`mise run demo-seed` が行うこと（[08-web.md](08-web.md) の 10.1）。
 
 1. 回の番号を 1 増やす。その時点の通番とブロックを、回の開始位置として記録する。
 2. 鈴木さん、Lim さん、Tan さん、Lee さんと、場面 4 専用の 2 口座を回ごとのメールアドレスで登録する。佐藤さんは場面 1 で登録する。

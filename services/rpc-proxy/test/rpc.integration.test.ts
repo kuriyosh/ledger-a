@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { setTimeout } from "node:timers/promises";
-import { parseEnv, promisify } from "node:util";
+import { promisify } from "node:util";
 import { createPublicClient, http, parseEther } from "viem";
 import { mnemonicToAccount } from "viem/accounts";
 import { expect, test } from "vitest";
@@ -12,13 +11,8 @@ const anvilMnemonic =
   "test test test test test test test test test test test junk";
 
 test("shows Anvil state and prevents a valid signed transaction from being included", async () => {
-  const versions = parseEnv(
-    await readFile(
-      new URL("../../../chain/versions.env", import.meta.url),
-      "utf8",
-    ),
-  );
-  if (!versions.FOUNDRY_IMAGE) throw new Error("FOUNDRY_IMAGE is missing");
+  const image = process.env.FOUNDRY_IMAGE;
+  if (!image) throw new Error("Use mise run test-integration");
   const { stdout } = await exec("docker", [
     "run",
     "--rm",
@@ -27,7 +21,7 @@ test("shows Anvil state and prevents a valid signed transaction from being inclu
     "127.0.0.1::8545",
     "--entrypoint",
     "anvil",
-    versions.FOUNDRY_IMAGE,
+    image,
     "--host",
     "0.0.0.0",
   ]);

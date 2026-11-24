@@ -214,7 +214,7 @@ npm パッケージのバージョンは導入時の最新安定版に `package.
 leder-a/
   README.md
   docs/                      設計書
-  Makefile                   起動と構築の入口
+  mise.toml                  タスクとツール・イメージのバージョン
   docker-compose.yml         オフチェーン層（postgres、各サービス、web）
   docker-compose.anvil.yml   anvil モードの L2 代替
   .env.example
@@ -224,7 +224,6 @@ leder-a/
   biome.json
 
   chain/
-    versions.env             上流のバージョン、fork の参照コミット
     compose/
       docker-compose.chain.yml   op-reth、op-node、op-batcher、rpc-proxy
       docker-compose.replica.yml 検証ノード、対照ノード

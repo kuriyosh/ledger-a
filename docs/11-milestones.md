@@ -33,7 +33,7 @@ flowchart LR
 共通の完了条件。
 
 - その MS の受け入れ基準をすべて満たす。
-- `make lint` と、その時点で存在するテストが通る。
+- `mise run lint` と、その時点で存在するテストが通る。
 - 設計と実装が食い違った箇所は、設計書を実装に合わせて直す。
 - [12-open-issues.md](12-open-issues.md) の該当する要検証事項に結果を書く。
 
@@ -43,17 +43,17 @@ flowchart LR
 
 作業。
 
-- [x] リポジトリの骨組み（`Makefile`、`.env.example`、`.gitignore`、`chain/versions.env`）
-- [x] `chain/scripts/derive-accounts.ts` と `make keys`
-- [x] `chain/scripts/deploy-l1.sh`、`gen-config.sh` と `make chain-deploy`。`SystemConfig.setGasConfigEcotone(0, 0)` を含む
+- [x] リポジトリの骨組み（`mise.toml`、`.env.example`、`.gitignore`）
+- [x] `chain/scripts/derive-accounts.ts` と `mise run keys`
+- [x] `chain/scripts/deploy-l1.sh`、`gen-config.sh` と `mise run chain-deploy`。`SystemConfig.setGasConfigEcotone(0, 0)` を含む
 - [x] `services/rpc-proxy`（単一の転送先。10 章 7 節）
-- [x] `chain/compose/docker-compose.chain.yml` と `make chain-up`。op-reth は `OP_RETH_STOCK_IMAGE` を使う。ネットワークを `ledgera-chain` と `ledgera` に分ける
-- [x] `make chain-shell`（`ledgera-chain` につないだ Foundry コンテナ）
-- [x] `make status`（ブロック高、safe ブロック、残高）
+- [x] `chain/compose/docker-compose.chain.yml` と `mise run chain-up`。op-reth は `OP_RETH_STOCK_IMAGE` を使う。ネットワークを `ledgera-chain` と `ledgera` に分ける
+- [x] `mise run chain-shell`（`ledgera-chain` につないだ Foundry コンテナ）
+- [x] `mise run status`（ブロック高、safe ブロック、残高）
 - [x] viem で admin から Sepolia の `OptimismPortal.depositTransaction` を呼び、L2 に 0.001 ETH が着金することを確認
 - [x] 公開 Sepolia の DevNet で `ProxyAdmin.upgradeAndCall(0x42…0700, …)` を使い、ダミー実装の初期化と呼び出しを確認
 
-受け入れ基準。L2 に取引を送る確認は `make chain-shell` の中で行う。
+受け入れ基準。L2 に取引を送る確認は `mise run chain-shell` の中で行う。
 
 | 基準 | 確認方法 |
 |---|---|
@@ -95,11 +95,11 @@ flowchart LR
 
 | 基準 | 確認方法 |
 |---|---|
-| 03 章の各「テスト」節の項目がすべてテストになっていて通る | `make test-contracts` |
+| 03 章の各「テスト」節の項目がすべてテストになっていて通る | `mise run test-contracts` |
 | Registry のスロットが 02 章 6.2 のテストベクタと一致する | 同上 |
 | TypeScript で作った 4 種類の署名を Solidity が受け入れる | 同上 |
 | 遮断された署名者の `approve` と `transfer` が、`LedgerForwarder` 経由で `SignerNotAllowed` になる。allowance と残高が変わらない | 同上 |
-| anvil で初期化が最後まで通り、`deployments/anvil.json` ができる | `make anvil-up` |
+| anvil で初期化が最後まで通り、`deployments/anvil.json` ができる | `mise run anvil-up` |
 
 確かめる要検証事項: V8。
 
@@ -121,14 +121,14 @@ flowchart LR
 
 作業（後半: このリポジトリ）。
 
-- [x] `chain/scripts/build-op-reth.sh` と `make chain-image`
-- [x] `chain/versions.env` に `OPTIMISM_FORK_COMMIT` と `OP_RETH_IMAGE` を入れる
+- [x] `chain/scripts/build-op-reth.sh` と `mise run chain-image`
+- [x] `mise.toml` に `OPTIMISM_FORK_COMMIT` と `OP_RETH_IMAGE` を入れる
 - [x] `chain/scripts/bootstrap-l2.sh` を devnet に対応させる（拒否の確認、`deployments/devnet.json` の書き出し）
-- [x] 改造版のイメージで `make chain-up`、`make l2-bootstrap`（ローカル Sepolia フォーク）
+- [x] 改造版のイメージで `mise run chain-up`、`mise run l2-bootstrap`（ローカル Sepolia フォーク）
 - [x] `chain/compose/docker-compose.replica.yml`（検証ノード、対照ノード）、`chain/scripts/compare-heads.sh`、`compare-deposit.sh`
-- [x] `make replica-up`、`replica-compare`、`control-up`、`control-compare`、`control-down`
+- [x] `mise run replica-up`、`replica-compare`、`control-up`、`control-compare`、`control-down`
 
-受け入れ基準。L2 に取引を送る確認は `make chain-shell` の中で行う。
+受け入れ基準。L2 に取引を送る確認は `mise run chain-shell` の中で行う。
 
 | 基準 | 確認方法 |
 |---|---|
@@ -137,14 +137,14 @@ flowchart LR
 | 有効化後、未登録の送信者の直接送信が `ledgera: sender not allowed` で拒否される | 開発用アカウント 1 で `cast send` |
 | 有効化後、登録済みの送信者の取引が通る | admin で `cast send` |
 | attacker（未登録）が `DepositProbe.poke()` を Deposit すると、改造版では失敗のレシートになる。`count(attacker)` は 0 のまま。mint は残る | attacker で `cast send`（L1）、`cast receipt` と `cast call`（L2） |
-| 同じ Deposit が、標準の実行層では成功する。対照ノードでレシートが成功、`count(attacker)` が 1 | `make control-up`、`make control-compare` |
+| 同じ Deposit が、標準の実行層では成功する。対照ノードでレシートが成功、`count(attacker)` が 1 | `mise run control-up`、`mise run control-compare` |
 | 同じ `to`、`data`、`gasLimit` の Deposit を admin（登録済み）が送ると、改造版でも成功する。`count(admin)` が 1 増える | admin で `cast send`（L1）、`cast call`（L2） |
 | 残高 0.001 ETH の attacker が、`maxFeePerGas` 3 gwei、`gas` 200,000 の取引を直接送ると、`ledgera: sender not allowed` で拒否される。残高不足のエラーにならない | Deposit の後に attacker で `cast send` |
 | 同じ残高、`maxFeePerGas`、`gas` の登録済みの送信者の取引は受理され、ブロックに入る | vasp-a-admin が新しい EOA を `CUSTOMER` で登録する。admin が 0.001 ETH を送る。その EOA で `cast send` |
 | `from` を省略した `eth_call` が通る | `cast call` |
 | `from` に未登録アドレスを指定した `eth_estimateGas` がエラーになる | `cast estimate` |
 | 状態を `SUSPENDED` にした送信者の取引が、次のブロックから拒否される | `cast send` |
-| 検証ノードのブロックハッシュが Sequencer と一致する | `make replica-compare` |
+| 検証ノードのブロックハッシュが Sequencer と一致する | `mise run replica-compare` |
 
 - 対照ノードで確認できるのは、そのチェーンで最初の未登録 Deposit だけ（02 章 10.2）。`DepositProbe` への Deposit を、ほかの未登録 Deposit より先に行う。
 - 上の表の 5〜7 行目で「失敗の原因が実行層の規則だけ」であることを確かめる。8、9 行目で「拒否の原因が残高や手数料ではない」ことを確かめる。
@@ -172,9 +172,9 @@ flowchart LR
 
 | 基準 | 確認方法 |
 |---|---|
-| 04 章 13 節のテストが通る | `make test`、`make test-integration` |
+| 04 章 13 節のテストが通る | `mise run test`、`mise run test-integration` |
 | 07 章 3.8 のうち到着順に関するテストが通る | 同上 |
-| 5 送信者から同時に 100 件送り、監査の違反が 0 件 | `make e2e-fifo APP_MODE=anvil` |
+| 5 送信者から同時に 100 件送り、監査の違反が 0 件 | `APP_MODE=anvil mise run e2e-fifo` |
 | 仕掛けを使うと `ORDER_VIOLATION` が 1 件出る | 結合テスト |
 | 監査の対象が、発行済みの全 Receipt である。転送状態が `queued`、`forwarded`、`rejected` のどれでも、期限を過ぎて未取り込みなら `NOT_INCLUDED` になる | 単体テスト、結合テスト（転送先の遮断） |
 | 除外として記録されるのは、監査ツールが L2 の状態で理由を確認できたエントリだけ。Gateway が申告した理由だけでは除外にならない | 単体テスト |
@@ -199,20 +199,20 @@ flowchart LR
 - [x] `services/consortium`: 申請、承認、実行
 - [x] `services/consortium`: 取り下げ（取消取引）、L2 との照合
 - [x] `services/demo-tools`: 発行体の `POST /v1/issuer/mint`、デモ回の `POST /v1/demo/runs`
-- [x] `make demo-seed`
+- [x] `mise run demo-seed`
 
 受け入れ基準。
 
 | 基準 | 確認方法 |
 |---|---|
-| 05 章 11 節と 06 章 8 節のテストが通る | `make test-integration` |
+| 05 章 11 節と 06 章 8 節のテストが通る | `mise run test-integration` |
 | 場面 1、2、3、5 の手順を API で順に呼び、送金、交換、申請がそれぞれ `confirmed`、`confirmed`、`executed` で終わる | 結合テスト |
 | 凍結後の送金が `failed`、`error_code` が `SignerNotAllowed` で終わる | 結合テスト |
 | 凍結後の交換（`approve` ＋ `fill`）が `SignerNotAllowed` で終わり、allowance が変わらない | 結合テスト |
 | 確認を飛ばした送金（場面 4 の手順 6、7）が `AccountNotEligible`、`TravelRuleRequired` で終わる | 結合テスト |
 | 承認済みの申請を取り下げると Safe の nonce が進み、元の操作を L2 で実行できない | 結合テスト |
 | 入金のブロックが再編成で消えると、入金が `reorged`、アラートが `invalidated` になる | 結合テスト（anvil の `evm_revert`） |
-| `make demo-seed` を 2 回実行すると、同じ氏名で別のアドレスの顧客ができる | 結合テスト |
+| `mise run demo-seed` を 2 回実行すると、同じ氏名で別のアドレスの顧客ができる | 結合テスト |
 
 ## 7. M5 Indexer と画面
 
@@ -235,10 +235,10 @@ flowchart LR
 
 | 基準 | 確認方法 |
 |---|---|
-| 07 章 2.7 のテストが通る | `make test-integration` |
-| indexer のスキーマを消して取り込み直すと、API の応答が消す前と同じになる | `make test-integration` |
-| 場面 1、2、3、5 の「確認点」がすべて通る（anvil） | `make e2e` |
-| 場面 4 の手順 6、7 の「確認点」が通る（anvil） | `make e2e` |
+| 07 章 2.7 のテストが通る | `mise run test-integration` |
+| indexer のスキーマを消して取り込み直すと、API の応答が消す前と同じになる | `mise run test-integration` |
+| 場面 1、2、3、5 の「確認点」がすべて通る（anvil） | `mise run e2e` |
+| 場面 4 の手順 6、7 の「確認点」が通る（anvil） | `mise run e2e` |
 | VASP の DB 以外に氏名が保存されていない | gateway、indexer、auditor、consortium、demo のスキーマを検索するテスト |
 | 場面 1、2、3、5 を画面だけで通せる（anvil） | 09 章の手順を手で追う |
 | 左の操作が 5 秒以内に右のチェーン表示に出る | 同上 |
@@ -256,24 +256,24 @@ flowchart LR
 - [x] `apps/web`: 外部者画面、監査者画面、デモ操作、デモ回による表示の切替（メールアドレス欄、登録簿、監査の集計区間）
 - [x] `e2e/scenes/` の場面 4（手順 1〜5）と場面 6
 - [x] ローカル Sepolia フォークで L1 から DevNet を配備し、場面 1〜6 の所要時間を計測
-- [x] 公開 Sepolia に DevNet を配備し、チェーンを作り直さずに `make e2e` で場面 1〜6 を 2 回実行
+- [x] 公開 Sepolia に DevNet を配備し、チェーンを作り直さずに `mise run e2e` で場面 1〜6 を 2 回実行
 - [x] デモの手順書（09 章の操作順と待ち時間）
 
 受け入れ基準。
 
 | 基準 | 確認方法 |
 |---|---|
-| 場面 1〜6 の「確認点」がすべて通る（devnet） | `make e2e` |
+| 場面 1〜6 の「確認点」がすべて通る（devnet） | `mise run e2e` |
 | 場面 1〜6 を画面だけで通せる（devnet） | 09 章の手順を手で追う |
 | 通しの所要時間が 12 分以内 | 計測 |
-| 通しの後、仕掛け以外の監査違反が 0 件 | `make audit` |
-| デモを 2 回続けて通せる。2 回目は `make demo-seed` で新しい回を作り、チェーンは作り直さない | 09 章の手順を手で追う。`make e2e` を 2 回実行する |
+| 通しの後、仕掛け以外の監査違反が 0 件 | `mise run audit` |
+| デモを 2 回続けて通せる。2 回目は `mise run demo-seed` で新しい回を作り、チェーンは作り直さない | 09 章の手順を手で追う。`mise run e2e` を 2 回実行する |
 | 2 回目の場面 6 の手順 1 で、この回の違反が 0 件と表示される | 同上 |
-| 場面 4 の手順 2〜4 のエラーが、すべて `ledgera: sender not allowed` である | `make e2e` |
+| 場面 4 の手順 2〜4 のエラーが、すべて `ledgera: sender not allowed` である | `mise run e2e` |
 | vasp、consortium、indexer、auditor のコンテナとホストから、op-reth に取引を送れない | 各コンテナとホストから `eth_sendRawTransaction` を試す |
-| 検証ノードのブロックハッシュが一致する | `make replica-compare` |
+| 検証ノードのブロックハッシュが一致する | `mise run replica-compare` |
 
-公開 Sepolia の DevNet で、`make e2e` の所要時間は 1 回目が 2 分 42 秒、2 回目が 3 分 20 秒。両回とも `e2e/check-privacy.sql` の実行を含む。この SQL は E2E 用の氏名が gateway、indexer、auditor、consortium、demo の DB に保存されていないことを確かめる。再演前の Safe 取引の確定待ちは計測の外。
+公開 Sepolia の DevNet で、`mise run e2e` の所要時間は 1 回目が 2 分 42 秒、2 回目が 3 分 20 秒。両回とも `e2e/check-privacy.sql` の実行を含む。この SQL は E2E 用の氏名が gateway、indexer、auditor、consortium、demo の DB に保存されていないことを確かめる。再演前の Safe 取引の確定待ちは計測の外。
 
 場面 1〜6 のブラウザ操作には 1 分 57 秒かかった。意図した C4 の 1 件を検出した。続けて VASP の承認後に氏名を開示できることを確認した。
 
@@ -286,10 +286,10 @@ flowchart LR
 作業。
 
 - [x] `chain/compose/docker-compose.ha.yml`。op-conductor の必須項目、Raft の待受と通知のアドレス、RPC のポートを 02 章 11.2 のとおりに設定する
-- [x] op-conductor の初期化手順（`make ha-up` に含める）
+- [x] op-conductor の初期化手順（`mise run ha-up` に含める）
 - [x] rpc-proxy の転送先を 3 組にする
 - [x] Gateway のリーダー追従と再送（04 章 7.3）
-- [x] `make ha-kill-leader`、`make ha-restore`
+- [x] `mise run ha-kill-leader`、`mise run ha-restore`
 - [x] チェーン表示のネットワークのタブに Sequencer の状態を出す
 - [x] `e2e/scenes/scene7-failover.test.ts`
 - [ ] 余力があれば、到着順の強化（02 章 7.3）
@@ -300,7 +300,7 @@ flowchart LR
 |---|---|
 | op-conductor が 3 台とも起動し、リーダーが 1 つ選ばれる | `conductor_leader` |
 | 02 章 11.4 の障害試験 4 件が通る | 手動、E2E |
-| 場面 7 の「確認点」が通る | `make e2e`（devnet-ha） |
-| 単一 Sequencer の構成（M6 までの構成）も引き続き動く | `make up`、`make e2e` |
+| 場面 7 の「確認点」が通る | `mise run e2e`（devnet-ha） |
+| 単一 Sequencer の構成（M6 までの構成）も引き続き動く | `mise run chain-up`、`mise run app-up`、`mise run e2e` |
 
 確かめる要検証事項: V11。

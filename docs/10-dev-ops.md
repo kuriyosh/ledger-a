@@ -4,13 +4,14 @@
 
 | ツール | 用途 |
 |---|---|
+| mise 2026.7.10 以降 | タスクの実行と開発ツールのバージョン管理 |
 | Docker、Docker Compose v2 | チェーンとサービスの起動 |
-| Node.js 24、pnpm | サービス、画面、スクリプト |
-| Foundry（forge、cast、anvil） | コントラクト、anvil モード |
-| jq、make、openssl | スクリプト |
+| Bash、Git、curl、OpenSSL | セットアップと運用スクリプト |
 | Rust（fork の `rust/rust-toolchain.toml` のバージョン） | チェーン改造を開発する人だけ |
 
-op-deployer は、`chain/scripts/deploy-l1.sh` が `chain/versions.env` で指定したバージョンを取得する。
+リポジトリのルートで `mise trust` と `mise install` を実行する。Node.js、pnpm、Foundry、jq、ripgrep は `mise.toml` の指定に従って入る。
+
+op-deployer は、`chain/scripts/deploy-l1.sh` が `mise.toml` で指定したバージョンを取得する。
 
 ## 2. 動作モード
 
@@ -46,7 +47,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 
 ### 3.2 生成されるもの
 
-`make keys` が `.env.generated` を作る。
+`mise run keys` が `.env.generated` を作る。
 
 | 内容 | 変数 |
 |---|---|
@@ -60,58 +61,69 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 
 `.env`、`.env.generated`、`chain/.deployer/`、`chain/runtime/`、`deployments/*.json`。`.gitignore` に書く。
 
-## 4. Make ターゲット
+## 4. mise タスク
 
-| ターゲット | 内容 |
+| コマンド | 内容 |
 |---|---|
-| `make setup` | `pnpm install`、`forge install`、ABI の生成 |
-| `make keys` | アカウントを導出して `.env.generated` を作る。アドレスと必要な残高を表示する |
-| `make fund-l1` | admin から batcher と attacker に Sepolia ETH を送る |
-| `make chain-image` | `chain/versions.env` で固定した fork のコミットから、op-reth のイメージを作る |
-| `make chain-deploy` | L1 へのデプロイと設定の生成（02 章 3 節） |
-| `make chain-up`、`chain-down`、`chain-logs` | op-reth、op-node、op-batcher、rpc-proxy |
-| `make chain-shell` | `ledgera-chain` ネットワークにつないだ Foundry コンテナのシェルを開く。op-reth に直接 `cast` を使うときに使う |
-| `make l2-bootstrap` | L2 の初期化（02 章 5 節）。`ledgera-chain` ネットワークにつないだ Foundry コンテナで実行する |
-| `make app-up`、`app-down`、`app-logs` | postgres、各サービス、web |
-| `make demo-seed` | 新しいデモ回を作る。登場人物と残高を作り、画面と監査の集計を新しい回に切り替える |
-| `make e2e APP_MODE=anvil` | 起動済みの試験環境に新しいデモ回を作り、場面と DB の保存先を検証する |
-| `make up`、`make down` | チェーンとアプリをまとめて起動、停止 |
-| `make status` | 各コンポーネントの稼働、ブロック高、safe ブロック、通番、残高を表示する |
-| `make replica-up`、`replica-down`、`replica-reset`、`replica-compare` | 検証ノードの起動と停止、データの削除、ブロックハッシュの比較 |
-| `make control-up`、`control-compare`、`control-down` | 対照ノードの起動、Deposit の結果の比較、データごとの削除（02 章 10.2） |
-| `make ha-up`、`ha-kill-leader`、`ha-restore` | 冗長化構成 |
-| `make anvil-up`、`anvil-down` | anvil モード一式（anvil、初期化、アプリ） |
-| `make test` | TypeScript の単体テスト |
-| `make test-contracts` | `forge test` |
-| `make test-integration` | anvil を使う結合テスト |
-| `make e2e` | デモ場面の自動テスト |
-| `make audit` | 監査ツールの CLI を通番 1 から実行する |
-| `make lint`、`make fmt` | Biome、forge fmt |
-| `make clean` | `chain/runtime` と DB のボリュームを消す。確認を求める |
+| `mise run setup` | 依存パッケージと Git サブモジュールを取得し、ABI を生成する |
+| `mise run keys` | アカウントを導出して `.env.generated` を作る。アドレスと必要な残高を表示する |
+| `mise run fund-l1` | admin から batcher と attacker に Sepolia ETH を送る |
+| `mise run chain-image` | `mise.toml` で固定した fork のコミットから、op-reth のイメージを作る |
+| `mise run chain-deploy` | L1 へのデプロイと設定の生成（02 章 3 節） |
+| `mise run chain-up`、`chain-down`、`chain-logs` | op-reth、op-node、op-batcher、rpc-proxy |
+| `mise run chain-shell` | `ledgera-chain` ネットワークにつないだ Foundry コンテナのシェルを開く。op-reth に直接 `cast` を使うときに使う |
+| `mise run l2-bootstrap` | L2 の初期化（02 章 5 節）。`ledgera-chain` ネットワークにつないだ Foundry コンテナで実行する |
+| `mise run app-up`、`app-down`、`app-logs` | postgres、各サービス、web |
+| `mise run demo-seed` | 新しいデモ回を作る。登場人物と残高を作り、画面と監査の集計を新しい回に切り替える |
+| `APP_MODE=anvil mise run e2e` | 起動済みの試験環境に新しいデモ回を作り、場面と DB の保存先を検証する |
+| `mise run status` | 各コンポーネントの稼働、ブロック高、safe ブロック、通番、残高を表示する |
+| `mise run replica-up`、`replica-down`、`replica-reset`、`replica-compare` | 検証ノードの起動と停止、データの削除、ブロックハッシュの比較 |
+| `mise run control-up`、`control-compare`、`control-down` | 対照ノードの起動、Deposit の結果の比較、データごとの削除（02 章 10.2） |
+| `mise run ha-up`、`ha-kill-leader`、`ha-restore` | 冗長化構成 |
+| `mise run anvil-up`、`anvil-down` | anvil モード一式（anvil、初期化、アプリ） |
+| `mise run test` | TypeScript の単体テスト |
+| `mise run test-contracts` | `forge test` |
+| `mise run test-integration` | anvil を使う結合テスト |
+| `mise run e2e` | デモ場面の自動テスト |
+| `mise run audit` | 監査ツールの CLI を通番 1 から実行する |
+| `mise run lint`、`mise run fmt` | Biome、forge fmt |
+
+`mise tasks` でタスクの一覧を表示できる。`APP_MODE` を使うときは `APP_MODE=anvil mise run app-up` のように指定する。
+
+ホストのポートや Docker ネットワークを変更する場合は、追加の Compose ファイルを指定する。
+
+| 対象 | 環境変数 |
+|---|---|
+| DevNet と冗長化構成 | `LEDGERA_CHAIN_COMPOSE_OVERLAY` |
+| 検証ノードと対照ノード | `LEDGERA_REPLICA_COMPOSE_OVERLAY` |
+| Anvil | `LEDGERA_ANVIL_COMPOSE_OVERLAY` |
+| アプリ | `LEDGERA_APP_COMPOSE_OVERLAY` |
+
+初期化に使うネットワーク名と読み取り RPC のポートを変更した場合は、`BOOTSTRAP_NETWORK` と `BOOTSTRAP_READ_RPC` も指定する。
 
 ## 5. 初回の立ち上げ（devnet）
 
 | 順 | 操作 | 確認 |
 |---:|---|---|
 | 1 | `.env` を書く | - |
-| 2 | `make setup` | - |
-| 3 | `make keys` | アドレスの一覧が出る |
+| 2 | `mise run setup` | - |
+| 3 | `mise run keys` | アドレスの一覧が出る |
 | 4 | admin のアドレスに Sepolia ETH を 3 ETH 入れる（faucet） | `cast balance` |
-| 5 | `make fund-l1` | batcher が 0.5 ETH、attacker が 0.05 ETH |
-| 6 | `make chain-image` | `docker images` に `ledgera/op-reth` がある |
-| 7 | `make chain-deploy` | `chain/runtime/genesis.json` と `rollup.json` がある。L1 の `SystemConfig` の `basefeeScalar()` と `blobbasefeeScalar()` が 0 |
-| 8 | `make chain-up` | `make status` でブロック高が増える |
-| 9 | `make l2-bootstrap` | `deployments/devnet.json` がある。`enforcementEnabled()` が true。レシートの `l1Fee` が 0 |
-| 10 | `make app-up` | 全サービスの `/healthz` が 200 |
-| 11 | `make demo-seed` | 登録簿に顧客 6 人が出る |
+| 5 | `mise run fund-l1` | batcher が 0.5 ETH、attacker が 0.05 ETH |
+| 6 | `mise run chain-image` | `docker images` に `ledgera/op-reth` がある |
+| 7 | `mise run chain-deploy` | `chain/runtime/genesis.json` と `rollup.json` がある。L1 の `SystemConfig` の `basefeeScalar()` と `blobbasefeeScalar()` が 0 |
+| 8 | `mise run chain-up` | `mise run status` でブロック高が増える |
+| 9 | `mise run l2-bootstrap` | `deployments/devnet.json` がある。`enforcementEnabled()` が true。レシートの `l1Fee` が 0 |
+| 10 | `mise run app-up` | 全サービスの `/healthz` が 200 |
+| 11 | `mise run demo-seed` | 登録簿に顧客 6 人が出る |
 | 12 | `http://localhost:3000` を開く | - |
 
 - 手順 6 は初回に時間がかかる。Rust のフルビルドのため。ソースは `OPTIMISM_FORK_COMMIT` で指定する。`chain-up` と `replica-up` はローカルイメージのコミットを照合する。
 - 手順 7 は Sepolia に取引を送る。数分かかる。
-- 2 回目以降は `make up` だけでよい。
-- デモを再演するときは、`make demo-seed` をもう一度実行する（09 章 9 節）。
+- 2 回目以降は `mise run chain-up`、`mise run app-up` の順に実行する。
+- デモを再演するときは、`mise run demo-seed` をもう一度実行する（09 章 9 節）。
 
-`make demo-seed` の内容。demo-tools の `POST /v1/demo/runs` を呼ぶ（08 章 10.1）。
+`mise run demo-seed` の内容。demo-tools の `POST /v1/demo/runs` を呼ぶ（08 章 10.1）。
 
 | VASP | 顧客 | 残高 |
 |---|---|---|
@@ -130,18 +142,18 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 Anvil と DevNet はホストのポートと Docker ネットワーク名を共有する。どちらか一方を起動する。
 
 ```
-make setup
-make anvil-up
+mise run setup
+mise run anvil-up
 ```
 
-`make anvil-up` の内容。
+`mise run anvil-up` の内容。
 
 1. `anvil --chain-id 31337 --order fifo --block-time 2` と rpc-proxy を起動する。rpc-proxy の転送先は anvil。
 2. 固定のテスト用ニーモニックで `chain/runtime/anvil/.env.generated` を作る。
 3. `Bootstrap.s.sol` を `BOOTSTRAP_MODE=anvil` で実行する。`deployments/anvil.json` ができる。
-4. `make app-up APP_MODE=anvil` でアプリを起動する。PostgreSQL のパスワードが未設定なら、ローカル試験用の既定値を使う。
+4. `APP_MODE=anvil mise run app-up` でアプリを起動する。PostgreSQL のパスワードが未設定なら、ローカル試験用の既定値を使う。
 
-Anvil モードでは Gateway の転送先は `http://anvil:8545`。Auditor の読み取り先は `http://rpc-proxy:8545`。デモ用の初期データは `make demo-seed` で作る。
+Anvil モードでは Gateway の転送先は `http://anvil:8545`。Auditor の読み取り先は `http://rpc-proxy:8545`。デモ用の初期データは `APP_MODE=anvil mise run demo-seed` で作る。
 
 - anvil の直接 RPC は `127.0.0.1:9545` に出す。読み取り専用 RPC は `127.0.0.1:8545` に出す。結合テストが再編成（`evm_revert`）と、Gateway を通さない送信を使うため。
 - 結合テストはサービスを Vitest の中で起動する。rpc-proxy を通さず、anvil に直接つなぐ。
@@ -149,8 +161,8 @@ Anvil モードでは Gateway の転送先は `http://anvil:8545`。Auditor の�
 コントラクトの変更後に Anvil を作り直す場合は、次のコマンドで Anvil のデータを削除してから初期化する。
 
 ```sh
-docker compose --env-file chain/versions.env -f docker-compose.anvil.yml down --volumes
-make anvil-up
+mise exec -- bash chain/scripts/compose.sh anvil down --volumes
+mise run anvil-up
 ```
 
 ## 7. Compose の構成
@@ -173,7 +185,7 @@ make anvil-up
 - 起動順は `depends_on` と healthcheck で決める。postgres と rpc-proxy → gateway → その他のサービス → web。
 - ホストに出すポートは 01 章 2.2 のとおり。op-reth と op-node のポートはホストに出さない。
 - 検証ノードと対照ノードの op-node は `ledgera` に入れる。各 op-reth はそれぞれの内部ネットワークに置く。両方とも Sequencer と P2P でつながず、L1 の Batch から導出する。
-- genesis を作り直す場合は `make replica-reset` と `make control-down` で検証用のデータを削除する。
+- genesis を作り直す場合は `mise run replica-reset` と `mise run control-down` で検証用のデータを削除する。
 - Anvil で作ったローカル L1 フォークを使うときは、`L1_TRUST_RPC=true` を設定できる。公開 Sepolia では既定値の `false` を使う。
 
 DB。
@@ -189,7 +201,7 @@ op-reth の RPC。到着順の前提「取引を受け付けるのは Gateway �
 - op-reth に取引を送れるのは、`ledgera-chain` に入っている gateway と demo-tools だけ。
 - demo-tools が直接送るのは、場面 4 の外部者（未登録）の取引だけ。規則で拒否され、ブロックに入らない。
 - ほかのサービスとホストは、rpc-proxy を通して読む。vasp、consortium、indexer、auditor は、鍵を持っていても op-reth に取引を送れない。
-- 初期化（`make l2-bootstrap`）と、op-reth への直接の `cast`（`make chain-shell`）は、`ledgera-chain` につないだ一時的なコンテナで行う。
+- 初期化（`mise run l2-bootstrap`）と、op-reth への直接の `cast`（`mise run chain-shell`）は、`ledgera-chain` につないだ一時的なコンテナで行う。
 - ネットワークの分離は、運営者自身の直接送信を止めない。運営者が Gateway を通さずに送った取引は、監査ツールの C6 が検出する。
 
 rpc-proxy。JSON-RPC のメソッド名を見て、読み取りだけを中継する。
@@ -267,7 +279,7 @@ rpc-proxy のテスト。
 - 手動承認の箇所（KYC、トラベルルール、開示）は管理者用の API を呼んで進める。
 - `scene4-enforcement.test.ts` は、demo-tools 経由で未登録者の Deposit を Sepolia に送る。
 
-`make e2e-fifo` は、5 送信者から同じ優先手数料で 100 件を送る。異なる優先手数料の拒否、ブロック内を含む取り込み順、監査結果を確かめる。Anvil では `APP_MODE=anvil` を指定する。専用の検証環境で実行する。実行中はほかの取引を止め、issuer、consortium-1〜3、relayer-a の鍵を使う操作を行わない。
+`mise run e2e-fifo` は、5 送信者から同じ優先手数料で 100 件を送る。異なる優先手数料の拒否、ブロック内を含む取り込み順、監査結果を確かめる。Anvil では `APP_MODE=anvil` を指定する。専用の検証環境で実行する。実行中はほかの取引を止め、issuer、consortium-1〜3、relayer-a の鍵を使う操作を行わない。
 
 ### 8.4 CI
 
@@ -276,10 +288,10 @@ rpc-proxy のテスト。
 | ジョブ | 内容 |
 |---|---|
 | lint | Biome、`forge fmt --check` |
-| contracts | `forge test` |
-| unit | `make test` |
-| integration | postgres のサービスコンテナと anvil を起動して `make test-integration` |
-| e2e-anvil | `make anvil-up` の後に `make e2e` |
+| contracts | `mise run test-contracts` |
+| unit | `mise run test` |
+| integration | postgres のサービスコンテナと anvil を起動して `mise run test-integration` |
+| e2e-anvil | `mise run anvil-up` の後に `APP_MODE=anvil mise run e2e` |
 
 devnet の E2E は CI で動かさない。Sepolia ETH と時間がかかるため。マイルストーンの完了時に手で実行する。
 
@@ -306,11 +318,11 @@ fork リポジトリの CI は、変更した 2 クレートの `cargo test` だ
 
 実効ガス単価はどちらも約 1 gwei だった。投稿 1 件のガス使用量は 25 ブロック設定で 352,472〜1,804,568、5 ブロック設定で 22,744〜449,176 だった。
 
-使わないときは `make down` で止める。止めている間は Batch を投稿しない。
+使わないときは `mise run app-down`、`mise run chain-down` の順に実行する。止めている間は Batch を投稿しない。
 
 ### 9.2 監視
 
-`make status` が次を表示する。
+`mise run status` が次を表示する。
 
 | 項目 | 取得元 | 異常の目安 |
 |---|---|---|
@@ -343,13 +355,13 @@ fork リポジトリの CI は、変更した 2 クレートの `cargo test` だ
 | op-node が L1 を読めない、遅れる | L1 の RPC の回数制限。API キー付きのプロバイダに替える |
 | Deposit が L2 に入らない | L1 の確認待ち。2 分待つ。op-node のログで L1 の取得を確認する |
 | 運営側アカウントで `ledgera: sender not allowed` | Registry に未登録。`cast call` で `getAccount` を確認する |
-| 初期化の途中で失敗した | `make l2-bootstrap` をやり直す。済んだ手順は飛ばされる（02 章 5 節） |
+| 初期化の途中で失敗した | `mise run l2-bootstrap` をやり直す。済んだ手順は飛ばされる（02 章 5 節） |
 | Gateway が `NONCE_GAP` を返す | Gateway を通さない送信で nonce がずれた。Gateway を再起動すると期待値を読み直す |
-| safe ブロックが進まない | batcher の残高不足か、L1 の RPC の障害。`make chain-logs` で op-batcher を見る |
+| safe ブロックが進まない | batcher の残高不足か、L1 の RPC の障害。`mise run chain-logs` で op-batcher を見る |
 | 規則の有効化後に Registry を直したい | コンソーシアム画面から `RAW` の申請を出し、2 者の承認で実行する |
-| ホストからの `cast send` が `-32601` で拒否される | ホストに出ている RPC は読み取り専用の rpc-proxy。取引は Gateway の `/rpc` に送る。op-reth に直接送る必要があるときは `make chain-shell` を使う |
+| ホストからの `cast send` が `-32601` で拒否される | ホストに出ている RPC は読み取り専用の rpc-proxy。取引は Gateway の `/rpc` に送る。op-reth に直接送る必要があるときは `mise run chain-shell` を使う |
 | 外部者の直接送信が残高不足のエラーになる | 先に Deposit を行う。L2 残高が必要な残高（08 章 10.1 の表）に足りているかを外部者画面で確認する |
-| 2 回目のデモで Lim さんへの送金が失敗する | 前の回の Lim さんは遮断済み。`make demo-seed` で新しい回を作る |
+| 2 回目のデモで Lim さんへの送金が失敗する | 前の回の Lim さんは遮断済み。`mise run demo-seed` で新しい回を作る |
 | 新しい申請が `PROPOSAL_IN_PROGRESS` で拒否される | 実行に失敗した申請か、取り下げ中の申請が残っている。再実行するか、2 人目が取り下げを完了する |
-| 対照ノードのブロック高が進まない | 未登録アドレスの Deposit を含むブロックで分岐した後は進まない。`make control-down` で消す |
+| 対照ノードのブロック高が進まない | 未登録アドレスの Deposit を含むブロックで分岐した後は進まない。`mise run control-down` で消す |
 | op-reth のイメージのビルドが失敗する | fork の `superchain-registry` サブモジュールが取得できているか確認する |

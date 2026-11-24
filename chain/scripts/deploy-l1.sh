@@ -2,7 +2,6 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
-source chain/versions.env
 
 mkdir -p chain/.deployer
 lock=chain/.deployer/l1-operation.lock
