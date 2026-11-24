@@ -192,18 +192,20 @@ export async function proxyApi(
     return failure(404, "ROUTE_NOT_FOUND", "API が見つかりません");
   const requestUrl = new URL(request.url);
   const host = request.headers.get("Host") ?? requestUrl.host;
-  if (!localHost.test(host))
+  const origin = `${requestUrl.protocol}//${host.toLowerCase()}`;
+  const loopback = localHost.test(host);
+  if (!loopback && origin !== env.WEB_ALLOWED_ORIGIN)
     return failure(
       403,
       "HOST_NOT_ALLOWED",
-      "localhost からアクセスしてください",
+      "許可されたアドレスからアクセスしてください",
     );
-  const origin = `${requestUrl.protocol}//${host.toLowerCase()}`;
   const requestOrigin = request.headers.get("Origin");
   const site = request.headers.get("Sec-Fetch-Site");
   if (
     request.method !== "GET" &&
-    ((requestOrigin && requestOrigin !== origin) || site === "cross-site")
+    (site === "cross-site" ||
+      ((!loopback || requestOrigin) && requestOrigin !== origin))
   )
     return failure(403, "ORIGIN_NOT_ALLOWED", "この画面から操作してください");
 

@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { api } from "./api";
+import { browserKey } from "./browser";
 import {
   baseAmount,
   displayAmount,
@@ -294,7 +295,7 @@ function Customers({ service, demo }: { service: string; demo: boolean }) {
             const amount = String(data.get("amount"));
             const details = JSON.stringify([to, token, amount]);
             if (mintIntent.current?.details !== details) {
-              mintIntent.current = { details, key: crypto.randomUUID() };
+              mintIntent.current = { details, key: browserKey() };
             }
             mint.mutate({ token, amount, to, key: mintIntent.current.key });
           }}
