@@ -51,11 +51,11 @@ async function submit(raw: Hash, nonce: number, signal: AbortSignal) {
     }),
     signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
   });
+  if (!response.ok) throw new Error(`Gateway HTTP status: ${response.status}`);
   const payload: {
     result?: Admission;
     error?: { message: string; data?: { reason?: string } };
   } = await response.json();
-  if (!response.ok) throw new Error(`Gateway HTTP status: ${response.status}`);
   return payload;
 }
 
@@ -109,10 +109,18 @@ test.skipIf(process.env.LEDGERA_FIFO_E2E !== "1")(
       }),
     );
     const stop = new AbortController();
-    const wrongFee = await sign(signers[0], chainId, firstNonces[0], 2n);
-    const rejected = await submit(wrongFee, firstNonces[0], stop.signal);
-    expect(rejected.result).toBeUndefined();
-    expect(rejected.error?.data?.reason).toBe("PRIORITY_FEE_NOT_FIXED");
+    for (const fee of [0n, 2n]) {
+      const wrongFee = await sign(signers[0], chainId, firstNonces[0], fee);
+      const rejected = await submit(wrongFee, firstNonces[0], stop.signal);
+      expect(rejected.result).toBeUndefined();
+      expect(rejected.error?.data?.reason).toBe("PRIORITY_FEE_NOT_FIXED");
+      const missing = await api<{ error: { code: string } }>(
+        "gateway",
+        `/v1/receipts/${keccak256(wrongFee)}`,
+        { status: 404 },
+      );
+      expect(missing.error.code).toBe("RECEIPT_NOT_FOUND");
+    }
 
     const startBlock = (await sequencer.getBlockNumber({ cacheTime: 0 })) + 1n;
     const groups = await Promise.all(
