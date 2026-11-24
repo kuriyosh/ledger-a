@@ -17,7 +17,7 @@ op-deployer は、`chain/scripts/deploy-l1.sh` が `mise.toml` で指定した�
 
 | モード | L2 | L1 | 使いどころ |
 |---|---|---|---|
-| anvil | anvil 1 台（chain ID 31337） | なし | コントラクト、サービス、画面の開発。結合テスト。CI |
+| anvil | anvil 1 台（chain ID 31337） | なし | コントラクト、サービス、画面の開発。結合テスト |
 | devnet | OP Stack（Sequencer 1 台） | Sepolia | チェーン改造の確認。デモ。E2E |
 | devnet-ha | OP Stack（Sequencer 3 台） | Sepolia | 場面 7 |
 
@@ -42,24 +42,28 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | `LEDGERA_MNEMONIC` | - | 運営側アカウントの元。12 語か 24 語 |
 | `L2_CHAIN_ID` | `202610` | |
 | `BATCHER_MAX_CHANNEL_DURATION` | `25` | L1 ブロック数。デモ中は 5 |
-| `DEMO_MODE` | `true` | |
-| `POSTGRES_PASSWORD` | - | |
+| `DEMO_MODE` | `true` | デモ用 API と画面操作を有効にする |
+| `POSTGRES_PASSWORD` | - | DevNet で必須。Anvil は未設定ならローカル試験用の値を使う |
+| `WEB_ALLOWED_ORIGIN` | `http://192.168.100.30:18374` | LAN から操作するときの Web の接続先。設定方法は 7.1 |
 
 ### 3.2 生成されるもの
 
-`mise run keys` が `.env.generated` を作る。
+`mise run keys` は `.env.generated` と `.env.auditor.generated` を作る。
+ニーモニックが同じなら、保存済みのサービス用シークレットを再利用する。
+Anvil は `chain/runtime/anvil/` に対応する 2 ファイルを作る。
 
 | 内容 | 変数 |
 |---|---|
 | 運営側アカウントの秘密鍵とアドレス | `ADMIN_PRIVATE_KEY`、`ADMIN_ADDRESS`、`BATCHER_PRIVATE_KEY`、…（01 章 5.2 の全アカウント。名前の `-` を `_` にして大文字にし、`_PRIVATE_KEY`、`_ADDRESS` を付ける） |
 | サービス間の認証 | `GATEWAY_ADMIN_TOKEN`、`VASP_A_ADMIN_TOKEN`、`VASP_B_ADMIN_TOKEN`、`CONSORTIUM_ADMIN_TOKEN`、`VASP_A_GATEWAY_API_KEY`、`VASP_B_GATEWAY_API_KEY`、`VASP_A_AUDITOR_KEY`、`VASP_B_AUDITOR_KEY` |
 | 顧客の鍵の暗号化 | `VASP_A_KEY_ENCRYPTION_KEY`、`VASP_B_KEY_ENCRYPTION_KEY` |
+| 監査者の認証（`.env.auditor.generated`） | `AUDITOR_ADMIN_TOKEN` |
 
-`docker-compose.yml` はこの 2 ファイルの値を各サービスの環境変数（04〜08 章の設定表）に割り当てる。
+`docker-compose.yml` は設定と生成ファイルの値を各サービスの環境変数に割り当てる。イメージのバージョンは `mise.toml` に設定する。
 
 ### 3.3 git に入れないもの
 
-`.env`、`.env.generated`、`chain/.deployer/`、`chain/runtime/`、`deployments/*.json`。`.gitignore` に書く。
+`.env`、`.env.generated`、`.env.auditor.generated`、`chain/.deployer/`、`chain/runtime/`、`deployments/*.json` は Git の管理対象外。
 
 ## 4. mise タスク
 
@@ -75,8 +79,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | `mise run l2-bootstrap` | L2 の初期化（02 章 5 節）。`ledgera-chain` ネットワークにつないだ Foundry コンテナで実行する |
 | `mise run app-up`、`app-down`、`app-logs` | postgres、各サービス、web |
 | `mise run demo-seed` | 新しいデモ回を作る。登場人物と残高を作り、画面と監査の集計を新しい回に切り替える |
-| `APP_MODE=anvil mise run e2e` | 起動済みの試験環境に新しいデモ回を作り、場面と DB の保存先を検証する |
-| `mise run status` | 各コンポーネントの稼働、ブロック高、safe ブロック、通番、残高を表示する |
+| `mise run status` | DevNet のチェーン側サービス、L1・L2 のブロック高、safe ブロック、運営側の残高を表示する |
 | `mise run replica-up`、`replica-down`、`replica-reset`、`replica-compare` | 検証ノードの起動と停止、データの削除、ブロックハッシュの比較 |
 | `mise run control-up`、`control-compare`、`control-down` | 対照ノードの起動、Deposit の結果の比較、データごとの削除（02 章 10.2） |
 | `mise run ha-up`、`ha-kill-leader`、`ha-restore` | 冗長化構成 |
@@ -84,7 +87,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | `mise run test` | TypeScript の単体テスト |
 | `mise run test-contracts` | `forge test` |
 | `mise run test-integration` | anvil を使う結合テスト |
-| `mise run e2e` | デモ場面の自動テスト |
+| `mise run e2e`、`e2e-fifo` | デモ場面と個人情報の保存先の検査、100 取引の順序の検査 |
 | `mise run audit` | 監査ツールの CLI を通番 1 から実行する |
 | `mise run lint`、`mise run fmt` | Biome、forge fmt |
 
@@ -105,7 +108,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 
 | 順 | 操作 | 確認 |
 |---:|---|---|
-| 1 | `.env` を書く | - |
+| 1 | `.env` を書く。画面デモと E2E では `DEMO_MODE=true` を設定する | - |
 | 2 | `mise run setup` | - |
 | 3 | `mise run keys` | アドレスの一覧が出る |
 | 4 | admin のアドレスに Sepolia ETH を 3 ETH 入れる（faucet） | `cast balance` |
@@ -114,7 +117,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | 7 | `mise run chain-deploy` | `chain/runtime/genesis.json` と `rollup.json` がある。L1 の `SystemConfig` の `basefeeScalar()` と `blobbasefeeScalar()` が 0 |
 | 8 | `mise run chain-up` | `mise run status` でブロック高が増える |
 | 9 | `mise run l2-bootstrap` | `deployments/devnet.json` がある。`enforcementEnabled()` が true。レシートの `l1Fee` が 0 |
-| 10 | `mise run app-up` | 全サービスの `/healthz` が 200 |
+| 10 | `mise run app-up` | Compose のヘルスチェックが通る |
 | 11 | `mise run demo-seed` | 登録簿に顧客 6 人が出る |
 | 12 | `http://localhost:3000` を開く | - |
 
@@ -139,12 +142,16 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 
 ## 6. anvil モード
 
-Anvil と DevNet はホストのポートと Docker ネットワーク名を共有する。どちらか一方を起動する。
+標準の設定では、Anvil と DevNet は同じホストポートと Docker ネットワーク名を使う。先に使用中のモードを停止する。
+セットアップ後、画面デモを起動する。
 
-```
-mise run setup
+```sh
+export DEMO_MODE=true
 mise run anvil-up
+APP_MODE=anvil mise run demo-seed
 ```
+
+`http://localhost:3000` を開く。場面 5 で Anvil の確定を進めるときは `mise run e2e-anvil-finalize` を使う。停止は `mise run anvil-down`。
 
 `mise run anvil-up` の内容。
 
@@ -153,16 +160,18 @@ mise run anvil-up
 3. `Bootstrap.s.sol` を `BOOTSTRAP_MODE=anvil` で実行する。`deployments/anvil.json` ができる。
 4. `APP_MODE=anvil mise run app-up` でアプリを起動する。PostgreSQL のパスワードが未設定なら、ローカル試験用の既定値を使う。
 
-Anvil モードでは Gateway の転送先は `http://anvil:8545`。Auditor の読み取り先は `http://rpc-proxy:8545`。デモ用の初期データは `APP_MODE=anvil mise run demo-seed` で作る。
+Anvil モードでは Gateway の転送先は `http://anvil:8545`。Auditor の読み取り先は `http://rpc-proxy:8545`。
 
 - anvil の直接 RPC は `127.0.0.1:9545` に出す。読み取り専用 RPC は `127.0.0.1:8545` に出す。結合テストが再編成（`evm_revert`）と、Gateway を通さない送信を使うため。
 - 結合テストはサービスを Vitest の中で起動する。rpc-proxy を通さず、anvil に直接つなぐ。
 
-コントラクトの変更後に Anvil を作り直す場合は、次のコマンドで Anvil のデータを削除してから初期化する。
+ローカルの Anvil 環境を初期状態に戻す場合は、アプリと Anvil を停止し、両方のボリュームとデプロイ結果を削除する。この操作で Anvil の取引履歴と PostgreSQL のデータが消える。
 
 ```sh
+DEMO_MODE=true mise exec -- bash chain/scripts/app-compose.sh anvil down --volumes
 mise exec -- bash chain/scripts/compose.sh anvil down --volumes
-mise run anvil-up
+rm -f deployments/anvil.json
+DEMO_MODE=true mise run anvil-up
 ```
 
 ## 7. Compose の構成
@@ -174,6 +183,7 @@ mise run anvil-up
 | `chain/compose/docker-compose.replica.yml` | op-reth-replica、op-node-replica。プロファイル `control` に op-reth-control、op-node-control |
 | `chain/compose/docker-compose.ha.yml` | op-reth-1〜3、op-node-1〜3、op-conductor-1〜3、op-batcher、rpc-proxy |
 | `docker-compose.anvil.yml` | anvil、rpc-proxy |
+| `docker-compose.enforcement-demo.yml` | DevNet の `demo-tools` に L1 Deposit と直接送信の設定を追加 |
 
 ネットワーク。Docker ネットワークを 2 つに分ける。
 
@@ -235,6 +245,33 @@ rpc-proxy のテスト。
 | 結合（anvil） | rpc-proxy 経由の `eth_sendRawTransaction` が拒否され、取引がブロックに入らない |
 | 単体 | 転送先が 3 つのとき、ブロック高が最も高い転送先が選ばれる。止まった転送先を避ける |
 
+読み取り専用 RPC だけを起動する場合は、Anvil の直接 RPC を転送先に設定する。op-node を使う場合は `UPSTREAM_ROLLUP_RPC_URLS` も指定する。
+
+```sh
+UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 mise exec -- pnpm --filter @ledgera/rpc-proxy start
+```
+
+### 7.1 Web 画面の LAN 公開
+
+標準では Web の `3000` 番ポートはホストのループバックで待ち受ける。LAN に出す場合は、ホストの LAN アドレスとポートを Compose の追加ファイルに指定する。次は `192.168.100.30:18374` で待ち受ける例。
+
+```yaml
+services:
+  web:
+    ports: !override
+      - "192.168.100.30:18374:3000"
+```
+
+追加ファイルをリポジトリのルートに `compose.lan.yml` として保存し、アクセス先と同じオリジンを指定してアプリを起動する。
+
+```sh
+export LEDGERA_APP_COMPOSE_OVERLAY="$PWD/compose.lan.yml"
+export WEB_ALLOWED_ORIGIN=http://192.168.100.30:18374
+mise run app-up
+```
+
+ブラウザで `http://192.168.100.30:18374` を開く。Anvil では `APP_MODE=anvil mise run app-up` を使う。HA では `APP_MODE=devnet-ha mise run app-up` を使う。停止時も同じ追加ファイルとモードを指定する。管理 API にアクセスできるため、デモ用の閉じたネットワークで使う。
+
 ## 8. テスト
 
 ### 8.1 層
@@ -242,10 +279,10 @@ rpc-proxy のテスト。
 | 層 | 対象 | ツール | 実行環境 |
 |---|---|---|---|
 | チェーン改造 | op-revm の判定、op-reth のプール検査 | cargo test | fork リポジトリ |
-| コントラクト | 03 章の各「テスト」節 | forge test | ローカル、CI |
-| 単体 | 各サービスの `domain/` | Vitest | ローカル、CI |
-| 結合 | サービス ＋ postgres ＋ anvil | Vitest | ローカル、CI |
-| E2E | デモ場面 | Vitest | anvil モード、devnet |
+| コントラクト | 03 章の各「テスト」節 | `mise run test-contracts` | ローカル |
+| 単体 | 各サービス、共通ライブラリ、Web の API 中継 | `mise run test` | ローカル |
+| 結合 | サービス、PostgreSQL、Anvil | `mise run test-integration` | ローカル |
+| E2E | デモ場面、FIFO、個人情報の保存先 | `mise run e2e`、`e2e-fifo` | Anvil、DevNet、DevNet HA |
 
 ### 8.2 言語をまたぐ一致の確認
 
@@ -273,29 +310,40 @@ rpc-proxy のテスト。
 | `scene7-failover.test.ts` | 7 | - | devnet-ha |
 
 - E2E は API を呼ぶ。画面は操作しない。
-- 実行の最初に新しいデモ回を作る。登場人物はその回の顧客を使う。チェーンの状態を前提にしない。
+- 起動済みの環境で `DEMO_MODE=true` を設定して実行する。最初に新しいデモ回を作る。登場人物はその回の顧客を使う。
 - 監査の確認は、その回の開始通番と開始ブロック以降を対象にする。前の実行で起こした違反の影響を受けない。
 - 残高、nonce、カウンタ、Registry のバージョンは、操作の前後の差で確かめる。
 - 手動承認の箇所（KYC、トラベルルール、開示）は管理者用の API を呼んで進める。
 - `scene4-enforcement.test.ts` は、demo-tools 経由で未登録者の Deposit を Sepolia に送る。
+- `mise run e2e` は `e2e/check-privacy.sql` も実行する。VASP 以外のスキーマに試験用の顧客名が保存されていないことを確認する。
 
 `mise run e2e-fifo` は、5 送信者から同じ優先手数料で 100 件を送る。異なる優先手数料の拒否、ブロック内を含む取り込み順、監査結果を確かめる。Anvil では `APP_MODE=anvil` を指定する。専用の検証環境で実行する。実行中はほかの取引を止め、issuer、consortium-1〜3、relayer-a の鍵を使う操作を行わない。
 
-### 8.4 CI
+起動済みの環境に合わせて実行する。
 
-このリポジトリの GitHub Actions。
-
-| ジョブ | 内容 |
+| モード | コマンド |
 |---|---|
-| lint | Biome、`forge fmt --check` |
-| contracts | `mise run test-contracts` |
-| unit | `mise run test` |
-| integration | postgres のサービスコンテナと anvil を起動して `mise run test-integration` |
-| e2e-anvil | `mise run anvil-up` の後に `APP_MODE=anvil mise run e2e` |
+| Anvil | `APP_MODE=anvil mise run e2e` |
+| DevNet | `mise run e2e` |
+| DevNet HA | `APP_MODE=devnet-ha mise run e2e` |
 
-devnet の E2E は CI で動かさない。Sepolia ETH と時間がかかるため。マイルストーンの完了時に手で実行する。
+Web を別ポートで起動した環境では `LEDGERA_WEB_URL` を指定する。RPC のポートを変更した場合は `LEDGERA_E2E_RPC_URL` を指定する。FIFO の検証で Gateway のポートを変更した場合は `LEDGERA_E2E_GATEWAY_URL` を指定する。
 
-fork リポジトリの CI は、変更した 2 クレートの `cargo test` だけを動かす。
+### 8.4 結合テストの設定
+
+`mise run test-integration` は Docker で Anvil を起動し、RPC プロキシの読み取りと送信の拒否を確認する。
+DB を使う結合テストには、テストごとに空の PostgreSQL データベースの接続 URL を設定する。未設定のテストはスキップされる。
+
+| 対象 | 接続 URL の環境変数 |
+|---|---|
+| Gateway | `TEST_GATEWAY_DATABASE_URL` |
+| VASP の KYC | `TEST_VASP_DATABASE_URL` |
+| VASP の送金 | `TEST_VASP_TRANSFERS_DATABASE_URL` |
+| Indexer の取り込み | `TEST_INDEXER_DATABASE_URL` |
+| Indexer の失敗理由 | `TEST_INDEXER_FAILURES_DATABASE_URL` |
+| Auditor の保存 | `TEST_AUDITOR_DATABASE_URL` |
+
+監査の通し試験は、初期化直後の Anvil と空の DB を使う。設定は [07-indexer-auditor.md](07-indexer-auditor.md) の 3.8 節を参照する。デモを実行する前にこの試験を実行する。
 
 ## 9. 運用
 
@@ -322,16 +370,16 @@ fork リポジトリの CI は、変更した 2 クレートの `cargo test` だ
 
 ### 9.2 監視
 
-`mise run status` が次を表示する。
+`mise run status` はチェーン側サービスの状態、ブロック番号、運営側アカウントの残高を表示する。Gateway と Auditor の状態はそれぞれの API で確認する。
 
 | 項目 | 取得元 | 異常の目安 |
 |---|---|---|
-| L2 のブロック高 | op-reth | 10 秒増えない |
-| safe ブロック | op-node の `optimism_syncStatus` | unsafe との差が 30 分ぶん以上 |
+| L2 のブロック高 | rpc-proxy の `eth_blockNumber` | 10 秒増えない |
+| safe ブロック | rpc-proxy の `/rollup` 経由で `optimism_syncStatus` | unsafe との差が 30 分ぶん以上 |
 | batcher の Sepolia 残高 | L1 | 0.05 ETH 未満 |
 | Gateway の最新通番とコミット済み通番 | gateway の `/v1/status` | 差が開き続ける |
 | Gateway のキュー | 同上 | 0 に戻らない |
-| 運営側アカウントの L2 残高 | op-reth | 0.1 ETH 未満 |
+| 運営側アカウントの L2 残高 | rpc-proxy の `eth_getBalance` | 0.1 ETH 未満 |
 | 監査の違反件数 | auditor の `/v1/fifo/summary` | デモの仕掛け以外で増える |
 
 ### 9.3 秘密情報

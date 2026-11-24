@@ -233,7 +233,8 @@ DB の作り直し。
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | |
 | `L2_RPC_URL` | - | rpc-proxy を指す。`debug_traceTransaction` を使う |
-| `ROLLUP_RPC_URL` | - | rpc-proxy の `/rollup`（op-node への中継） |
+| `L2_RPC_URL` | - | 読み取り専用の rpc-proxy の URL |
+| `ROLLUP_RPC_URL` | 空 | DevNet の確定段階を取得する rpc-proxy の `/rollup`。Anvil では空 |
 | `INDEXER_START_BLOCK` | 0 | |
 | `POLL_INTERVAL_MS` | 1000 | |
 
@@ -338,10 +339,10 @@ C5 の判定。
 CLI。
 
 ```
-pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
+mise run audit
 ```
 
-違反が 1 件でもあれば終了コード 1。
+既定の接続先は `http://127.0.0.1:8650`。`AUDITOR_URL` で変更できる。違反があれば終了コード 1、通信や API の失敗は 2。
 
 ### 3.4 アドレス追跡と開示請求
 

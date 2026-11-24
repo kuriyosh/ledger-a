@@ -17,7 +17,7 @@
 ```
 
 - 左は役割タブで切り替える。右のチェーン表示は切り替えても残る。
-- 左で操作すると、右の取引一覧に 5 秒以内に反映される。内訳はブロックの生成 2 秒、indexer の取得 1 秒、画面の再取得 2 秒。
+- 取引一覧は 2 秒ごとに取得する。取引はブロックへの取り込みと Indexer の同期後に表示される。
 - 文言は日本語。
 
 | パス | 画面 |
@@ -31,7 +31,7 @@
 
 ## 2. データの取得
 
-- ブラウザは Next.js の Route Handler（`/api/<サービス名>/...`）を経由する。中継はループバックを受け付ける。LAN から操作する場合は、Web ポートを LAN アドレスに割り当て、`WEB_ALLOWED_ORIGIN` に `http://192.168.100.30:18374` のように接続先を指定する。LAN 経由の更新では同じ `Origin` が必要。
+- ブラウザは Next.js の Route Handler（`/api/<サービス名>/...`）を経由する。中継はループバックと `WEB_ALLOWED_ORIGIN` で指定した接続先を受け付ける。LAN 経由の更新では同じ `Origin` が必要。設定方法は [開発と運用](10-dev-ops.md#71-web-画面の-lan-公開) を参照する。
 - Route Handler が管理者用の API にサービスごとのトークンを付ける。開示請求には監査者用のトークンを付ける。トークンは Web サーバー内で使う。
 - ユーザーのセッショントークンは VASP ごとに `sessionStorage` に持つ。
 - 取得は TanStack Query。一覧は 2 秒、進行中の操作は 1 秒ごとに再取得する。
@@ -320,7 +320,7 @@
 - EIP-1559、priority fee 1 wei。Gateway の形式検査を通し、登録状態の検査で止まることを見せるため。
 - `gas`、`nonce`、手数料をすべて明示し、手元で署名して `eth_sendRawTransaction` で送る。`eth_estimateGas` を呼ばない。未登録の送信者では見積もりの段階でエラーになり、プールや Gateway に届かないため。
 - `maxFeePerGas` は `ATTACKER_MAX_FEE_PER_GAS_WEI`（既定 3 gwei）。共通の `MAX_FEE_PER_GAS_WEI`（100 gwei）は使わない。
-- 直接送信に使う鍵は attacker だけ。発行体の取引は Gateway に送る。
+- トークンと ETH の送金先は attacker 自身。直接送信には attacker の鍵を使う。発行体の取引は Gateway に送る。
 
 手数料を別に決める理由。op-reth のプールは、規則の判定より先に標準の検証を行う（02 章 6.4）。標準の検証は、残高が `gas × maxFeePerGas + value` 以上であることを求める。外部者の L2 残高は Deposit の mint（0.001 ETH）だけ。
 
@@ -378,7 +378,6 @@
 | `ATTACKER_PRIVATE_KEY` | |
 | `ATTACKER_MAX_FEE_PER_GAS_WEI` | 外部者の取引の `maxFeePerGas`。既定は 3000000000（3 gwei） |
 | `ISSUER_PRIVATE_KEY` | |
-| `ATTACK_TARGET_ADDRESS` | 直接送信の送金の宛先。vasp-b-treasury のアドレス（`.env.generated` の `VASP_B_TREASURY_ADDRESS`）を渡す |
 | `GATEWAY_ADMIN_TOKEN` | |
 | `VASP_A_URL`、`VASP_B_URL`、`VASP_A_ADMIN_TOKEN`、`VASP_B_ADMIN_TOKEN` | デモ回の登場人物を作る |
 
@@ -390,11 +389,13 @@
 | `VASP_A_ADMIN_TOKEN`、`VASP_B_ADMIN_TOKEN` | |
 | `CONSORTIUM_URL`、`CONSORTIUM_ADMIN_TOKEN` | |
 | `INDEXER_URL`、`AUDITOR_URL`、`GATEWAY_URL`、`DEMO_TOOLS_URL` | |
-| `NEXT_PUBLIC_DEMO_MODE` | デモ用の操作を表示するか |
-| `NEXT_PUBLIC_L1_EXPLORER_URL` | `https://sepolia.etherscan.io` |
-| `NEXT_PUBLIC_BATCHER_ADDRESS` | |
+| `DEMO_MODE` | `true` のときデモ用の操作と API 中継が有効 |
+| `LEDGERA_APP_MODE` | Compose が設定する画面のモード。Anvil では外部者の操作を無効にする |
+| `WEB_ALLOWED_ORIGIN` | LAN で許可する 1 つのオリジン。スキーム、ホスト、ポートを指定 |
+| `AUDITOR_ADMIN_TOKEN` | 開示請求用の認証トークン |
+| `BATCHER_ADDRESS` | L1 タブから Sepolia Etherscan へリンクする Batcher のアドレス |
 
 ## 12. テスト
 
-- 画面の単体テストは書かない。API の結合テストと E2E（[10-dev-ops.md](10-dev-ops.md)）で担保する。
+- API 中継のルート制限、認証情報の扱い、LAN オリジンの照合は `apps/web/test/proxy.test.ts` で検証する。
 - デモの通し確認は [09-flows.md](09-flows.md) の場面ごとの「見せる画面」を手で追う。
