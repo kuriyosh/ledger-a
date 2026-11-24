@@ -270,6 +270,8 @@ rpc-proxy のテスト。
 - 手動承認の箇所（KYC、トラベルルール、開示）は管理者用の API を呼んで進める。
 - `scene4-bypass` の対照の Deposit（登録済みの送信者）は、テストが admin の鍵で Sepolia に直接送る。
 
+`make e2e-fifo` は、5 送信者から同じ優先手数料で 100 件を送る。異なる優先手数料の拒否、ブロック内を含む取り込み順、監査結果を確かめる。Anvil では `APP_MODE=anvil` を指定する。専用の検証環境で実行する。実行中はほかの取引を止め、issuer、consortium-1〜3、relayer-a の鍵を使う操作を行わない。
+
 ### 8.4 CI
 
 このリポジトリの GitHub Actions。
