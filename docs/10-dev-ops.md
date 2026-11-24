@@ -255,12 +255,8 @@ rpc-proxy のテスト。
 
 | ファイル | 場面 | anvil | devnet |
 |---|---|:-:|:-:|
-| `scene1-onboarding.test.ts` | 1 | ○ | ○ |
-| `scene2-swap.test.ts` | 2 | ○ | ○ |
-| `scene3-transfer.test.ts` | 3 | ○ | ○ |
-| `scene4-bypass.test.ts` | 4 の手順 1〜5 | - | ○ |
-| `scene4-token-rules.test.ts` | 4 の手順 6、7 | ○ | ○ |
-| `scene5-freeze.test.ts` | 5 | ○ | ○ |
+| `scene1-5.test.ts` | 1〜3、4 の手順 6、7、5 | ○ | ○ |
+| `scene4-enforcement.test.ts` | 4 の手順 1〜5 | - | ○ |
 | `scene6-audit.test.ts` | 6 | ○ | ○ |
 | `scene7-failover.test.ts` | 7 | - | devnet-ha |
 
@@ -269,7 +265,7 @@ rpc-proxy のテスト。
 - 監査の確認は、その回の開始通番と開始ブロック以降を対象にする。前の実行で起こした違反の影響を受けない。
 - 残高、nonce、カウンタ、Registry のバージョンは、操作の前後の差で確かめる。
 - 手動承認の箇所（KYC、トラベルルール、開示）は管理者用の API を呼んで進める。
-- `scene4-bypass` の対照の Deposit（登録済みの送信者）は、テストが admin の鍵で Sepolia に直接送る。
+- `scene4-enforcement.test.ts` は、demo-tools 経由で未登録者の Deposit を Sepolia に送る。
 
 `make e2e-fifo` は、5 送信者から同じ優先手数料で 100 件を送る。異なる優先手数料の拒否、ブロック内を含む取り込み順、監査結果を確かめる。Anvil では `APP_MODE=anvil` を指定する。専用の検証環境で実行する。実行中はほかの取引を止め、issuer、consortium-1〜3、relayer-a の鍵を使う操作を行わない。
 
@@ -295,9 +291,20 @@ fork リポジトリの CI は、変更した 2 クレートの `cargo test` だ
 
 | 費用 | 頻度 |
 |---|---|
-| L1 へのデプロイ | 環境を作るたびに 1 回。必要量は M0 で実測する |
-| Batch の投稿 | チェーンが動いている間、`BATCHER_MAX_CHANNEL_DURATION` ごと |
+| L1 へのデプロイ | 環境を作るたびに 1 回。公開 Sepolia の実測では fee scalar の設定を含めて 0.055029498826308127 ETH |
+| Batch の投稿 | チェーンの稼働中。`BATCHER_MAX_CHANNEL_DURATION` を指定する |
 | Deposit のデモ | 1 回あたり 0.001 ETH とガス代 |
+
+公開 Sepolia の Batch 投稿費を 2026 年 11 月 24 日に計測した。
+
+| 最大チャネル長（L1 ブロック） | 計測時間 | 投稿件数 | ガス代（Sepolia ETH） | 実際の投稿間隔（L1 ブロック） |
+|---:|---:|---:|---:|---:|
+| 25 | 60 分 | 14 | 0.009796432154048256 | 19〜20 |
+| 5 | 8 分 | 38 | 0.001985552029823752 | 1〜2 |
+
+計測時間は UTC の開始時刻と終了時刻の差。費用の集計範囲は、25 ブロック設定が L1 の 12,199,671〜12,199,955、5 ブロック設定が 12,199,957〜12,199,995。ガス代は投稿のレシートと Batcher の残高差で照合した。
+
+実効ガス単価はどちらも約 1 gwei だった。投稿 1 件のガス使用量は 25 ブロック設定で 352,472〜1,804,568、5 ブロック設定で 22,744〜449,176 だった。
 
 使わないときは `make down` で止める。止めている間は Batch を投稿しない。
 

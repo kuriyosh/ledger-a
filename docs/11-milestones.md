@@ -50,8 +50,8 @@ flowchart LR
 - [x] `chain/compose/docker-compose.chain.yml` と `make chain-up`。op-reth は `OP_RETH_STOCK_IMAGE` を使う。ネットワークを `ledgera-chain` と `ledgera` に分ける
 - [x] `make chain-shell`（`ledgera-chain` につないだ Foundry コンテナ）
 - [x] `make status`（ブロック高、safe ブロック、残高）
-- [ ] admin から `OptimismPortal.depositTransaction` を `cast send` で呼び、L2 に入ることを確認する
-- [ ] ダミーの実装コントラクトで `ProxyAdmin.upgradeAndCall(0x42…0700, …)` を試す
+- [x] viem で admin から Sepolia の `OptimismPortal.depositTransaction` を呼び、L2 に 0.001 ETH が着金することを確認
+- [x] 公開 Sepolia の DevNet で `ProxyAdmin.upgradeAndCall(0x42…0700, …)` を使い、ダミー実装の初期化と呼び出しを確認
 
 受け入れ基準。L2 に取引を送る確認は `make chain-shell` の中で行う。
 
@@ -174,7 +174,7 @@ flowchart LR
 |---|---|
 | 04 章 13 節のテストが通る | `make test`、`make test-integration` |
 | 07 章 3.8 のうち到着順に関するテストが通る | 同上 |
-| 5 送信者から同時に 100 件送り、監査の違反が 0 件 | 結合テスト |
+| 5 送信者から同時に 100 件送り、監査の違反が 0 件 | `make e2e-fifo APP_MODE=anvil` |
 | 仕掛けを使うと `ORDER_VIOLATION` が 1 件出る | 結合テスト |
 | 監査の対象が、発行済みの全 Receipt である。転送状態が `queued`、`forwarded`、`rejected` のどれでも、期限を過ぎて未取り込みなら `NOT_INCLUDED` になる | 単体テスト、結合テスト（転送先の遮断） |
 | 除外として記録されるのは、監査ツールが L2 の状態で理由を確認できたエントリだけ。Gateway が申告した理由だけでは除外にならない | 単体テスト |
@@ -256,7 +256,7 @@ flowchart LR
 - [x] `apps/web`: 外部者画面、監査者画面、デモ操作、デモ回による表示の切替（メールアドレス欄、登録簿、監査の集計区間）
 - [x] `e2e/scenes/` の場面 4（手順 1〜5）と場面 6
 - [x] ローカル Sepolia フォークで L1 から DevNet を配備し、場面 1〜6 の所要時間を計測
-- [ ] Sepolia で DevNet を配備し、場面 1〜6 の所要時間を計測
+- [x] 公開 Sepolia に DevNet を配備し、チェーンを作り直さずに `make e2e` で場面 1〜6 を 2 回実行
 - [x] デモの手順書（09 章の操作順と待ち時間）
 
 受け入れ基準。
@@ -272,6 +272,10 @@ flowchart LR
 | 場面 4 の手順 2〜4 のエラーが、すべて `ledgera: sender not allowed` である | `make e2e` |
 | vasp、consortium、indexer、auditor のコンテナとホストから、op-reth に取引を送れない | 各コンテナとホストから `eth_sendRawTransaction` を試す |
 | 検証ノードのブロックハッシュが一致する | `make replica-compare` |
+
+公開 Sepolia の DevNet で、`make e2e` の所要時間は 1 回目が 2 分 42 秒、2 回目が 3 分 20 秒。両回とも `e2e/check-privacy.sql` の実行を含む。この SQL は E2E 用の氏名が gateway、indexer、auditor、consortium、demo の DB に保存されていないことを確かめる。再演前の Safe 取引の確定待ちは計測の外。
+
+場面 1〜6 のブラウザ操作には 1 分 57 秒かかった。意図した C4 の 1 件を検出した。続けて VASP の承認後に氏名を開示できることを確認した。
 
 確かめる要検証事項: V6。
 
