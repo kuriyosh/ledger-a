@@ -107,7 +107,7 @@ fee scalar を 2 か所で 0 にする理由。
 
 `chain/compose/docker-compose.chain.yml` に op-reth、op-node、op-batcher、rpc-proxy の 4 サービスを書く。公式サンプルの `docker-compose.yml` からの差分は次のとおり。
 
-- op-reth のイメージを `${OP_RETH_STOCK_IMAGE}` にする。`OP_RETH_IMAGE` を指定した場合はそのイメージを使う。
+- Sequencer の op-reth は `mise.toml` の `OP_RETH_IMAGE` を使う。対照ノードは `OP_RETH_STOCK_IMAGE` を使う。
 - proposer、challenger、dispute-mon を削る。
 - 各コンポーネントに、役割に対応する鍵を渡す（公式サンプルは全部に同じ鍵を渡している）。
 - op-reth と op-node のポートをホストに出さない。ホストに出すのは rpc-proxy だけ（[10-dev-ops.md](10-dev-ops.md) の 7 節）。
@@ -670,7 +670,7 @@ Rust のバージョンは fork の `rust/rust-toolchain.toml` に従う。
 
 ### 12.3 イメージのビルド
 
-`chain/scripts/build-op-reth.sh` が行う。
+`mise run chain-image` が `chain/scripts/build-op-reth.sh` を実行する。
 
 1. `OPTIMISM_FORK_COMMIT` を浅く取得する。サブモジュール `superchain-registry` も取得する。
 2. 上流の Dockerfile でビルドする。
