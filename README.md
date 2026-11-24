@@ -8,51 +8,59 @@ KYC 済みアドレスだけが取引できる、金融向け Ethereum L2 の De
 
 ## 開発用の鍵と RPC
 
-Node.js 24.2 以降の 24 系と pnpm を用意し、`make setup` を実行する。
+mise、Docker Compose v2、Git を用意する。リポジトリのルートで次を実行する。
+
+```sh
+mise trust
+mise install
+mise run setup
+```
+
+開発ツールと Docker イメージのバージョンは `mise.toml` に定義する。
 `.env.example` を `.env` にコピーする。新しく生成したニーモニックを
 `LEDGERA_MNEMONIC="..."` の形式で設定する。
-`make keys` はアドレスを表示し、秘密鍵とサービス用シークレットを
+`mise run keys` はアドレスを表示し、秘密鍵とサービス用シークレットを
 `.env.generated` に保存する。同じニーモニックで再実行すると、保存済みの
 シークレットを再利用する。
 
 読み取り専用 RPC を単独で起動するには、次を実行する。
 
 ```sh
-UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 pnpm --filter @ledgera/rpc-proxy start
+UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 mise exec -- pnpm --filter @ledgera/rpc-proxy start
 ```
 
 op-node を使う場合は `UPSTREAM_ROLLUP_RPC_URLS` も指定する。
-`make test` で単体テストを実行する。`make test-integration` は Docker で
+`mise run test` で単体テストを実行する。`mise run test-integration` は Docker で
 anvil を起動し、有効な署名付き取引がプロキシ経由で拒否されることを確認する。
 
 ## anvil でコントラクトを初期化する
 
-`make setup` の後に `make anvil-up` を実行する。
+`mise run setup` の後に `mise run anvil-up` を実行する。
 コントラクトのアドレスと監査開始ブロックは `deployments/anvil.json` に出力する。
 読み取り専用 RPC は `127.0.0.1:8545`、直接送信は `127.0.0.1:9545` を使う。
 Gateway は `127.0.0.1:8600`、Auditor は `127.0.0.1:8650` で起動する。
-`make audit` で全件を検査する。
-`make anvil-down` で停止する。チェーンと PostgreSQL の状態は Docker ボリュームに保存される。
+`mise run audit` で全件を検査する。
+`mise run anvil-down` で停止する。チェーンと PostgreSQL の状態は Docker ボリュームに保存される。
 
 ## Sepolia で DevNet を起動する
 
 `.env` に Sepolia の `L1_RPC_URL` と `L1_BEACON_URL` を設定する。
-`make keys` が表示する admin アドレスに Sepolia ETH を用意する。
+`mise run keys` が表示する admin アドレスに Sepolia ETH を用意する。
 
 ```sh
-make fund-l1
-make chain-image
-make chain-deploy
-make chain-up
-make l2-bootstrap
-make app-up
-make status
+mise run fund-l1
+mise run chain-image
+mise run chain-deploy
+mise run chain-up
+mise run l2-bootstrap
+mise run app-up
+mise run status
 ```
 
-`make app-up` は `.env` の `POSTGRES_PASSWORD` を使う。
+`mise run app-up` は `.env` の `POSTGRES_PASSWORD` を使う。
 ホストからは `http://127.0.0.1:8545` の読み取り専用 RPC に接続する。
-L2 に直接送信する場合は `make chain-shell` を開く。
-停止するには `make chain-down` を実行する。
+L2 に直接送信する場合は `mise run chain-shell` を開く。
+停止するには `mise run app-down`、`mise run chain-down` の順に実行する。
 
 ## デモで見せること
 

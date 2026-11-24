@@ -12,23 +12,9 @@
 
 公式イメージのレジストリは `us-docker.pkg.dev/oplabs-tools-artifacts/images/`。
 
-`chain/versions.env` に次を持つ。
+`mise.toml` の `[env]` に、OP Stack のイメージ、op-deployer のバージョンとチェックサム、Optimism fork の URL とコミットを定義する。`OP_RETH_IMAGE` のタグは fork のコミットから作る。
 
-```
-OP_NODE_IMAGE=us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.20.2
-OP_BATCHER_IMAGE=us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:v1.18.1
-OP_CONDUCTOR_IMAGE=us-docker.pkg.dev/oplabs-tools-artifacts/images/op-conductor:v0.9.6
-OP_RETH_STOCK_IMAGE=us-docker.pkg.dev/oplabs-tools-artifacts/images/op-reth:v2.9.0
-OP_DEPLOYER_VERSION=v0.9.0
-OPTIMISM_UPSTREAM_TAG=op-reth/v2.9.0
-OPTIMISM_FORK_REPO=https://github.com/kuriyosh/optimism.git
-OPTIMISM_FORK_BRANCH=ledgera/op-reth-v2.9.0
-OPTIMISM_FORK_COMMIT=<fork の 40 桁コミット>
-OP_RETH_IMAGE=ledgera/op-reth:<短縮コミット>
-FOUNDRY_IMAGE=ghcr.io/foundry-rs/foundry:<固定するバージョン>
-```
-
-`FOUNDRY_IMAGE` は、op-reth に直接つなぐ作業（5 節の初期化、`make chain-shell`）をコンテナの中で行うために使う。
+`FOUNDRY_IMAGE` は、op-reth に直接つなぐ作業（5 節の初期化、`mise run chain-shell`）をコンテナの中で行うために使う。
 
 ## 2. チェーンのパラメータ
 
@@ -121,7 +107,7 @@ fee scalar を 2 か所で 0 にする理由。
 
 `chain/compose/docker-compose.chain.yml` に op-reth、op-node、op-batcher、rpc-proxy の 4 サービスを書く。公式サンプルの `docker-compose.yml` からの差分は次のとおり。
 
-- op-reth のイメージを `${OP_RETH_STOCK_IMAGE}` にする。`OP_RETH_IMAGE` を指定した場合はそのイメージを使う。
+- Sequencer の op-reth は `mise.toml` の `OP_RETH_IMAGE` を使う。対照ノードは `OP_RETH_STOCK_IMAGE` を使う。
 - proposer、challenger、dispute-mon を削る。
 - 各コンポーネントに、役割に対応する鍵を渡す（公式サンプルは全部に同じ鍵を渡している）。
 - op-reth と op-node のポートをホストに出さない。ホストに出すのは rpc-proxy だけ（[10-dev-ops.md](10-dev-ops.md) の 7 節）。
@@ -202,7 +188,7 @@ op-batcher
 
 ## 5. L2 の初期化
 
-`chain/scripts/bootstrap-l2.sh`（`make l2-bootstrap`）が行う。この時点では規則が無効なので、Gateway を通さない。op-reth の RPC はホストに出していないので、`ledgera-chain` ネットワークにつないだ Foundry コンテナ（`FOUNDRY_IMAGE`）の中で実行する。
+`chain/scripts/bootstrap-l2.sh`（`mise run l2-bootstrap`）が行う。この時点では規則が無効なので、Gateway を通さない。op-reth の RPC はホストに出していないので、`ledgera-chain` ネットワークにつないだ Foundry コンテナ（`FOUNDRY_IMAGE`）の中で実行する。
 
 1. L2 の `GasPriceOracle`（`0x420000000000000000000000000000000000000F`）の `baseFeeScalar()` と `blobBaseFeeScalar()` が 0 を返すまで待つ。
 2. `contracts/script/Bootstrap.s.sol` を op-reth の RPC に対して `--broadcast` で実行する（下の表の手順 1〜13）。
@@ -537,14 +523,14 @@ M7 までに余力があれば行う。必須ではない。
 
 ### 10.2 対照ノード
 
-「同じ Deposit が、標準の実行層では成功する」ことを確認する構成。Deposit が失敗した原因が実行層の規則であることを示す。Compose のプロファイル `control` に入れ、`make control-up` で起動する。
+「同じ Deposit が、標準の実行層では成功する」ことを確認する構成。Deposit が失敗した原因が実行層の規則であることを示す。Compose のプロファイル `control` に入れ、`mise run control-up` で起動する。
 
 | サービス | 内容 |
 |---|---|
 | op-reth-control | 公式イメージ（`OP_RETH_STOCK_IMAGE`）。別のデータディレクトリ |
 | op-node-control | op-node-replica と同じ設定 |
 
-確認方法。`chain/scripts/compare-deposit.sh <L2 の取引ハッシュ>`（`make control-compare DEPOSIT_HASH=<L2 の取引ハッシュ>`）が、未登録アドレスの Deposit（9.1）の結果を 3 つのノードから読んで並べる。期待する結果は次のとおり。
+確認方法。`mise run control-compare <L2 の取引ハッシュ>` が、未登録アドレスの Deposit（9.1）の結果を 3 つのノードから読んで並べる。期待する結果は次のとおり。
 
 | ノード | 実行層 | レシート | `DepositProbe.count(attacker)` |
 |---|---|---|---:|
@@ -555,7 +541,7 @@ M7 までに余力があれば行う。必須ではない。
 - 3 つのノードは、L1 の同じ Deposit を取り込む。違うのは実行層だけ。
 - 規則の有効化より前のブロックと、未登録アドレスの Deposit を含まないブロックは、標準の実行層でも同じ結果になる。対照ノードはそこまで Sequencer と一致する。
 - 対照ノードは、未登録アドレスの Deposit を含むブロックで分岐する。比較スクリプトは、3 台の親ブロックのハッシュも照合する。
-- 対照ノードで確認できるのは、そのチェーンで最初の未登録 Deposit だけ。確認が済んだら `make control-down` でデータごと消す。
+- 対照ノードで確認できるのは、そのチェーンで最初の未登録 Deposit だけ。確認が済んだら `mise run control-down` でデータごと消す。
 - 対照ノードが期待どおりに導出するかは M2 で確かめる（V20）。
 
 ## 11. 冗長化（要件 19）
@@ -629,17 +615,17 @@ OP_CONDUCTOR_PAUSED=true            # 起動時
 
 `HEALTHCHECK_MIN_PEER_COUNT` を 1 にする理由。3 台構成で 1 台が止まると、残った op-node のピアは 1 つになる。2 以上にすると、残った 2 台も不健全と判定され、切り替わらない。
 
-初回は L1 を配備し、genesis と 資金を入れたアカウントを用意する。単一 Sequencer が動いている場合は `make chain-down` で停止する。
+初回は L1 を配備し、genesis と 資金を入れたアカウントを用意する。単一 Sequencer が動いている場合は `mise run chain-down` で停止する。
 
 ```bash
-make ha-up
-make l2-bootstrap-ha
-make app-up APP_MODE=devnet-ha
+mise run ha-up
+mise run l2-bootstrap-ha
+APP_MODE=devnet-ha mise run app-up
 ```
 
-`make ha-up` は静的ピア用の鍵を生成する。各 Conductor に rollup 設定を渡し、Raft に 3 台を登録する。初回は選出されたリーダーが最初の unsafe ブロックを作る。Conductor が制御を再開してから Batcher を起動する。op-reth は内部 IPC で同期ピアを登録し、最新ブロックをディスクに保存する。
+`mise run ha-up` は静的ピア用の鍵を生成する。各 Conductor に rollup 設定を渡し、Raft に 3 台を登録する。初回は選出されたリーダーが最初の unsafe ブロックを作る。Conductor が制御を再開してから Batcher を起動する。op-reth は内部 IPC で同期ピアを登録し、最新ブロックをディスクに保存する。
 
-停止は `make app-down APP_MODE=devnet-ha` と `make ha-down` を使う。各ノードのデータと P2P 鍵を再利用する。
+停止は `APP_MODE=devnet-ha mise run app-down` と `mise run ha-down` を使う。各ノードのデータと P2P 鍵を再利用する。
 
 ### 11.3 Gateway の切替
 
@@ -657,7 +643,7 @@ op-conductor は未処理の取引を引き継がない。Gateway が再送す�
 
 | 試験 | 期待 |
 |---|---|
-| リーダーの組の op-node と op-reth を止める（`make ha-kill-leader`） | 30 秒以内に別の組がブロックを作り始める |
+| リーダーの組の op-node と op-reth を止める（`mise run ha-kill-leader`） | 30 秒以内に別の組がブロックを作り始める |
 | 切替中に送金する | 切替後にブロックに入る。通番が連続している |
 | 止めた組を戻す | フォロワーとして追いつく。リーダーが 2 つにならない |
 | 切替の前後で監査ツールを実行する | 順序違反と未採用が出ない |
@@ -684,7 +670,7 @@ Rust のバージョンは fork の `rust/rust-toolchain.toml` に従う。
 
 ### 12.3 イメージのビルド
 
-`chain/scripts/build-op-reth.sh` が行う。
+`mise run chain-image` が `chain/scripts/build-op-reth.sh` を実行する。
 
 1. `OPTIMISM_FORK_COMMIT` を浅く取得する。サブモジュール `superchain-registry` も取得する。
 2. 上流の Dockerfile でビルドする。
@@ -698,7 +684,7 @@ Rust のバージョンは fork の `rust/rust-toolchain.toml` に従う。
      rust
    ```
 
-3. `OP_RETH_IMAGE` を `chain/versions.env` に書く。
+3. `mise.toml` が定める `OP_RETH_IMAGE` のタグでイメージを保存する。
 
 - ビルドコンテキストは `rust/`。`superchain-registry` は名前付きコンテキストで渡す。
 - `BUILD_PROFILE` の上流既定は `maxperf`。ビルド時間を縮めるため `release` にする。
@@ -708,5 +694,5 @@ Rust のバージョンは fork の `rust/rust-toolchain.toml` に従う。
 | 状況 | 手順 |
 |---|---|
 | op-reth のデータが壊れた | データディレクトリを消して起動する。op-node が L1 の Batch から再構築する。Batch 未投稿のブロックは失われる。失われたブロックの取引は Gateway が送り直す（04 章 7.2）。各サービスは再編成として扱う |
-| デモを最初からやり直したい | チェーンは作り直さない。`make demo-seed` で新しいデモ回を作り、場面 1 から行う（09 章 9 節）。登場人物のアドレスと、監査の集計区間が新しくなる |
-| 初期状態に戻したい（遮断も違反の記録もない状態） | L1 へのデプロイからやり直す（3 節）。`make clean` で各サービスの DB も消す。Sepolia ETH を再度使う。同じ L1 コントラクトのままでは、過去の Batch から同じ状態が再構築される |
+| デモを最初からやり直したい | チェーンは作り直さない。`mise run demo-seed` で新しいデモ回を作り、場面 1 から行う（09 章 9 節）。登場人物のアドレスと、監査の集計区間が新しくなる |
+| 初期状態に戻したい（遮断も違反の記録もない状態） | L1 へのデプロイからやり直す（3 節）。各サービスの DB も初期化する。Sepolia ETH を再度使う。同じ L1 コントラクトのままでは、過去の Batch から同じ状態が再構築される |

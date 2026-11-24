@@ -350,7 +350,7 @@ pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 - 開示請求は Registry から所属 VASP と `endpoint` を取得し、その VASP の `POST /vasp/v1/disclosure-requests` に送る。Registry と設定の接続先が同じオリジンの場合だけ監査用の鍵を付ける。
 - VASP が承認すると、`GET /v1/disclosures/:id` が開示内容を返す。開示内容は DB に保存しない。VASP から都度取得する。
 
-- 開示請求の作成と参照には `AUDITOR_ADMIN_TOKEN` を使う。`make keys` または `make audit-keys` で、DevNet のトークンを `.env.auditor.generated` に作る。自由記述の理由は VASP に送る。監査 DB には理由の分類だけを保存する。
+- 開示請求の作成と参照には `AUDITOR_ADMIN_TOKEN` を使う。`mise run keys` または `mise run audit-keys` で、DevNet のトークンを `.env.auditor.generated` に作る。自由記述の理由は VASP に送る。監査 DB には理由の分類だけを保存する。
 
 ### 3.5 API
 
@@ -436,5 +436,5 @@ pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
 
 Anvil の結合テストは、実行ごとに初期化直後の専用チェーンと空の PostgreSQL DB を使う。
 `TEST_AUDITOR_E2E_L2_RPC` は `127.0.0.1` の直接 RPC、`TEST_AUDITOR_E2E_DEPLOYMENT` は Anvil のデプロイ結果を指定する。
-`TEST_AUDITOR_E2E_ROLES` に Anvil 用の `.env.generated`、`TEST_AUDITOR_E2E_DATABASE_URL` に接続 URL を指定して `make test-integration` を実行する。
+`TEST_AUDITOR_E2E_ROLES` に Anvil 用の `.env.generated`、`TEST_AUDITOR_E2E_DATABASE_URL` に接続 URL を指定して `mise run test-integration` を実行する。
 テスト中の Gateway と Auditor は Vitest が起動する。

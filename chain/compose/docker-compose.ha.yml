@@ -30,7 +30,7 @@ x-ha-node: &ha-node
     - --rpc.enable-admin
 
 x-ha-node-env: &ha-node-env
-  OP_NODE_P2P_SEQUENCER_KEY: ${SEQUENCER_PRIVATE_KEY:?Run make keys}
+  OP_NODE_P2P_SEQUENCER_KEY: ${SEQUENCER_PRIVATE_KEY:?Use mise run keys}
 
 x-ha-conductor: &ha-conductor
   restart: unless-stopped
@@ -75,7 +75,7 @@ services:
       ]
 
   ha-control:
-    image: node:24-bookworm-slim
+    image: ${NODE_IMAGE:?Run via mise}
     profiles: [tools]
     networks: [chain]
     volumes:
@@ -100,7 +100,7 @@ services:
       <<: *ha-node-env
       OP_NODE_L2_ENGINE_RPC: http://op-reth-1:8551
       OP_NODE_CONDUCTOR_RPC: http://op-conductor-1:8547
-      OP_NODE_P2P_STATIC: "${HA_PEERS_1:?Run make ha-up}"
+      OP_NODE_P2P_STATIC: "${HA_PEERS_1:?Use mise run ha-up}"
     depends_on: !override [op-reth-1]
     volumes:
       - ../runtime/ha/p2p-1:/workspace/p2p-key:ro
@@ -132,7 +132,7 @@ services:
       <<: *ha-node-env
       OP_NODE_L2_ENGINE_RPC: http://op-reth-2:8551
       OP_NODE_CONDUCTOR_RPC: http://op-conductor-2:8547
-      OP_NODE_P2P_STATIC: "${HA_PEERS_2:?Run make ha-up}"
+      OP_NODE_P2P_STATIC: "${HA_PEERS_2:?Use mise run ha-up}"
     depends_on: !override [op-reth-2]
     volumes:
       - ../runtime/ha/p2p-2:/workspace/p2p-key:ro
@@ -163,7 +163,7 @@ services:
       <<: *ha-node-env
       OP_NODE_L2_ENGINE_RPC: http://op-reth-3:8551
       OP_NODE_CONDUCTOR_RPC: http://op-conductor-3:8547
-      OP_NODE_P2P_STATIC: "${HA_PEERS_3:?Run make ha-up}"
+      OP_NODE_P2P_STATIC: "${HA_PEERS_3:?Use mise run ha-up}"
     depends_on: !override [op-reth-3]
     volumes:
       - ../runtime/ha/p2p-3:/workspace/p2p-key:ro

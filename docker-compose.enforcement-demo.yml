@@ -2,7 +2,7 @@ services:
   demo-tools:
     environment:
       L1_RPC_URL: ${L1_RPC_URL:?Set L1_RPC_URL in .env}
-      ATTACKER_PRIVATE_KEY: ${ATTACKER_PRIVATE_KEY:?Run make keys}
+      ATTACKER_PRIVATE_KEY: ${ATTACKER_PRIVATE_KEY:?Use mise run keys}
       L2_DIRECT_RPC_URL: ${L2_DIRECT_RPC_URL:-http://op-reth:8545}
       ATTACKER_MAX_FEE_PER_GAS_WEI: ${ATTACKER_MAX_FEE_PER_GAS_WEI:-3000000000}
     networks: [app, chain]

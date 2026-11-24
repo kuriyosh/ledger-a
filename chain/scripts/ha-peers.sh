@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-source chain/versions.env
 umask 077
 
 runtime=chain/runtime/ha

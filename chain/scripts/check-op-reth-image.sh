@@ -3,10 +3,10 @@ set -euo pipefail
 
 service=$1
 shift
-expected=$(source chain/versions.env && printf '%s\n' "$OPTIMISM_FORK_COMMIT")
+expected=${OPTIMISM_FORK_COMMIT:?Run via mise}
 image=$("$@" config --format json | jq -er --arg service "$service" '.services[$service].image')
 actual=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image" 2>/dev/null || true)
 if [[ "$actual" != "$expected" ]]; then
-  echo "The local image $image must contain Optimism commit $expected. Run make chain-image." >&2
+  echo "The local image $image must contain Optimism commit $expected. Use mise run chain-image." >&2
   exit 1
 fi

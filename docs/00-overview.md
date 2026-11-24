@@ -160,6 +160,6 @@ ledgerA は、KYC 済みアドレスだけが取引できる金融向けの Ethe
 | op-contracts | v9.0.0（op-deployer v0.9.0 の既定） |
 | op-conductor | v0.9.6 |
 
-- バージョンは `chain/versions.env` で固定する。上流への追従はしない。
+- バージョンは `mise.toml` で固定する。
 - 02 章のソース位置は `ethereum-optimism/optimism` の develop（2026-11-18 時点）で確認した。固定する tag での位置は M0 で確認する。
 - 02 章 3.2 の fee scalar の初期値と、11.2 の op-conductor の必須項目は、固定する tag のソースで確認した。

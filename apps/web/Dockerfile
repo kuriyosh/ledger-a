@@ -1,14 +1,16 @@
-FROM node:24-bookworm-slim AS build
+ARG NODE_IMAGE
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
+ARG PNPM_VERSION
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
-RUN npm install -g "$(node -p 'require("./package.json").packageManager')" \
+RUN npm install -g "pnpm@$PNPM_VERSION" \
     && pnpm --filter @ledgera/web install --frozen-lockfile
 COPY apps/web/ apps/web/
 RUN pnpm --filter @ledgera/web build
 
-FROM node:24-bookworm-slim
+FROM ${NODE_IMAGE}
 WORKDIR /app
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=build --chown=node:node /app/apps/web/.next/standalone ./

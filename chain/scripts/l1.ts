@@ -51,7 +51,7 @@ export async function requirePlainAccount(
 export function adminWallet() {
   const key = required("ADMIN_PRIVATE_KEY");
   if (!/^0x[0-9a-fA-F]{64}$/.test(key))
-    throw new Error("Run make keys to generate ADMIN_PRIVATE_KEY");
+    throw new Error("Use mise run keys to generate ADMIN_PRIVATE_KEY");
   const account = privateKeyToAccount(key as Hex);
   if (!isAddressEqual(account.address, address(required("ADMIN_ADDRESS")))) {
     throw new Error("ADMIN_PRIVATE_KEY does not match ADMIN_ADDRESS");

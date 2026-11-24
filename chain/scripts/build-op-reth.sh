@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-source chain/versions.env
 
 if [[ ! "${OPTIMISM_FORK_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "Set a full Optimism fork commit in chain/versions.env" >&2
+  echo "Set a full Optimism fork commit in mise.toml" >&2
   exit 1
 fi
 

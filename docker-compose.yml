@@ -1,7 +1,11 @@
+x-node-build-args: &node-build-args
+  NODE_IMAGE: ${NODE_IMAGE:?Run via mise}
+  PNPM_VERSION: ${PNPM_VERSION:?Run via mise}
+
 name: ledgera-app-${LEDGERA_APP_MODE:-devnet}
 
 x-app-environment: &app-environment
-  DATABASE_URL: ${LEDGERA_DATABASE_URL:?Run make app-up}
+  DATABASE_URL: ${LEDGERA_DATABASE_URL:?Use mise run app-up}
   DEPLOYMENTS_FILE: /deployments/${LEDGERA_APP_MODE:-devnet}.json
 
 x-app-healthcheck: &app-healthcheck
@@ -15,6 +19,7 @@ x-vasp: &vasp
     context: .
     dockerfile: services/Dockerfile
     args:
+      <<: *node-build-args
       SERVICE: vasp
   user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
   volumes:
@@ -36,7 +41,7 @@ x-vasp: &vasp
 
 services:
   postgres:
-    image: postgres:17@sha256:223efeb196329b55b3b9a13db144956411dbc18e727e59f681c3e0aede6475cf
+    image: ${POSTGRES_IMAGE:?Run via mise}
     environment:
       POSTGRES_USER: ledgera
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -55,19 +60,20 @@ services:
       context: .
       dockerfile: services/Dockerfile
       args:
+        <<: *node-build-args
         SERVICE: gateway
     user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
     environment:
       <<: *app-environment
-      SEQUENCER_RPC_URLS: ${SEQUENCER_RPC_URLS:?Run make app-up}
+      SEQUENCER_RPC_URLS: ${SEQUENCER_RPC_URLS:?Use mise run app-up}
       CONDUCTOR_RPC_URLS: ${CONDUCTOR_RPC_URLS-}
       SEQUENCER_READ_RPC_URL: ${SEQUENCER_READ_RPC_URL-}
-      GATEWAY_PRIVATE_KEY: ${GATEWAY_PRIVATE_KEY:?Run make keys}
-      RELAYER_KEYS: '{"1":"${RELAYER_A_PRIVATE_KEY:?Run make keys}","2":"${RELAYER_B_PRIVATE_KEY:?Run make keys}"}'
-      VASP_API_KEYS: '{"1":"${VASP_A_GATEWAY_API_KEY:?Run make keys}","2":"${VASP_B_GATEWAY_API_KEY:?Run make keys}"}'
+      GATEWAY_PRIVATE_KEY: ${GATEWAY_PRIVATE_KEY:?Use mise run keys}
+      RELAYER_KEYS: '{"1":"${RELAYER_A_PRIVATE_KEY:?Use mise run keys}","2":"${RELAYER_B_PRIVATE_KEY:?Use mise run keys}"}'
+      VASP_API_KEYS: '{"1":"${VASP_A_GATEWAY_API_KEY:?Use mise run keys}","2":"${VASP_B_GATEWAY_API_KEY:?Use mise run keys}"}'
       COMMIT_INTERVAL_SEC: ${COMMIT_INTERVAL_SEC:-30}
       DEMO_MODE: ${DEMO_MODE:-false}
-      ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run make keys}
+      ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Use mise run keys}
     volumes:
       - ./deployments:/deployments:ro
     ports:
@@ -91,6 +97,7 @@ services:
       context: .
       dockerfile: services/Dockerfile
       args:
+        <<: *node-build-args
         SERVICE: auditor
     user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
     environment:
@@ -98,11 +105,11 @@ services:
       AUDIT_RPC_URL: ${AUDIT_RPC_URL:-http://rpc-proxy:8545}
       GATEWAY_URL: http://gateway:8600
       INDEXER_URL: http://indexer:8640
-      AUDITOR_ADMIN_TOKEN: ${AUDITOR_ADMIN_TOKEN:?Run make keys}
+      AUDITOR_ADMIN_TOKEN: ${AUDITOR_ADMIN_TOKEN:?Use mise run keys}
       VASP_A_URL: http://vasp-a:8621
       VASP_B_URL: http://vasp-b:8622
-      VASP_A_AUDITOR_KEY: ${VASP_A_AUDITOR_KEY:?Run make keys}
-      VASP_B_AUDITOR_KEY: ${VASP_B_AUDITOR_KEY:?Run make keys}
+      VASP_A_AUDITOR_KEY: ${VASP_A_AUDITOR_KEY:?Use mise run keys}
+      VASP_B_AUDITOR_KEY: ${VASP_B_AUDITOR_KEY:?Use mise run keys}
       INCLUSION_DEADLINE_SEC: ${INCLUSION_DEADLINE_SEC:-120}
       TIME_TOLERANCE_SEC: ${TIME_TOLERANCE_SEC:-5}
       AUDIT_INTERVAL_SEC: ${AUDIT_INTERVAL_SEC:-10}
@@ -138,12 +145,12 @@ services:
       AML_THRESHOLD_TUSD: ${AML_THRESHOLD_TUSD:-5000}
       AML_THRESHOLD_TJPY: ${AML_THRESHOLD_TJPY:-500000}
       AML_WATCHLIST: ${AML_WATCHLIST:-}
-      GATEWAY_API_KEY: ${VASP_A_GATEWAY_API_KEY:?Run make keys}
-      VASP_ADMIN_PRIVATE_KEY: ${VASP_A_ADMIN_PRIVATE_KEY:?Run make keys}
-      VASP_SIGNER_PRIVATE_KEY: ${VASP_A_SIGNER_PRIVATE_KEY:?Run make keys}
-      VASP_KEY_ENCRYPTION_KEY: ${VASP_A_KEY_ENCRYPTION_KEY:?Run make keys}
-      ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Run make keys}
-      AUDITOR_API_KEY: ${VASP_A_AUDITOR_KEY:?Run make keys}
+      GATEWAY_API_KEY: ${VASP_A_GATEWAY_API_KEY:?Use mise run keys}
+      VASP_ADMIN_PRIVATE_KEY: ${VASP_A_ADMIN_PRIVATE_KEY:?Use mise run keys}
+      VASP_SIGNER_PRIVATE_KEY: ${VASP_A_SIGNER_PRIVATE_KEY:?Use mise run keys}
+      VASP_KEY_ENCRYPTION_KEY: ${VASP_A_KEY_ENCRYPTION_KEY:?Use mise run keys}
+      ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Use mise run keys}
+      AUDITOR_API_KEY: ${VASP_A_AUDITOR_KEY:?Use mise run keys}
       KYC_VALIDITY_DAYS: ${KYC_VALIDITY_DAYS:-365}
       TRAVEL_RULE_AUTO_APPROVE: ${TRAVEL_RULE_AUTO_APPROVE:-false}
       TRAVEL_RULE_TTL_SEC: ${TRAVEL_RULE_TTL_SEC:-600}
@@ -166,18 +173,18 @@ services:
       AML_THRESHOLD_TUSD: ${AML_THRESHOLD_TUSD:-5000}
       AML_THRESHOLD_TJPY: ${AML_THRESHOLD_TJPY:-500000}
       AML_WATCHLIST: ${AML_WATCHLIST:-}
-      GATEWAY_API_KEY: ${VASP_B_GATEWAY_API_KEY:?Run make keys}
-      VASP_ADMIN_PRIVATE_KEY: ${VASP_B_ADMIN_PRIVATE_KEY:?Run make keys}
-      VASP_SIGNER_PRIVATE_KEY: ${VASP_B_SIGNER_PRIVATE_KEY:?Run make keys}
-      VASP_KEY_ENCRYPTION_KEY: ${VASP_B_KEY_ENCRYPTION_KEY:?Run make keys}
-      ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Run make keys}
-      AUDITOR_API_KEY: ${VASP_B_AUDITOR_KEY:?Run make keys}
+      GATEWAY_API_KEY: ${VASP_B_GATEWAY_API_KEY:?Use mise run keys}
+      VASP_ADMIN_PRIVATE_KEY: ${VASP_B_ADMIN_PRIVATE_KEY:?Use mise run keys}
+      VASP_SIGNER_PRIVATE_KEY: ${VASP_B_SIGNER_PRIVATE_KEY:?Use mise run keys}
+      VASP_KEY_ENCRYPTION_KEY: ${VASP_B_KEY_ENCRYPTION_KEY:?Use mise run keys}
+      ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Use mise run keys}
+      AUDITOR_API_KEY: ${VASP_B_AUDITOR_KEY:?Use mise run keys}
       KYC_VALIDITY_DAYS: ${KYC_VALIDITY_DAYS:-365}
       TRAVEL_RULE_AUTO_APPROVE: ${TRAVEL_RULE_AUTO_APPROVE:-false}
       TRAVEL_RULE_TTL_SEC: ${TRAVEL_RULE_TTL_SEC:-600}
       MARKET_MAKER_VASP_ID: ${MARKET_MAKER_VASP_ID:-2}
       MARKET_MAKER_ENABLED: ${MARKET_MAKER_ENABLED:-true}
-      TREASURY_PRIVATE_KEY: ${VASP_B_TREASURY_PRIVATE_KEY:?Run make keys}
+      TREASURY_PRIVATE_KEY: ${VASP_B_TREASURY_PRIVATE_KEY:?Use mise run keys}
       RFQ_RATE_JPY_PER_USD: ${RFQ_RATE_JPY_PER_USD:-155.20}
       RFQ_TTL_SEC: ${RFQ_TTL_SEC:-30}
       DEMO_MODE: ${DEMO_MODE:-false}
@@ -190,6 +197,7 @@ services:
       context: .
       dockerfile: services/Dockerfile
       args:
+        <<: *node-build-args
         SERVICE: consortium
     user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
     environment:
@@ -197,8 +205,8 @@ services:
       PORT: 8630
       L2_RPC_URL: http://rpc-proxy:8545
       GATEWAY_URL: http://gateway:8600
-      CONSORTIUM_MEMBER_KEYS: '["${CONSORTIUM_1_PRIVATE_KEY:?Run make keys}","${CONSORTIUM_2_PRIVATE_KEY:?Run make keys}","${CONSORTIUM_3_PRIVATE_KEY:?Run make keys}"]'
-      ADMIN_TOKEN: ${CONSORTIUM_ADMIN_TOKEN:?Run make keys}
+      CONSORTIUM_MEMBER_KEYS: '["${CONSORTIUM_1_PRIVATE_KEY:?Use mise run keys}","${CONSORTIUM_2_PRIVATE_KEY:?Use mise run keys}","${CONSORTIUM_3_PRIVATE_KEY:?Use mise run keys}"]'
+      ADMIN_TOKEN: ${CONSORTIUM_ADMIN_TOKEN:?Use mise run keys}
     volumes:
       - ./deployments:/deployments:ro
     ports:
@@ -224,6 +232,7 @@ services:
       context: .
       dockerfile: services/Dockerfile
       args:
+        <<: *node-build-args
         SERVICE: indexer
     user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
     environment:
@@ -259,6 +268,7 @@ services:
       context: .
       dockerfile: services/Dockerfile
       args:
+        <<: *node-build-args
         SERVICE: demo-tools
     user: ${LEDGERA_UID:-1000}:${LEDGERA_GID:-1000}
     environment:
@@ -267,12 +277,12 @@ services:
       DEMO_MODE: ${DEMO_MODE:-false}
       L2_RPC_URL: http://rpc-proxy:8545
       GATEWAY_URL: http://gateway:8600
-      ISSUER_PRIVATE_KEY: ${ISSUER_PRIVATE_KEY:?Run make keys}
-      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run make keys}
+      ISSUER_PRIVATE_KEY: ${ISSUER_PRIVATE_KEY:?Use mise run keys}
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Use mise run keys}
       VASP_A_URL: http://vasp-a:8621
       VASP_B_URL: http://vasp-b:8622
-      VASP_A_ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Run make keys}
-      VASP_B_ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Run make keys}
+      VASP_A_ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Use mise run keys}
+      VASP_B_ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Use mise run keys}
     volumes:
       - ./deployments:/deployments:ro
     ports:
@@ -298,23 +308,24 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args: *node-build-args
     environment:
       LEDGERA_APP_MODE: ${LEDGERA_APP_MODE:-devnet}
       DEMO_MODE: ${DEMO_MODE:-false}
       WEB_ALLOWED_ORIGIN: ${WEB_ALLOWED_ORIGIN:-}
       VASP_A_URL: http://vasp-a:8621
       VASP_B_URL: http://vasp-b:8622
-      VASP_A_ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Run make keys}
-      VASP_B_ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Run make keys}
+      VASP_A_ADMIN_TOKEN: ${VASP_A_ADMIN_TOKEN:?Use mise run keys}
+      VASP_B_ADMIN_TOKEN: ${VASP_B_ADMIN_TOKEN:?Use mise run keys}
       CONSORTIUM_URL: http://consortium:8630
-      CONSORTIUM_ADMIN_TOKEN: ${CONSORTIUM_ADMIN_TOKEN:?Run make keys}
+      CONSORTIUM_ADMIN_TOKEN: ${CONSORTIUM_ADMIN_TOKEN:?Use mise run keys}
       INDEXER_URL: http://indexer:8640
       AUDITOR_URL: http://auditor:8650
       AUDITOR_ADMIN_TOKEN: ${AUDITOR_ADMIN_TOKEN:-}
       GATEWAY_URL: http://gateway:8600
       DEMO_TOOLS_URL: http://demo-tools:8660
       BATCHER_ADDRESS: ${BATCHER_ADDRESS:-}
-      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run make keys}
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Use mise run keys}
     ports:
       - 127.0.0.1:3000:3000
     networks: [app]

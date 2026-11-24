@@ -53,7 +53,7 @@ const exec = promisify(execFile);
 async function finalizeAnvil() {
   const configured = process.env.LEDGERA_E2E_ANVIL_CONTROL_URL;
   if (!configured) {
-    await exec("make", ["e2e-anvil-finalize"]);
+    await exec("mise", ["run", "e2e-anvil-finalize"]);
     return;
   }
   const url = new URL(configured);

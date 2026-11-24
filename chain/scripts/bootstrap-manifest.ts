@@ -192,7 +192,7 @@ async function writeManifest(
   const path = `deployments/${mode}.json`;
   const existing = await existingManifest(path);
   if (mode === "devnet" && (existing?.chainId !== chainId || !existing.l1)) {
-    throw new Error("Run make chain-deploy to prepare the devnet manifest");
+    throw new Error("Use mise run chain-deploy to prepare the devnet manifest");
   }
   const sameDeployment =
     existing?.chainId === chainId &&
@@ -258,7 +258,7 @@ async function main() {
     const existing = await existingManifest(`deployments/${mode}.json`);
     if (mode === "devnet") {
       if (existing?.chainId !== chainId || !existing.l1)
-        throw new Error("Run make chain-deploy first");
+        throw new Error("Use mise run chain-deploy first");
       await waitForFees(client);
     }
     console.log(getAddress(existing?.contracts?.kycRegistry ?? zeroAddress));

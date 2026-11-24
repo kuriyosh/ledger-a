@@ -222,7 +222,7 @@ async function main(deployer: string) {
 
 const deployer = process.argv[2];
 try {
-  if (!deployer) throw new Error("Run make chain-deploy");
+  if (!deployer) throw new Error("Use mise run chain-deploy");
   await main(deployer);
 } catch (error) {
   console.error(

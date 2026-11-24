@@ -86,17 +86,11 @@ async function customer(email: string, givenName: string) {
 }
 const status = () => request<Gateway>("gateway", "/v1/status");
 const audit = () => request<Audit>("auditor", "/v1/fifo/run", "POST");
-const control = (target: string) => {
-  const options = [];
-  if (process.env.LEDGERA_E2E_HA_COMPOSE)
-    options.push(`HA_COMPOSE=${process.env.LEDGERA_E2E_HA_COMPOSE}`);
-  if (process.env.LEDGERA_E2E_CHAIN_COMPOSE)
-    options.push(`CHAIN_COMPOSE=${process.env.LEDGERA_E2E_CHAIN_COMPOSE}`);
-  return exec("make", [target, ...options], {
+const control = (target: string) =>
+  exec("mise", ["run", target], {
     cwd: process.env.LEDGERA_E2E_HA_DIRECTORY,
     timeout: 85_000,
   });
-};
 
 test.skipIf(
   process.env.LEDGERA_E2E !== "1" || process.env.APP_MODE !== "devnet-ha",

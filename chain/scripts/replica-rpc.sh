@@ -1,4 +1,3 @@
-source chain/versions.env
 
 cast_in_network() {
   local network=$1
