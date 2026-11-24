@@ -137,7 +137,7 @@ fund-l1:
 APP_MODE ?= devnet
 APP_COMPOSE = bash chain/scripts/app-compose.sh $(APP_MODE)
 
-.PHONY: app-up app-down app-logs audit demo-seed e2e
+.PHONY: app-up app-down app-logs audit demo-seed e2e e2e-fifo
 
 app-up:
 	$(APP_COMPOSE) up -d --build --wait
@@ -154,6 +154,9 @@ demo-seed:
 e2e: demo-seed
 	LEDGERA_E2E=1 APP_MODE=$(APP_MODE) pnpm exec vitest run --no-file-parallelism e2e/scenes
 	$(APP_COMPOSE) exec -T postgres psql -v ON_ERROR_STOP=1 -U ledgera -d ledgera < e2e/check-privacy.sql
+
+e2e-fifo:
+	LEDGERA_FIFO_E2E=1 APP_MODE=$(APP_MODE) pnpm exec vitest run e2e/fifo.test.ts
 
 audit:
 	@pnpm --silent --filter @ledgera/auditor fifo --from 1 --json
