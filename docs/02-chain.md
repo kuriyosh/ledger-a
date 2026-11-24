@@ -5,9 +5,9 @@
 | コンポーネント | イメージ | 台数 | 備考 |
 |---|---|---:|---|
 | op-reth | `ledgera/op-reth:<短縮コミット>`（fork からビルド） | 1 | 冗長化構成では 3 |
-| op-node | 公式 v1.20.2 | 1 | Sequencer。冗長化構成では 3 |
-| op-batcher | 公式 v1.18.1 | 1 | calldata で投稿 |
-| op-conductor | 公式 v0.9.6 | 0 | 冗長化構成では 3 |
+| op-node | `OP_NODE_IMAGE` | 1 | Sequencer。冗長化構成では 3 |
+| op-batcher | `OP_BATCHER_IMAGE` | 1 | calldata で投稿 |
+| op-conductor | `OP_CONDUCTOR_IMAGE` | 0 | 冗長化構成では 3 |
 | op-proposer、op-challenger | - | 0 | 動かさない |
 
 公式イメージのレジストリは `us-docker.pkg.dev/oplabs-tools-artifacts/images/`。
@@ -25,52 +25,25 @@
 | L2 ブロック時間 | 2 秒 | intent の `deployOverrides.l2BlockTime` |
 | ガス上限 | op-deployer の既定値 | 変更しない |
 | EIP-1559 パラメータ | op-deployer の既定値 | 変更しない |
-| L1 データ手数料 | 0 | intent の `gasPriceOracleBaseFeeScalar = 0`、`gasPriceOracleBlobBaseFeeScalar = 0` と、L1 の `SystemConfig.setGasConfigEcotone(0, 0)`（3.1 の手順 6） |
+| L1 データ手数料 | 0 | intent の `gasPriceOracleBaseFeeScalar = 0`、`gasPriceOracleBlobBaseFeeScalar = 0` と、L1 の `SystemConfig.setGasConfigEcotone(0, 0)`（3.1） |
 | operator fee | 0 | 既定値 |
 | 最小 base fee | 0 | 既定値 |
 | データ可用性 | calldata | op-batcher の `--data-availability-type=calldata` |
 | ハードフォーク | genesis 時点で全て有効。後から有効化しない | op-deployer の既定 |
 
-L2 chain ID は chainlist と衝突しないことを M0 で確認する。
-
 ## 3. L1 へのデプロイ
 
-`chain/scripts/deploy-l1.sh` が手順 1〜6、`chain/scripts/gen-config.sh` が手順 7〜8 を行う。`gen-config.sh` は `chain/runtime/jwt.txt` も作る。公式サンプル `docs/public-docs/create-l2-rollup-example/scripts/setup-rollup.sh` を元にする。
+`mise run chain-deploy` が L1 にコントラクトを配備し、起動用の設定を生成する。先に `mise run keys` を実行して運営側の鍵を作り、admin に Sepolia ETH を入れる。
 
-### 3.1 手順
+### 3.1 処理の流れ
 
-1. op-deployer v0.9.0 のバイナリを取得する。
-2. `chain/scripts/derive-accounts.ts` で運営側アカウントのアドレスを得る。
-3. 初期化する。
+1. `chain/scripts/deploy-l1.sh` が `mise.toml` で指定した op-deployer を取得し、チェックサムを照合する。
+2. `chain/scripts/deploy-l1.ts` が `op-deployer init` を `standard-overrides` で実行し、intent を設定する。既存の設定があればチェーン ID とロールを照合する。
+3. `op-deployer apply` が admin の鍵で Sepolia にコントラクトを配備する。適用済みの状態があれば再利用する。
+4. `SystemConfig` の fee scalar を読む。値が残っていれば `setGasConfigEcotone(0, 0)` を実行し、2 ブロックの確認を待ち、レシートの成功と設定値を確かめる。
+5. `chain/scripts/gen-config.sh` が genesis、rollup 設定、JWT を `chain/runtime/` に書く。L1 側の `OptimismPortal` と `SystemConfig` のアドレスは `deployments/devnet.json` に書く。
 
-   ```
-   op-deployer init \
-     --l1-chain-id 11155111 \
-     --l2-chain-ids "$L2_CHAIN_ID" \
-     --workdir chain/.deployer \
-     --intent-type standard-overrides
-   ```
-
-4. `chain/.deployer/intent.toml` を編集する（3.2）。
-5. 適用する。
-
-   ```
-   DEPLOYER_PRIVATE_KEY="$ADMIN_PRIVATE_KEY" L1_RPC_URL="$L1_RPC_URL" \
-     op-deployer apply --workdir chain/.deployer
-   ```
-
-6. L1 の `SystemConfig` の fee scalar を確認する。値が残っていれば admin が `setGasConfigEcotone(0, 0)` を実行する。アドレスは `chain/.deployer/state.json` の `opChainDeployments[0].SystemConfigProxy`。
-
-7. 設定を取り出す。
-
-   ```
-   op-deployer inspect genesis --workdir chain/.deployer "$L2_CHAIN_ID" > chain/runtime/genesis.json
-   op-deployer inspect rollup  --workdir chain/.deployer "$L2_CHAIN_ID" > chain/runtime/rollup.json
-   ```
-
-8. `chain/.deployer/state.json` から L1 コントラクトのアドレスを読み、`deployments/devnet.json` の `l1` に書く。使うのは `opChainDeployments[0].OptimismPortalProxy` と `SystemConfigProxy`。
-
-### 3.2 intent.toml の編集
+### 3.2 intent.toml の設定
 
 `op-deployer init` が書いた値のうち、次のキーだけを書き換える。`opcmAddress` と 2 つの `*ContractsLocator` は変えない。
 
@@ -100,16 +73,15 @@ fee scalar を 2 か所で 0 にする理由。
 
 - `deployOverrides` の 2 項目が効くのは、L2 の genesis と `rollup.json` の初期値だけ。
 - L1 の `SystemConfig` は、op-deployer v0.9.0 が標準値（base fee scalar 1368、blob base fee scalar 801949）で初期化する。`deployOverrides` では変わらない。
-- L2 は `SystemConfig` の更新イベントに追従する。L1 側が標準値のままだと、L1 と L2 の設定が食い違う。手順 6 で L1 側も 0 にして揃える。
-- L2 で 0 になっていることは初期化のときに確認する（5 節、V19）。
+- L2 は `SystemConfig` の更新イベントに追従する。L1 側が標準値のままだと、L1 と L2 の設定が食い違う。3.1 の手順 4 で L1 側も 0 にする。
+- L2 で 0 になっていることは初期化のときに確認する（5 節）。
 
 ## 4. 起動
 
-`chain/compose/docker-compose.chain.yml` に op-reth、op-node、op-batcher、rpc-proxy の 4 サービスを書く。公式サンプルの `docker-compose.yml` からの差分は次のとおり。
+`mise run chain-up` が `chain/compose/docker-compose.chain.yml` の op-reth、op-node、op-batcher、rpc-proxy を起動する。
 
 - Sequencer の op-reth は `mise.toml` の `OP_RETH_IMAGE` を使う。対照ノードは `OP_RETH_STOCK_IMAGE` を使う。
-- proposer、challenger、dispute-mon を削る。
-- 各コンポーネントに、役割に対応する鍵を渡す（公式サンプルは全部に同じ鍵を渡している）。
+- 各コンポーネントに、役割に対応する鍵を渡す。
 - op-reth と op-node のポートをホストに出さない。ホストに出すのは rpc-proxy だけ（[10-dev-ops.md](10-dev-ops.md) の 7 節）。
 
 ### 4.1 op-reth
@@ -197,7 +169,7 @@ op-batcher
 5. 開発用アカウント 1 を送信元に、読み取り用の rpc-proxy（`127.0.0.1:8545`）経由で op-reth の `eth_estimateGas` を呼ぶ。`ledgera: sender not allowed` が返ることを確認する。
 6. `deployments/devnet.json` の `contracts`、`enforcementBlock`、`auditStartBlock` を書く。`l1` は `gen-config.sh` が書いた値を残す。
 
-やり直しができるように、`Bootstrap.s.sol` は次の作りにする。
+`Bootstrap.s.sol` は、済んだ処理を飛ばして再実行できる。
 
 - コントラクトは CREATE2（固定の salt）でデプロイする。アドレスが毎回同じになる。
 - 各手順は先に現在の状態を読む。済んでいれば飛ばす。判定はコードの有無、`getVasp`、`getAccount`、`balanceOf`、`allowance`、`enforcementEnabled`、`consortium`、`owner` で行う。
@@ -259,6 +231,8 @@ op-batcher
 | `0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001` | 各ブロック先頭の L1 属性取引の送信者 |
 | `0x0000000000000000000000000000000000000000` | `eth_call` で `from` を省略したときの呼び出し元。署名も Deposit もできないので安全 |
 
+この構成で op-node が各ブロックに自動で加える Deposit は、先頭の L1 属性取引。ユーザーの Deposit は L1 の取引から取り込む。
+
 PostExec 種別の取引は、ビルダーが合成するシステム取引として検査から外す。指定した OP のハードフォークは genesis から有効にする。
 
 `eth_call` と `eth_estimateGas` は実行時の判定を使う。`from` を省略するとゼロアドレスになる。未登録の `from` を指定した場合は `ledgera: sender not allowed` が返る。
@@ -314,7 +288,7 @@ fork の `rust/op-revm` を変更する。
 
 | ファイル | 変更 |
 |---|---|
-| `src/ledgera.rs`（新規） | 定数、スロット計算、判定関数 `sender_allowed` |
+| `src/ledgera.rs` | 定数、スロット計算、判定関数 `sender_allowed` |
 | `src/lib.rs` | `pub mod ledgera;` を追加する |
 | `src/transaction/error.rs` | `OpTransactionError::SenderNotAllowed` を追加する。表示は `ledgera: sender not allowed` |
 | `src/handler.rs` | `validate_against_state_and_deduct_caller` の先頭で `sender_allowed` を呼ぶ |
@@ -389,7 +363,7 @@ fn validate_against_state_and_deduct_caller(/* 既存の引数 */) -> Result<(),
   - それ以外は `discard_and_surface_error` に入る。ペイロードビルダーは取引を飛ばし、検証側はブロックを無効にする。
 - ストレージは `journal.db_mut()` から読む。同じ関数内の `L1BlockInfo::try_fetch` と同じ読み方で、アクセスリストの warm 状態を変えない。
 
-確認が要る点は [12-open-issues.md](12-open-issues.md) の V2、V3、V13。
+同じブロック内の先行取引による Registry の更新は、後続の取引の検査に反映される。DevNet の RPC では `from` を省略した `eth_call` が通る。未登録の `from` を指定した `eth_call` と `eth_estimateGas` は拒否される。
 
 ### 6.4 実装（プール検査）
 
@@ -397,7 +371,7 @@ op-reth のプールに入る時点でも同じ判定を行う。合意には関
 
 | ファイル | 変更 |
 |---|---|
-| `rust/op-reth/crates/node/src/ledgera.rs`（新規） | `KycValidatorWrapper` と `KycValidator` |
+| `rust/op-reth/crates/node/src/ledgera.rs` | `KycValidatorWrapper` と `KycValidator` |
 | `rust/op-reth/crates/node/src/node.rs` | `OpNode::components()` のプール構築に `.with_validator_wrapper(KycValidatorWrapper)` を追加する。型エイリアス `OpNodeComponentBuilder` の検証ラッパー型を合わせる |
 
 - 判定は `OpValidatorWrapper` トレイトで差し込む。`wrap(self, validator, provider)` で元の検証器と状態プロバイダを受け取る。
@@ -409,11 +383,9 @@ op-reth のプールに入る時点でも同じ判定を行う。合意には関
 - 拒否は `InvalidPoolTransactionError::Other` で返す。メッセージは `ledgera: sender not allowed: <アドレス>`。
 - Gateway と demo-tools は、エラーメッセージに `ledgera: sender not allowed` が含まれるかで判定する。この文字列は変えない。
 
-型エイリアスの変更が通らない場合は、`rust/op-reth/crates/txpool` の `OpTransactionValidator` に判定を直接書く（V4）。
-
 ### 6.5 テスト
 
-fork リポジトリ内に書く。
+チェーン改造のテストは Optimism fork で実行する。
 
 | 対象 | 内容 |
 |---|---|
@@ -459,15 +431,8 @@ DevNet 上の確認は検証ノード（10 節）と E2E（[10-dev-ops.md](10-de
 | 実行時に無効になった取引（送信者の停止、残高不足） | ブロックに入らない | 監査ツールが L2 の状態で理由を確認できれば「正当な除外」。確認できなければ違反（C5） |
 | ブロックのガス上限に収まらない取引 | 飛ばされ、後続が先に入ることがある | 違反（C4）。例外にしない |
 
-- 3 つめは DevNet の取引量では起きない。ブロックのガス上限は 60,000,000（op-deployer の既定値）。1 取引の上限は `GAS_LIMIT_CAP`（5,000,000）。
-- 3 つめを起こさないようにするには、7.3 の強化を入れる。
-
-### 7.3 任意の強化
-
-M7 までに余力があれば行う。必須ではない。
-
-- プールの順序付けを到着順に固定する。`OpPoolBuilder::with_ordering` に、優先度が常に同じ `TransactionOrdering` を渡す。実装例は `rust/op-reth/crates/node/tests/it/custom_pool/ordering.rs`。
-- ガス上限に収まらない取引で構築を止める。`OpPayloadBuilder::with_transactions` に渡すイテレータで、`mark_invalid` の後は `None` を返す。
+ブロックのガス上限は 60,000,000（op-deployer の既定値）。Gateway の 1 取引の上限は `GAS_LIMIT_CAP`（5,000,000）。
+`mise run e2e-fifo` は、同じ優先手数料の 100 取引がブロック内も含めて通番順に並ぶことを検証する。
 
 ## 8. 手数料（要件 22）
 
@@ -505,7 +470,7 @@ M7 までに余力があれば行う。必須ではない。
 
 ## 10. 検証ノードと対照ノード（要件 9、26）
 
-`chain/compose/docker-compose.replica.yml` に書く。どちらも Sequencer とは P2P でつながない。L1 の Batch だけからブロックを導出する。
+設定は `chain/compose/docker-compose.replica.yml` にある。どちらも Sequencer とは P2P でつながない。L1 の Batch だけからブロックを導出する。
 
 ### 10.1 検証ノード
 
@@ -542,7 +507,6 @@ M7 までに余力があれば行う。必須ではない。
 - 規則の有効化より前のブロックと、未登録アドレスの Deposit を含まないブロックは、標準の実行層でも同じ結果になる。対照ノードはそこまで Sequencer と一致する。
 - 対照ノードは、未登録アドレスの Deposit を含むブロックで分岐する。比較スクリプトは、3 台の親ブロックのハッシュも照合する。
 - 対照ノードで確認できるのは、そのチェーンで最初の未登録 Deposit だけ。確認が済んだら `mise run control-down` でデータごと消す。
-- 対照ノードが期待どおりに導出するかは M2 で確かめる（V20）。
 
 ## 11. 冗長化（要件 19）
 
@@ -615,7 +579,7 @@ OP_CONDUCTOR_PAUSED=true            # 起動時
 
 `HEALTHCHECK_MIN_PEER_COUNT` を 1 にする理由。3 台構成で 1 台が止まると、残った op-node のピアは 1 つになる。2 以上にすると、残った 2 台も不健全と判定され、切り替わらない。
 
-初回は L1 を配備し、genesis と 資金を入れたアカウントを用意する。単一 Sequencer が動いている場合は `mise run chain-down` で停止する。
+初回は L1 を配備し、genesis と資金を入れたアカウントを用意する。単一 Sequencer が動いている場合は `mise run chain-down` で停止する。
 
 ```bash
 mise run ha-up

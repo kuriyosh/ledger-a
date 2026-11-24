@@ -193,30 +193,31 @@ vasp-a、vasp-b、consortium、demo-tools も、L2 の読み取りは rpc-proxy 
 
 | 領域 | 採用 |
 |---|---|
-| ランタイム | Node.js 24（LTS） |
+| ランタイム | Node.js |
 | パッケージ管理 | pnpm workspaces |
 | 言語 | TypeScript（strict） |
 | HTTP サーバー | Hono ＋ `@hono/node-server` |
 | 入力検証 | zod |
-| DB | PostgreSQL 17 ＋ Drizzle ORM |
+| DB | PostgreSQL ＋ Drizzle ORM |
 | チェーン接続 | viem（OP Stack 拡張 `viem/op-stack` を含む） |
-| 画面 | Next.js（App Router）＋ React ＋ Tailwind CSS ＋ TanStack Query |
-| コントラクト | Solidity 0.8.28、Foundry、OpenZeppelin Contracts v5 |
+| 画面 | Next.js（App Router）、React、TanStack Query、CSS |
+| コントラクト | Solidity、Foundry、OpenZeppelin Contracts |
 | テスト | Vitest（サービス、E2E）、forge test（コントラクト）、cargo test（チェーン改造） |
 | 整形と lint | Biome（TypeScript）、forge fmt（Solidity） |
 | 実行環境 | Docker Compose |
 
-npm パッケージのバージョンは導入時の最新安定版に `package.json` で固定する。
+開発ツールと Docker イメージのバージョンは `mise.toml` に定義する。npm パッケージは各 `package.json` と `pnpm-lock.yaml` で管理する。
 
 ## 7. リポジトリ構成
 
 ```
-leder-a/
+ledger-a/
   README.md
   docs/                      設計書
   mise.toml                  タスクとツール・イメージのバージョン
   docker-compose.yml         オフチェーン層（postgres、各サービス、web）
   docker-compose.anvil.yml   anvil モードの L2 代替
+  docker-compose.enforcement-demo.yml  DevNet の場面 4 に必要な設定
   .env.example
   package.json
   pnpm-workspace.yaml
@@ -230,7 +231,8 @@ leder-a/
       docker-compose.ha.yml      Sequencer 3 台構成
     scripts/
       derive-accounts.ts     ニーモニックからアドレス一覧を出す
-      deploy-l1.sh           op-deployer の取得、init、intent の編集、apply
+      deploy-l1.sh           op-deployer の取得とチェックサムの照合
+      deploy-l1.ts           op-deployer の実行と L1 手数料の設定
       gen-config.sh          genesis.json、rollup.json、jwt.txt の生成。L1 アドレスの書き出し
       build-op-reth.sh       fork を取得して Docker イメージを作る
       bootstrap-l2.sh        Bootstrap.s.sol の実行、デプロイ結果の書き出し、拒否の確認
@@ -265,6 +267,7 @@ leder-a/
     shared/                  EIP-712 の型定義、Receipt のハッシュ計算、エラー型、ロガー、HTTP 署名
 
   services/
+    Dockerfile               TypeScript サービスの共通イメージ
     gateway/
     rpc-proxy/
     vasp/
@@ -279,24 +282,8 @@ leder-a/
   e2e/                       デモ場面の自動テスト
 ```
 
-各サービスのディレクトリ構成は共通にする。rpc-proxy は DB を持たないので、`db/` と `drizzle.config.ts` を置かない。
-
-```
-services/<name>/
-  package.json
-  Dockerfile
-  drizzle.config.ts
-  src/
-    index.ts        起動
-    env.ts          環境変数の読み込みと検証
-    routes/         HTTP ルート
-    domain/         業務ロジック（HTTP と DB から独立）
-    db/
-      schema.ts     Drizzle のスキーマ
-      migrations/
-    chain/          viem クライアント、コントラクト呼び出し
-  test/
-```
+各サービスの起動処理は `src/index.ts` にある。API は `src/http.ts` や `src/routes/` にある。
+DB を使うサービスは `src/db/` にスキーマとマイグレーションを持つ。サービスごとのテストは `test/` にある。
 
 ## 8. 共通の実装規約
 

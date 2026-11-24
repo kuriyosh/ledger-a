@@ -1,14 +1,11 @@
 # ledgerA
 
-KYC 済みアドレスだけが取引できる、金融向け Ethereum L2 の DevNet とデモ画面。
+OP Stack を使った金融向け Ethereum L2 の DevNet。KYC 済みの顧客アドレスと、許可された運営アカウントが取引できる。
+デモでは、トークンの送金と交換、KYC による取引制限、受付順の監査、Sequencer の切替を確認できる。
 
-- 基盤: OP Stack（実行クライアントは op-reth の改造版）
-- L1: Ethereum Sepolia
-- 状態: M1（コントラクトと初期化）
+## セットアップ
 
-## 開発用の鍵と RPC
-
-mise、Docker Compose v2、Git を用意する。リポジトリのルートで次を実行する。
+mise 2026.7.10 以降、Docker Compose 2.24.4 以降、Git を用意する。リポジトリのルートで実行する。
 
 ```sh
 mise trust
@@ -16,57 +13,41 @@ mise install
 mise run setup
 ```
 
-開発ツールと Docker イメージのバージョンは `mise.toml` に定義する。
-`.env.example` を `.env` にコピーする。新しく生成したニーモニックを
-`LEDGERA_MNEMONIC="..."` の形式で設定する。
-`mise run keys` はアドレスを表示し、秘密鍵とサービス用シークレットを
-`.env.generated` に保存する。同じニーモニックで再実行すると、保存済みの
-シークレットを再利用する。
+開発ツールと Docker イメージのバージョンは [mise.toml](mise.toml) に定義する。
 
-読み取り専用 RPC を単独で起動するには、次を実行する。
+## ローカルでデモを開く
 
 ```sh
-UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 mise exec -- pnpm --filter @ledgera/rpc-proxy start
+DEMO_MODE=true mise run anvil-up
+DEMO_MODE=true APP_MODE=anvil mise run demo-seed
 ```
 
-op-node を使う場合は `UPSTREAM_ROLLUP_RPC_URLS` も指定する。
-`mise run test` で単体テストを実行する。`mise run test-integration` は Docker で
-anvil を起動し、有効な署名付き取引がプロキシ経由で拒否されることを確認する。
+[http://localhost:3000](http://localhost:3000) を開く。送金、交換、遮断、監査の操作は [デモ手順](docs/09-flows.md) を参照する。
+Anvil では Gateway とコントラクトの KYC 検査を確認できる。実行層の KYC 規則、L1 Deposit、Sequencer の切替は Sepolia DevNet を使う。
 
-## anvil でコントラクトを初期化する
+停止は `DEMO_MODE=true mise run anvil-down`。チェーンと PostgreSQL のデータは Docker ボリュームに残る。
 
-`mise run setup` の後に `mise run anvil-up` を実行する。
-コントラクトのアドレスと監査開始ブロックは `deployments/anvil.json` に出力する。
-読み取り専用 RPC は `127.0.0.1:8545`、直接送信は `127.0.0.1:9545` を使う。
-Gateway は `127.0.0.1:8600`、Auditor は `127.0.0.1:8650` で起動する。
-`mise run audit` で全件を検査する。
-`mise run anvil-down` で停止する。チェーンと PostgreSQL の状態は Docker ボリュームに保存される。
+## Sepolia DevNet を起動する
 
-## Sepolia で DevNet を起動する
+`.env.example` をもとに `.env` を作る。Sepolia の `L1_RPC_URL`、`L1_BEACON_URL`、新しく生成した `LEDGERA_MNEMONIC`、`POSTGRES_PASSWORD` を設定する。画面デモでは `DEMO_MODE=true` を使う。
 
-`.env` に Sepolia の `L1_RPC_URL` と `L1_BEACON_URL` を設定する。
-`mise run keys` が表示する admin アドレスに Sepolia ETH を用意する。
+`mise run keys` が表示する admin アドレスに Sepolia ETH を入れる。必要な残高と L1 に取引を送る手順は [開発と運用](docs/10-dev-ops.md#5-初回の立ち上げdevnet) を参照する。
+起動後は [http://localhost:3000](http://localhost:3000) を開く。
+
+- LAN から操作する場合は [Web 画面の LAN 公開](docs/10-dev-ops.md#71-web-画面の-lan-公開) を参照する。
+- Sequencer 3 台の起動と障害試験は [チェーン層](docs/02-chain.md#11-冗長化要件-19) を参照する。
+- 停止するときは `mise run app-down`、`mise run chain-down` の順に実行する。
+
+## テスト
 
 ```sh
-mise run fund-l1
-mise run chain-image
-mise run chain-deploy
-mise run chain-up
-mise run l2-bootstrap
-mise run app-up
-mise run status
+mise run lint
+mise run test
+mise run test-contracts
+mise run test-integration
 ```
 
-`mise run app-up` は `.env` の `POSTGRES_PASSWORD` を使う。
-ホストからは `http://127.0.0.1:8545` の読み取り専用 RPC に接続する。
-L2 に直接送信する場合は `mise run chain-shell` を開く。
-停止するには `mise run app-down`、`mise run chain-down` の順に実行する。
-
-## デモで見せること
-
-- ルールを守らせるのは VASP のアプリではなくチェーンである
-- ルールが守られたことを第三者が検証できる
-- 個人情報はチェーンに載らない
+結合テストの追加設定と E2E は [開発と運用](docs/10-dev-ops.md#8-テスト) を参照する。
 
 ## 設計書
 
@@ -83,7 +64,3 @@ L2 に直接送信する場合は `mise run chain-shell` を開く。
 | [docs/08-web.md](docs/08-web.md) | デモ画面、デモ用ツール |
 | [docs/09-flows.md](docs/09-flows.md) | デモ場面ごとのシーケンス、再演の手順 |
 | [docs/10-dev-ops.md](docs/10-dev-ops.md) | 開発環境、環境変数、起動手順、ネットワーク構成、テスト |
-| [docs/11-milestones.md](docs/11-milestones.md) | 実装計画と受け入れ基準 |
-| [docs/12-open-issues.md](docs/12-open-issues.md) | 要検証事項、対象外の項目 |
-
-読む順番は上から。実装を始める人は 00 → 01 → 11 を読み、担当マイルストーンの章へ進む。
