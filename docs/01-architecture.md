@@ -184,7 +184,7 @@ vasp-a、vasp-b、consortium、demo-tools も、L2 の読み取りは rpc-proxy 
 
 | アカウント | チェーン | 量 | 入手方法 |
 |---|---|---|---|
-| admin | Sepolia | 3 ETH | faucet。必要量は M0 で実測する（要確認） |
+| admin | Sepolia | 3 ETH | faucet で入れる目安。配備費の実測は 10 章 9.1 |
 | batcher | Sepolia | 0.5 ETH | admin から送る |
 | attacker | Sepolia | 0.05 ETH | admin から送る |
 | L2 で送信する運営側アカウント | L2 | 各 1 ETH | genesis で残高を持つ開発用アカウントから送る（02 章 5 節） |

@@ -50,8 +50,8 @@ flowchart LR
 - [x] `chain/compose/docker-compose.chain.yml` と `make chain-up`。op-reth は `OP_RETH_STOCK_IMAGE` を使う。ネットワークを `ledgera-chain` と `ledgera` に分ける
 - [x] `make chain-shell`（`ledgera-chain` につないだ Foundry コンテナ）
 - [x] `make status`（ブロック高、safe ブロック、残高）
-- [x] admin から `OptimismPortal.depositTransaction` を呼び、公開 Sepolia の DevNet で 0.001 ETH の着金を確認
-- [x] ダミー実装を `ProxyAdmin.upgradeAndCall(0x42…0700, …)` で設定し、初期化と呼び出しを確認
+- [x] viem で admin から Sepolia の `OptimismPortal.depositTransaction` を呼び、L2 に 0.001 ETH が着金することを確認
+- [x] 公開 Sepolia の DevNet で `ProxyAdmin.upgradeAndCall(0x42…0700, …)` を使い、ダミー実装の初期化と呼び出しを確認
 
 受け入れ基準。L2 に取引を送る確認は `make chain-shell` の中で行う。
 
@@ -256,7 +256,7 @@ flowchart LR
 - [x] `apps/web`: 外部者画面、監査者画面、デモ操作、デモ回による表示の切替（メールアドレス欄、登録簿、監査の集計区間）
 - [x] `e2e/scenes/` の場面 4（手順 1〜5）と場面 6
 - [x] ローカル Sepolia フォークで L1 から DevNet を配備し、場面 1〜6 の所要時間を計測
-- [x] 公開 Sepolia の同じ DevNet で、場面 1〜6 と氏名検査を 2 分 42 秒と 3 分 20 秒で確認
+- [x] 公開 Sepolia に DevNet を配備し、チェーンを作り直さずに `make e2e` で場面 1〜6 を 2 回実行
 - [x] デモの手順書（09 章の操作順と待ち時間）
 
 受け入れ基準。
@@ -273,7 +273,9 @@ flowchart LR
 | vasp、consortium、indexer、auditor のコンテナとホストから、op-reth に取引を送れない | 各コンテナとホストから `eth_sendRawTransaction` を試す |
 | 検証ノードのブロックハッシュが一致する | `make replica-compare` |
 
-公開 Sepolia の DevNet で、場面 1〜6 のブラウザ操作は 1 分 57 秒。意図した C4 の 1 件を検出し、VASP 承認後の氏名開示と DB の氏名検査を確認。
+公開 Sepolia の DevNet で、`make e2e` の所要時間は 1 回目が 2 分 42 秒、2 回目が 3 分 20 秒。両回とも `e2e/check-privacy.sql` の実行を含む。この SQL は E2E 用の氏名が gateway、indexer、auditor、consortium、demo の DB に保存されていないことを確かめる。再演前の Safe 取引の確定待ちは計測の外。
+
+場面 1〜6 のブラウザ操作には 1 分 57 秒かかった。意図した C4 の 1 件を検出した。続けて VASP の承認後に氏名を開示できることを確認した。
 
 確かめる要検証事項: V6。
 
