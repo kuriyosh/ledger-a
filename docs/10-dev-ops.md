@@ -103,7 +103,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | 8 | `make chain-up` | `make status` でブロック高が増える |
 | 9 | `make l2-bootstrap` | `deployments/devnet.json` がある。`enforcementEnabled()` が true。レシートの `l1Fee` が 0 |
 | 10 | `make app-up` | 全サービスの `/healthz` が 200 |
-| 11 | `make demo-seed` | 登録簿に顧客 4 人が出る |
+| 11 | `make demo-seed` | 登録簿に顧客 6 人が出る |
 | 12 | `http://localhost:3000` を開く | - |
 
 - 手順 6 は初回に時間がかかる。Rust のフルビルドのため。ソースは `OPTIMISM_FORK_COMMIT` で指定する。`chain-up` と `replica-up` はローカルイメージのコミットを照合する。
@@ -116,6 +116,7 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 | VASP | 顧客 | 残高 |
 |---|---|---|
 | A | 鈴木 花子 | なし |
+| A | 未登録宛て検証、確認省略検証 | 各 1,000 tJPY |
 | B | Lim Wei | なし |
 | B | Tan Mei | 1,000 tUSD |
 | B | Lee Jun | なし |

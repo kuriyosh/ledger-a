@@ -31,6 +31,7 @@ const people = [
     name: "tan",
     vasp: "B",
     country: "SG",
+    balance: { token: "tUSD", amount: 1_000_000_000n },
   },
   {
     familyName: "Lee",
@@ -38,6 +39,22 @@ const people = [
     name: "lee",
     vasp: "B",
     country: "SG",
+  },
+  {
+    familyName: "検証",
+    givenName: "未登録宛て",
+    name: "rule-unregistered",
+    vasp: "A",
+    country: "JP",
+    balance: { token: "tJPY", amount: 1_000_000_000n },
+  },
+  {
+    familyName: "検証",
+    givenName: "確認省略",
+    name: "rule-travel",
+    vasp: "A",
+    country: "JP",
+    balance: { token: "tJPY", amount: 1_000_000_000n },
   },
 ] as const;
 const sequence = z.object({
@@ -187,11 +204,10 @@ export function runService(
         }
         for (const person of people) {
           const to = await register(peers[person.vasp], person, active.run);
-          if (person.name === "tan")
-            await mint(`run:${active.run}:tan`, {
-              token: "tUSD",
+          if ("balance" in person)
+            await mint(`run:${active.run}:${person.name}`, {
+              ...person.balance,
               to,
-              amount: 1_000_000_000n,
             });
         }
         await database.db

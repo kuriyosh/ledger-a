@@ -359,17 +359,16 @@ describe.skipIf(process.env.LEDGERA_E2E !== "1")(
 
     test("場面 4 では対象外の宛先と確認のない送金を L2 が拒否する", async () => {
       const absent = "0x000000000000000000000000000000000000beEf" as Address;
-      for (const [to, errorName] of [
-        [absent, "AccountNotEligible"],
-        [lim, "TravelRuleRequired"],
+      for (const [name, to, errorName] of [
+        ["rule-unregistered", absent, "AccountNotEligible"],
+        ["rule-travel", lim, "TravelRuleRequired"],
       ] as const) {
-        const wallet = await createWallet(
-          "A",
-          `e2e-${errorName.toLowerCase()}`,
-        );
+        const token = await wallet("A", name + run.emailSuffix);
+        const before = await balances("A", token);
+        expect(before).toEqual({ tJPY: "1000000000", tUSD: "0" });
         const attempted = await transfer(
           "A",
-          wallet.session,
+          token,
           to,
           "1000000000",
           "tJPY",
@@ -378,11 +377,11 @@ describe.skipIf(process.env.LEDGERA_E2E !== "1")(
         const failed = await operation(
           "A",
           `/v1/me/transfers/${attempted.id}`,
-          wallet.session,
+          token,
           "failed",
         );
         expect((await indexed(failed.txHash, errorName)).status).toBe("failed");
-        expect(await balances("A", wallet.session)).toEqual(funded);
+        expect(await balances("A", token)).toEqual(before);
       }
     }, 105_000);
 
