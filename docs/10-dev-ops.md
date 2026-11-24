@@ -5,7 +5,7 @@
 | ツール | 用途 |
 |---|---|
 | mise 2026.7.10 以降 | タスクの実行と開発ツールのバージョン管理 |
-| Docker、Docker Compose v2 | チェーンとサービスの起動 |
+| Docker、Docker Compose 2.24.4 以降 | チェーンとサービスの起動 |
 | Bash、Git、curl、OpenSSL | セットアップと運用スクリプト |
 | Rust（fork の `rust/rust-toolchain.toml` のバージョン） | チェーン改造を開発する人だけ |
 
@@ -37,14 +37,14 @@ anvil モードでも、Gateway の事前検査、`LedgerForwarder` の署名者
 
 | 変数 | 例 | 説明 |
 |---|---|---|
-| `L1_RPC_URL` | - | Sepolia の RPC。API キー付きを推奨 |
+| `L1_RPC_URL` | - | Sepolia の実行 RPC。API キーなしの公開 RPC も使える |
 | `L1_BEACON_URL` | `https://ethereum-sepolia-beacon-api.publicnode.com` | Sepolia の Beacon API |
 | `LEDGERA_MNEMONIC` | - | 運営側アカウントの元。12 語か 24 語 |
 | `L2_CHAIN_ID` | `202610` | |
 | `BATCHER_MAX_CHANNEL_DURATION` | `25` | L1 ブロック数。デモ中は 5 |
-| `DEMO_MODE` | `true` | デモ用 API と画面操作を有効にする |
+| `DEMO_MODE` | `true` | デモ用 API と画面操作を有効にする。`.env.example` は `true`。未設定時は無効 |
 | `POSTGRES_PASSWORD` | - | DevNet で必須。Anvil は未設定ならローカル試験用の値を使う |
-| `WEB_ALLOWED_ORIGIN` | `http://192.168.100.30:18374` | LAN から操作するときの Web の接続先。設定方法は 7.1 |
+| `WEB_ALLOWED_ORIGIN` | 空 | LAN から操作するときの Web の接続先。設定方法は 7.1 |
 
 ### 3.2 生成されるもの
 
@@ -183,7 +183,7 @@ DEMO_MODE=true mise run anvil-up
 | `chain/compose/docker-compose.replica.yml` | op-reth-replica、op-node-replica。プロファイル `control` に op-reth-control、op-node-control |
 | `chain/compose/docker-compose.ha.yml` | op-reth-1〜3、op-node-1〜3、op-conductor-1〜3、op-batcher、rpc-proxy |
 | `docker-compose.anvil.yml` | anvil、rpc-proxy |
-| `docker-compose.enforcement-demo.yml` | DevNet の `demo-tools` に L1 Deposit と直接送信の設定を追加 |
+| `docker-compose.enforcement-demo.yml` | L1 Deposit と直接送信の設定。DevNet または HA で `DEMO_MODE=true` のとき、アプリの起動時に自動で読み込む |
 
 ネットワーク。Docker ネットワークを 2 つに分ける。
 
@@ -253,7 +253,7 @@ UPSTREAM_L2_RPC_URLS=http://127.0.0.1:9545 mise exec -- pnpm --filter @ledgera/r
 
 ### 7.1 Web 画面の LAN 公開
 
-標準では Web の `3000` 番ポートはホストのループバックで待ち受ける。LAN に出す場合は、ホストの LAN アドレスとポートを Compose の追加ファイルに指定する。次は `192.168.100.30:18374` で待ち受ける例。
+標準では Web の `3000` 番ポートはホストのループバックで待ち受ける。LAN に出す場合は、ホストの LAN アドレスとポートを Compose の追加ファイルに指定する。既存のポート割り当ては `!override` で置き換える。次は `192.168.100.30:18374` で待ち受ける例。 [Compose のマージ規則](https://docs.docker.com/reference/compose-file/merge/#replace-value)
 
 ```yaml
 services:

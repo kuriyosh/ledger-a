@@ -648,7 +648,6 @@ VASP 間 API（署名付きリクエスト）。
 | `PORT` | 8621 / 8622 | |
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | |
-| `L2_RPC_URL` | - | 読み取り専用の rpc-proxy の URL |
 | `L2_RPC_URL` | - | 読み取り用。rpc-proxy を指す |
 | `GATEWAY_URL`、`GATEWAY_API_KEY` | - | |
 | `CONSORTIUM_URL` | - | |

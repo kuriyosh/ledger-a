@@ -233,7 +233,6 @@ DB の作り直し。
 | `DATABASE_URL` | - | |
 | `DEPLOYMENTS_FILE` | - | |
 | `L2_RPC_URL` | - | rpc-proxy を指す。`debug_traceTransaction` を使う |
-| `L2_RPC_URL` | - | 読み取り専用の rpc-proxy の URL |
 | `ROLLUP_RPC_URL` | 空 | DevNet の確定段階を取得する rpc-proxy の `/rollup`。Anvil では空 |
 | `INDEXER_START_BLOCK` | 0 | |
 | `POLL_INTERVAL_MS` | 1000 | |

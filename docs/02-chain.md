@@ -73,7 +73,7 @@ fee scalar を 2 か所で 0 にする理由。
 
 - `deployOverrides` の 2 項目が効くのは、L2 の genesis と `rollup.json` の初期値だけ。
 - L1 の `SystemConfig` は、op-deployer v0.9.0 が標準値（base fee scalar 1368、blob base fee scalar 801949）で初期化する。`deployOverrides` では変わらない。
-- L2 は `SystemConfig` の更新イベントに追従する。L1 側が標準値のままだと、L1 と L2 の設定が食い違う。手順 6 で L1 側も 0 にして揃える。
+- L2 は `SystemConfig` の更新イベントに追従する。L1 側が標準値のままだと、L1 と L2 の設定が食い違う。3.1 の手順 4 で L1 側も 0 にする。
 - L2 で 0 になっていることは初期化のときに確認する（5 節）。
 
 ## 4. 起動
@@ -81,8 +81,7 @@ fee scalar を 2 か所で 0 にする理由。
 `mise run chain-up` が `chain/compose/docker-compose.chain.yml` の op-reth、op-node、op-batcher、rpc-proxy を起動する。
 
 - Sequencer の op-reth は `mise.toml` の `OP_RETH_IMAGE` を使う。対照ノードは `OP_RETH_STOCK_IMAGE` を使う。
-- proposer、challenger、dispute-mon を削る。
-- 各コンポーネントに、役割に対応する鍵を渡す（公式サンプルは全部に同じ鍵を渡している）。
+- 各コンポーネントに、役割に対応する鍵を渡す。
 - op-reth と op-node のポートをホストに出さない。ホストに出すのは rpc-proxy だけ（[10-dev-ops.md](10-dev-ops.md) の 7 節）。
 
 ### 4.1 op-reth
@@ -231,6 +230,8 @@ op-batcher
 |---|---|
 | `0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001` | 各ブロック先頭の L1 属性取引の送信者 |
 | `0x0000000000000000000000000000000000000000` | `eth_call` で `from` を省略したときの呼び出し元。署名も Deposit もできないので安全 |
+
+この構成で op-node が各ブロックに自動で加える Deposit は、先頭の L1 属性取引。ユーザーの Deposit は L1 の取引から取り込む。
 
 PostExec 種別の取引は、ビルダーが合成するシステム取引として検査から外す。指定した OP のハードフォークは genesis から有効にする。
 
