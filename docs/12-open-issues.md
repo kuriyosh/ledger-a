@@ -14,7 +14,7 @@
 | V6 | priority fee が同じ取引が、devnet の op-reth で到着順に並ぶ | 100 件を送って監査 | M6 | 02 章 7.3 の順序固定を必須にする | 公開 Sepolia の DevNet で、優先手数料 1 wei の 100 件が同一ブロック内も含めて通番順に並んだ。監査の違反と除外は 0 件 |
 | V7 | 失敗 Deposit のレシートが `status = 0` で返る。viem で L1 のログから L2 の取引ハッシュを求められる | devnet | M0、M2 | L2 側は送信者と nonce で探す | 公開 Sepolia の Deposit ログから viem で L2 のハッシュを計算。Sequencer と検証ノードで未登録者のレシートが status 0 |
 | V8 | `LedgerForwarder.execute` の上書きで、呼び出し先の revert データを返せる | forge test | M1 | OZ を継承せず、最小の Forwarder を自作する | Foundry で `execute` と `executeAll` が呼び出し先のカスタムエラーを返すことを確認 |
-| V9 | op-batcher の投稿間隔ごとの費用。`OP_BATCHER_INBOX_ADDRESS` の要否 | 実測 | M0 | `BATCHER_MAX_CHANNEL_DURATION` の既定を直す | v1.18.1 は rollup 設定から投稿先を取得。公開 Sepolia で 25 ブロック設定の 1 時間に 14 件、0.009796432154048256 ETH。実際の投稿間隔は 19〜20 L1 ブロック |
+| V9 | op-batcher の投稿間隔ごとの費用。`OP_BATCHER_INBOX_ADDRESS` の要否 | 実測 | M0 | `BATCHER_MAX_CHANNEL_DURATION` の既定を直す | v1.18.1 は rollup 設定から投稿先を取得。公開 Sepolia では、25 ブロック設定で実際の投稿間隔が 19〜20、5 ブロック設定で 1〜2。費用は 10 章 9.1 |
 | V10 | 固定するバージョンの genesis に Safe v1.3.0（`SafeL2`）がある | `cast code` | M0 | `Bootstrap.s.sol` でデプロイする | 公開 Sepolia の DevNet でブロック 0 の SafeL2 が VERSION() = 1.3.0 を返した |
 | V11 | op-conductor のヘルスチェックの値と起動後の手順、op-node の静的ピアの設定、op-batcher の複数接続先、切替にかかる時間。必須項目と RPC の既定ポートはソースで確認済み | 公式手順との照合と実測 | M7 | 02 章 11 節を直す | ローカル Sepolia フォークで 3 台を起動。リーダーが 1.585 秒で切り替わった。切替中の送金を取り込み、停止した組はフォロワーとして復帰。C4、C5 は 0 件 |
 | V12 | `ProxyAdmin.upgradeAndCall` で `0x42…0700` に実装を設定し、初期化できる | ダミー実装で試す | M0 | genesis の `alloc` を編集して Registry を入れる | 公開 Sepolia の DevNet でダミー実装を設定し、predeploy 経由の呼び出しで初期値 42 を確認 |
