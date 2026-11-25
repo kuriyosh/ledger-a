@@ -5,7 +5,7 @@ OP Stack を使った金融向け Ethereum L2 の DevNet。KYC 済みの顧客�
 
 ## セットアップ
 
-mise 2026.7.10 以降、Docker Compose 2.24.4 以降、Git を用意する。リポジトリのルートで実行する。
+mise 2026.7.10 以降、Docker Compose 2.24.4 以降、Docker Buildx、Git を用意する。リポジトリのルートで実行する。Windows では WSL2 を使う。手順は [開発と運用](docs/10-dev-ops.md#11-windowswsl2) を参照する。
 
 ```sh
 mise trust
