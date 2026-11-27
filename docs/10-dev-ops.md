@@ -20,7 +20,7 @@ Windows では WSL2 の Linux 上で動かす。タスクと運用スクリプ�
 | 順 | 操作 |
 |---:|---|
 | 1 | PowerShell で `wsl --install` を実行し、Ubuntu を入れる |
-| 2 | Docker を用意する。Docker Desktop なら WSL integration で対象のディストリを有効にする。WSL 内に Docker Engine を入れるなら、`docker-buildx-plugin` も入れ、`/etc/wsl.conf` の `[boot]` に `systemd=true` を書く |
+| 2 | Docker を用意する。手順は 1.2 |
 | 3 | WSL 内に Linux 版の mise を入れる（`curl https://mise.run \| sh`）。`~/.bashrc` に `eval "$(mise activate bash)"` を書く |
 | 4 | WSL 内の Git で、WSL のホーム配下に clone する |
 | 5 | `chain-image` を使う場合は、WSL に割り当てるメモリを増やす |
@@ -31,6 +31,103 @@ Windows では WSL2 の Linux 上で動かす。タスクと運用スクリプ�
 - `http://localhost:3000` は Windows のブラウザから開ける。WSL の localhost 転送が既定で有効なため。
 - LAN 公開（7.1）の追加ファイルには、Windows の LAN アドレスを指定する。Windows ファイアウォールで受信ポートを開ける。
 - WSL 内の Docker Engine で LAN 公開する場合は、`.wslconfig` の `[wsl2]` に `networkingMode=mirrored` も書く。NAT モードでは WSL から Windows の LAN アドレスで待ち受けられない。
+
+### 1.2 WSL2 での Docker の用意
+
+Docker Desktop と、WSL 内の Docker Engine のどちらか一方を使う。両方は入れない。WSL integration が WSL 内に `docker` コマンドを置くので、WSL 内の Docker Engine とぶつかる。
+
+| 方式 | 使う場面 |
+|---|---|
+| Docker Desktop | Windows 側の GUI で管理したい。組織の規模によっては有償サブスクリプションが要る。Docker の利用規約を確認する |
+| WSL 内の Docker Engine | Docker Desktop を使えない。WSL の中だけで完結させたい |
+
+#### 1.2.1 Docker Desktop
+
+| 順 | 操作 |
+|---:|---|
+| 1 | Docker Desktop for Windows を入れる。インストーラーでは「Use WSL 2 instead of Hyper-V」を選ぶ |
+| 2 | Docker Desktop を起動する。Settings > General で「Use the WSL 2 based engine」がオンであることを確かめる |
+| 3 | Settings > Resources > WSL Integration で、使う Ubuntu をオンにする。Apply & restart を押す |
+| 4 | Ubuntu のターミナルを開き直し、1.2.3 で確かめる |
+
+- Linux コンテナのモードで使う。Resources に WSL Integration が出ないときは、Windows コンテナのモードになっている。タスクバーの Docker メニューで「Switch to Linux containers」を選ぶ。
+- 仮想化の方式は WSL 2 エンジンにする。Docker VMM では、WSL のディストリから Docker のソケットが見えない。bind mount できるのも Windows ドライブ上のファイルだけになる。このリポジトリは WSL のホーム配下に置き、`./deployments` などを bind mount する。
+- コンテナは WSL2 の VM で動く。1.1 の `.wslconfig` のメモリ設定がそのまま効く。
+
+#### 1.2.2 WSL 内の Docker Engine
+
+Ubuntu のターミナルで実行する。
+
+1. systemd を有効にする。`/etc/wsl.conf` に次を書く。
+
+   ```ini
+   [boot]
+   systemd=true
+   ```
+
+   PowerShell で `wsl --shutdown` を実行し、Ubuntu を開き直す。`ps -p 1 -o comm=` が `systemd` を返せば有効。
+
+2. Ubuntu 標準の Docker 関連パッケージを消す。Docker 公式のパッケージとぶつかる。入っていないものはエラーになるが、続けてよい。
+
+   ```sh
+   for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
+     sudo apt-get remove -y "$pkg"
+   done
+   ```
+
+3. Docker の apt リポジトリを登録する。
+
+   ```sh
+   sudo apt-get update
+   sudo apt-get install -y ca-certificates curl
+   sudo install -m 0755 -d /etc/apt/keyrings
+   sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+   sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+   sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+   Types: deb
+   URIs: https://download.docker.com/linux/ubuntu
+   Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+   Components: stable
+   Architectures: $(dpkg --print-architecture)
+   Signed-By: /etc/apt/keyrings/docker.asc
+   EOF
+
+   sudo apt-get update
+   ```
+
+4. Docker Engine、Buildx、Compose を入れる。
+
+   ```sh
+   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+   ```
+
+5. Docker を起動し、自分のユーザーを `docker` グループに入れる。
+
+   ```sh
+   sudo systemctl enable --now docker
+   sudo usermod -aG docker "$USER"
+   ```
+
+   グループの変更は次のログインから効く。PowerShell で `wsl --shutdown` を実行し、Ubuntu を開き直す。`docker` グループのユーザーは root と同等の権限を持つ。
+
+#### 1.2.3 確認
+
+どちらの方式でも、Ubuntu のターミナルで次を実行する。
+
+```sh
+docker version          # Client と Server の両方が出る
+docker compose version  # 2.24.4 以降
+docker buildx version
+docker run --rm hello-world
+```
+
+`docker version` に Server が出ないときの原因。
+
+| 方式 | 原因 |
+|---|---|
+| Docker Desktop | Docker Desktop が起動していない。WSL Integration で対象の Ubuntu がオフ |
+| WSL 内の Docker Engine | `docker` サービスが止まっている（`systemctl status docker` で確かめる）。`docker` グループの変更がまだ効いていない |
 
 ## 2. 動作モード
 
