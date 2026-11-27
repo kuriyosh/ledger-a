@@ -15,38 +15,70 @@ op-deployer は、`chain/scripts/deploy-l1.sh` が `mise.toml` で指定した�
 
 ### 1.1 Windows（WSL2）
 
-Windows では WSL2 の Linux 上で動かす。タスクと運用スクリプトは Bash で書いてあり、Windows ネイティブの mise では動かない。
+Windows では、WSL2 の上で動かす Ubuntu（Linux）に環境を作る。タスクと運用スクリプトは Bash で書いてあり、Windows のままでは動かない。
 
-| 順 | 操作 |
-|---:|---|
-| 1 | PowerShell で `wsl --install` を実行し、Ubuntu を入れる |
-| 2 | Docker を用意する。手順は 1.2 |
-| 3 | WSL 内に Linux 版の mise を入れる（`curl https://mise.run \| sh`）。`~/.bashrc` に `eval "$(mise activate bash)"` を書く |
-| 4 | WSL 内の Git で、WSL のホーム配下に clone する |
-| 5 | `chain-image` を使う場合は、WSL に割り当てるメモリを増やす |
+この節の手順を上から順に行うと、ローカルのデモ画面（anvil モード）が開く。Sepolia の DevNet を動かす場合は、続けて 5 節を行う。
 
-- clone 先を `/mnt/c` 配下にしない。ファイルの読み書きが遅い。ファイルの所有者も `id -u` と一致しない。コンテナはホストの UID で動く。
-- 改行は `.gitattributes` で LF に固定している。CRLF のスクリプトは Bash が `$'\r': command not found` で止まる。`.gitattributes` を含まないコミットを Windows の Git で取り出した作業ツリーは CRLF になっている。WSL 内で clone し直す。
-- WSL2 が使えるメモリは、既定で Windows の物理メモリの半分。`chain-image` は op-reth を Rust でフルビルドする。メモリが足りないとビルドが止まる。`%UserProfile%\.wslconfig` の `[wsl2]` に `memory=` と `swap=` を書き、PowerShell で `wsl --shutdown` を実行して反映する。WSL からは次のように書ける。値は例で、物理メモリに合わせて決める。`.wslconfig` がすでにあり `[wsl2]` を含む場合は、追記せずに既存の節を直す。
+#### 1.1.1 始める前に
 
-  ```sh
-  WIN_HOME=$(wslpath "$(cmd.exe /c 'echo %UserProfile%' 2>/dev/null | tr -d '\r')")
-  cat <<'EOF' >> "$WIN_HOME/.wslconfig"
-  [wsl2]
-  memory=16GB
-  swap=16GB
-  EOF
-  ```
+- Windows 11、または Windows 10 バージョン 2004 以降が要る。
+- PC の管理者権限が要る。会社の PC で権限がない場合は、PC の管理者に依頼する。
+- 途中で Windows を再起動する。
+- 初回はダウンロードとビルドに時間がかかる。ネットワークにつながった状態で行う。
 
-- `http://localhost:3000` は Windows のブラウザから開ける。WSL の localhost 転送が既定で有効なため。
-- LAN 公開（7.1）の追加ファイルには、Windows の LAN アドレスを指定する。Windows ファイアウォールで受信ポートを開ける。
-- LAN 公開する場合は、`.wslconfig` の `[wsl2]` に `networkingMode=mirrored` も書く。NAT モードでは WSL から Windows の LAN アドレスで待ち受けられない。
+操作する画面は 2 つある。
 
-### 1.2 WSL2 への Docker Engine の導入
+| 画面 | 開き方 | 使う場面 |
+|---|---|---|
+| PowerShell | スタートメニューで「PowerShell」と検索して開く | WSL の導入と再起動。手順で指定したときだけ |
+| Ubuntu | スタートメニューで「Ubuntu」と検索して開く | それ以外のすべての操作 |
 
-WSL 内の Ubuntu に Docker Engine を入れる。Ubuntu のターミナルで実行する。
+コマンドの入れ方。
 
-1. systemd を有効にする。`ps -p 1 -o comm=` が `systemd` を返せば有効になっているので、この手順は飛ばす。返さなければ `/etc/wsl.conf` に追記する。
+- 手順のコマンドをコピーし、画面の上で右クリックすると貼り付けられる。Enter キーで実行する。
+- 複数行のコマンドは、まとめてコピーして貼り付けてよい。
+- 行頭が `#` の行と、行の途中の `#` から後ろは説明なので、実行されない。
+- `sudo` で始まるコマンドは、パスワードを聞かれることがある。1.1.2 で決めた Ubuntu のパスワードを入れる。入力中の文字は画面に表示されないが、そのまま入力して Enter キーを押す。
+- コマンドが終わると、`ユーザー名@PC名:~$` のような行が出て、次の入力を待つ。この行が出るまで次のコマンドを入れない。
+
+#### 1.1.2 WSL と Ubuntu を入れる
+
+1. スタートメニューで「PowerShell」と検索し、右クリックして「管理者として実行」を選ぶ。
+2. 次のコマンドを実行する。
+
+   ```powershell
+   wsl --install
+   ```
+
+3. 完了したら Windows を再起動する。
+4. 再起動後、Ubuntu の画面が開く。開かない場合は、スタートメニューから「Ubuntu」を開く。
+5. ユーザー名とパスワードを聞かれるので、決めて入力する。
+   - ユーザー名は半角英小文字で入れる。
+   - パスワードは、後で `sudo` のときに使う。忘れないようにする。
+
+`wsl --install` が仮想化を有効にするよう求めるエラーで止まった場合は、PC の BIOS（UEFI）の設定で仮想化機能（Intel VT-x または AMD-V）を有効にする。手順は PC のメーカーによって違うので、PC の管理者に相談する。
+
+#### 1.1.3 基本のツールを入れる
+
+Ubuntu の画面で実行する。
+
+```sh
+sudo apt-get update
+sudo apt-get upgrade -y
+sudo apt-get install -y git curl ca-certificates openssl
+```
+
+#### 1.1.4 Docker を入れる
+
+Ubuntu の画面で実行する。
+
+1. systemd が有効か確かめる。
+
+   ```sh
+   ps -p 1 -o comm=
+   ```
+
+   `systemd` と表示されたら次の 2. に進む。表示されなければ、次を実行する。
 
    ```sh
    cat <<'EOF' | sudo tee -a /etc/wsl.conf
@@ -55,9 +87,9 @@ WSL 内の Ubuntu に Docker Engine を入れる。Ubuntu のターミナルで�
    EOF
    ```
 
-   PowerShell で `wsl --shutdown` を実行し、Ubuntu を開き直す。もう一度 `ps -p 1 -o comm=` で確かめる。
+   PowerShell を開いて `wsl --shutdown` を実行する。Ubuntu の画面を閉じて開き直し、もう一度 `ps -p 1 -o comm=` で `systemd` と表示されることを確かめる。
 
-2. Ubuntu 標準の Docker 関連パッケージを消す。Docker 公式のパッケージとぶつかる。入っていないものはエラーになるが、続けてよい。
+2. Ubuntu 標準の Docker 関連パッケージを消す。Docker 公式のパッケージとぶつかるため。入っていないものについてメッセージやエラーが出るが、続けてよい。
 
    ```sh
    for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
@@ -65,11 +97,9 @@ WSL 内の Ubuntu に Docker Engine を入れる。Ubuntu のターミナルで�
    done
    ```
 
-3. Docker の apt リポジトリを登録する。
+3. Docker の配布元を登録する。
 
    ```sh
-   sudo apt-get update
-   sudo apt-get install -y ca-certificates curl
    sudo install -m 0755 -d /etc/apt/keyrings
    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
    sudo chmod a+r /etc/apt/keyrings/docker.asc
@@ -92,25 +122,110 @@ WSL 内の Ubuntu に Docker Engine を入れる。Ubuntu のターミナルで�
    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
    ```
 
-5. Docker を起動し、自分のユーザーを `docker` グループに入れる。
+5. Docker を起動し、`sudo` なしで使えるようにする。
 
    ```sh
    sudo systemctl enable --now docker
    sudo usermod -aG docker "$USER"
    ```
 
-   グループの変更は次のログインから効く。PowerShell で `wsl --shutdown` を実行し、Ubuntu を開き直す。`docker` グループのユーザーは root と同等の権限を持つ。
+   この設定は Ubuntu を開き直すまで効かない。PowerShell で `wsl --shutdown` を実行し、Ubuntu の画面を閉じて開き直す。`docker` グループのユーザーは、root と同じ権限で Docker を操作できる。
 
 6. 動作を確かめる。
 
    ```sh
-   docker version          # Client と Server の両方が出る
+   docker version          # Client と Server の両方が表示される
    docker compose version  # 2.24.4 以降
    docker buildx version
    docker run --rm hello-world
    ```
 
-   `docker version` に Server が出ないときは、`docker` サービスが止まっているか（`systemctl status docker` で確かめる）、`docker` グループの変更がまだ効いていない。
+   最後のコマンドで `Hello from Docker!` と表示されれば完了。
+
+#### 1.1.5 mise を入れる
+
+mise は、Node.js などの開発ツールと、このリポジトリのタスクを扱う。Ubuntu の画面で実行する。
+
+```sh
+curl https://mise.run | sh
+echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
+```
+
+Ubuntu の画面を閉じて開き直す。次のコマンドでバージョンが表示されれば完了。
+
+```sh
+mise --version
+```
+
+#### 1.1.6 リポジトリを取得する
+
+Ubuntu のホーム（`~`）に取得する。Windows のフォルダ（`/mnt/c` 配下）には置かない。
+
+```sh
+cd ~
+git clone https://github.com/kuriyosh/ledger-a.git
+cd ledger-a
+```
+
+#### 1.1.7 依存を入れる
+
+`ledger-a` フォルダの中で実行する。Ubuntu を開き直した後は、先に `cd ~/ledger-a` を実行する。
+
+```sh
+mise trust
+mise install
+mise run setup
+```
+
+- `mise install` は、`mise.toml` で指定した Node.js、pnpm、Foundry などを入れる。
+- `mise run setup` は、npm パッケージとコントラクトのライブラリを取得し、コントラクトをビルドする。
+
+#### 1.1.8 デモ画面を開く
+
+```sh
+cd ~/ledger-a
+DEMO_MODE=true mise run anvil-up
+DEMO_MODE=true APP_MODE=anvil mise run demo-seed
+```
+
+初回はコンテナのイメージを作るので時間がかかる。2 つのコマンドが終わったら、Windows のブラウザで [http://localhost:3000](http://localhost:3000) を開く。操作は [デモ手順](09-flows.md) を参照する。
+
+止めるときは次を実行する。データは残るので、次回も同じ手順で起動する。
+
+```sh
+cd ~/ledger-a
+DEMO_MODE=true mise run anvil-down
+```
+
+#### 1.1.9 うまくいかないとき
+
+| 症状 | 対処 |
+|---|---|
+| `permission denied` と `docker.sock` を含むエラーが出る | `docker` グループの設定が効いていない。PowerShell で `wsl --shutdown` を実行し、Ubuntu を開き直す |
+| `Cannot connect to the Docker daemon` と出る | Docker が止まっている。`sudo systemctl start docker` を実行する |
+| `mise: command not found` と出る | Ubuntu を開き直す。直らなければ 1.1.5 の 2 行目を実行し直す |
+| `$'\r': command not found` と出る | Windows 側でリポジトリを取得している。1.1.6 の手順で Ubuntu のホームに取得し直す |
+| ビルドの途中で止まる、`Killed` と出る | メモリが足りない。1.1.10 の方法で WSL に割り当てるメモリを増やす |
+| `http://localhost:3000` が開かない | `mise run anvil-up` と `demo-seed` がエラーなしで終わったか確かめる |
+
+#### 1.1.10 補足
+
+- clone 先を `/mnt/c` 配下にしない。ファイルの読み書きが遅い。ファイルの所有者も `id -u` と一致しない。コンテナはホストの UID で動く。
+- 改行は `.gitattributes` で LF に固定している。CRLF のスクリプトは Bash が `$'\r': command not found` で止まる。`.gitattributes` を含まないコミットを Windows の Git で取り出した作業ツリーは CRLF になっている。WSL 内で clone し直す。
+- WSL2 が使えるメモリは、既定で Windows の物理メモリの半分。`chain-image` は op-reth を Rust でフルビルドする。メモリが足りないとビルドが止まる。`%UserProfile%\.wslconfig` の `[wsl2]` に `memory=` と `swap=` を書き、PowerShell で `wsl --shutdown` を実行して反映する。WSL からは次のように書ける。値は例で、物理メモリに合わせて決める。`.wslconfig` がすでにあり `[wsl2]` を含む場合は、追記せずに既存の節を直す。
+
+  ```sh
+  WIN_HOME=$(wslpath "$(cmd.exe /c 'echo %UserProfile%' 2>/dev/null | tr -d '\r')")
+  cat <<'EOF' >> "$WIN_HOME/.wslconfig"
+  [wsl2]
+  memory=16GB
+  swap=16GB
+  EOF
+  ```
+
+- `http://localhost:3000` は Windows のブラウザから開ける。WSL の localhost 転送が既定で有効なため。
+- LAN 公開（7.1）の追加ファイルには、Windows の LAN アドレスを指定する。Windows ファイアウォールで受信ポートを開ける。
+- LAN 公開する場合は、`.wslconfig` の `[wsl2]` に `networkingMode=mirrored` も書く。NAT モードでは WSL から Windows の LAN アドレスで待ち受けられない。
 
 ## 2. 動作モード
 
