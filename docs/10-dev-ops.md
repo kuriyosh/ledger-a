@@ -27,7 +27,17 @@ Windows では WSL2 の Linux 上で動かす。タスクと運用スクリプ�
 
 - clone 先を `/mnt/c` 配下にしない。ファイルの読み書きが遅い。ファイルの所有者も `id -u` と一致しない。コンテナはホストの UID で動く。
 - 改行は `.gitattributes` で LF に固定している。CRLF のスクリプトは Bash が `$'\r': command not found` で止まる。`.gitattributes` を含まないコミットを Windows の Git で取り出した作業ツリーは CRLF になっている。WSL 内で clone し直す。
-- WSL2 が使えるメモリは、既定で Windows の物理メモリの半分。`chain-image` は op-reth を Rust でフルビルドする。メモリが足りないとビルドが止まる。`%UserProfile%\.wslconfig` の `[wsl2]` に `memory=` と `swap=` を書き、`wsl --shutdown` で反映する。
+- WSL2 が使えるメモリは、既定で Windows の物理メモリの半分。`chain-image` は op-reth を Rust でフルビルドする。メモリが足りないとビルドが止まる。`%UserProfile%\.wslconfig` の `[wsl2]` に `memory=` と `swap=` を書き、PowerShell で `wsl --shutdown` を実行して反映する。WSL からは次のように書ける。値は例で、物理メモリに合わせて決める。`.wslconfig` がすでにあり `[wsl2]` を含む場合は、追記せずに既存の節を直す。
+
+  ```sh
+  WIN_HOME=$(wslpath "$(cmd.exe /c 'echo %UserProfile%' 2>/dev/null | tr -d '\r')")
+  cat <<'EOF' >> "$WIN_HOME/.wslconfig"
+  [wsl2]
+  memory=16GB
+  swap=16GB
+  EOF
+  ```
+
 - `http://localhost:3000` は Windows のブラウザから開ける。WSL の localhost 転送が既定で有効なため。
 - LAN 公開（7.1）の追加ファイルには、Windows の LAN アドレスを指定する。Windows ファイアウォールで受信ポートを開ける。
 - LAN 公開する場合は、`.wslconfig` の `[wsl2]` に `networkingMode=mirrored` も書く。NAT モードでは WSL から Windows の LAN アドレスで待ち受けられない。
@@ -36,14 +46,16 @@ Windows では WSL2 の Linux 上で動かす。タスクと運用スクリプ�
 
 WSL 内の Ubuntu に Docker Engine を入れる。Ubuntu のターミナルで実行する。
 
-1. systemd を有効にする。`/etc/wsl.conf` に次を書く。
+1. systemd を有効にする。`ps -p 1 -o comm=` が `systemd` を返せば有効になっているので、この手順は飛ばす。返さなければ `/etc/wsl.conf` に追記する。
 
-   ```ini
+   ```sh
+   cat <<'EOF' | sudo tee -a /etc/wsl.conf
    [boot]
    systemd=true
+   EOF
    ```
 
-   PowerShell で `wsl --shutdown` を実行し、Ubuntu を開き直す。`ps -p 1 -o comm=` が `systemd` を返せば有効。
+   PowerShell で `wsl --shutdown` を実行し、Ubuntu を開き直す。もう一度 `ps -p 1 -o comm=` で確かめる。
 
 2. Ubuntu 標準の Docker 関連パッケージを消す。Docker 公式のパッケージとぶつかる。入っていないものはエラーになるが、続けてよい。
 
